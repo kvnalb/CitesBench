@@ -165,6 +165,23 @@ def load_run_index(run_dir: Path) -> dict[tuple[str, str], dict]:
     return index
 
 
+def read_editor_model_id(editorial_dir: Path) -> str | None:
+    """Pull the editorial pass's editor model_id from the run manifest, if present."""
+    manifest_path = editorial_dir / "run_manifest.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    editorial_meta = manifest.get("editorial_dedup") or {}
+    if not editorial_meta.get("enabled"):
+        return None
+    model_id = editorial_meta.get("model_id")
+    return str(model_id) if model_id else None
+
+
 def extract_texts(baseline_row: dict, editorial_row: dict) -> tuple[str | None, str | None, dict]:
     """Return (raw_concat, editorial_summary, debug_info). Either may be None if missing."""
     committee_b = (baseline_row.get("committee") or {})
@@ -363,6 +380,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-retries", type=int, default=3)
     parser.add_argument("--dry-run", action="store_true",
                         help="Skip API calls; write prompts and proxies only.")
+    parser.add_argument("--allow-same-editor-judge", action="store_true",
+                        help="Bypass the safety guard that refuses to use the editor as the judge. Off by default; using the same model is circular.")
     return parser.parse_args()
 
 
@@ -378,6 +397,15 @@ def main() -> None:
         raise SystemExit("No (model_id, paper_id) keys overlap between baseline and editorial runs.")
 
     judge_model = resolve_model(args.judge_model)
+
+    editor_model_id = read_editor_model_id(args.editorial_dir.resolve())
+    if editor_model_id and editor_model_id == judge_model.model_id and not args.allow_same_editor_judge:
+        raise SystemExit(
+            f"Refusing to run: judge model ({judge_model.model_id}) matches the editor model "
+            f"recorded in {args.editorial_dir / 'run_manifest.json'}. Pick a different "
+            f"--judge-model or pass --allow-same-editor-judge to override."
+        )
+
     api_key = ""
     if not args.dry_run:
         api_key = os.environ.get("TOGETHER_API_KEY", "").strip()
