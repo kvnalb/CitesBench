@@ -6,10 +6,14 @@ Aggregate persona-specific review outputs into committee-style outputs.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 from pathlib import Path
+from typing import Any
 
 from _abstract_review_common import (
     DEFAULT_HUMAN_REVIEW_DIR,
+    MODEL_ALIASES,
     ModelSpec,
     build_comparison,
     leaderboard_markdown,
@@ -18,10 +22,163 @@ from _abstract_review_common import (
     read_jsonl,
     slugify,
     summarise_model,
+    together_request,
     write_json,
     write_jsonl,
 )
 from _review_prompt_library import DEFAULT_PERSONA_ENSEMBLE
+
+
+EDITORIAL_SYSTEM_PROMPT = (
+    "You are the senior editor consolidating a committee of persona reviewers into a "
+    "single coherent committee statement on one paper.\n"
+    "Each persona has produced a short rationale. Your job is to:\n"
+    "  1. Group near-duplicate critiques across personas into single themes.\n"
+    "  2. Flag contradictions where personas disagree on the same point.\n"
+    "  3. Produce a tight consolidated rationale that drops redundancy and contradictions.\n"
+    "Do not invent new critiques. Do not soften strong critiques to reach consensus.\n"
+    "Prefer the most critical persona's framing when they disagree on severity.\n\n"
+    "Return ONLY valid JSON with exactly these keys:\n"
+    "{\n"
+    '  "summary": "concise consolidated rationale, <= 800 chars",\n'
+    '  "themes": [\n'
+    '    {"title": "short label", "personas": ["slug", ...], "consolidated": "merged claim"}\n'
+    "  ],\n"
+    '  "contradictions": [\n'
+    '    {"description": "what they disagree on", "personas_a": ["slug"], "personas_b": ["slug"]}\n'
+    "  ]\n"
+    "}\n"
+    "Use [] for themes or contradictions if none apply."
+)
+
+
+def build_editorial_user_message(member_rows: list[dict]) -> str:
+    blocks = []
+    for row in member_rows:
+        prompt_info = row.get("prompt", {}) or {}
+        llm_review = row.get("llm_review", {}) or {}
+        slug = str(prompt_info.get("persona_slug", "generic"))
+        label = str(prompt_info.get("persona_label", slug))
+        rationale = str(llm_review.get("rationale", "")).strip()
+        if not rationale:
+            continue
+        blocks.append(f"Persona slug: {slug}\nPersona label: {label}\nRationale:\n{rationale}")
+    joined = "\n\n---\n\n".join(blocks) if blocks else "(no persona rationales available)"
+    return (
+        "Persona rationales for one paper are below. Consolidate them per the system "
+        "instructions and return JSON only.\n\n"
+        f"{joined}"
+    )
+
+
+def parse_editorial_response(raw_text: str) -> dict[str, Any]:
+    text = (raw_text or "").strip()
+    parsed: dict[str, Any] | None = None
+    try:
+        candidate = json.loads(text)
+        if isinstance(candidate, dict):
+            parsed = candidate
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                candidate = json.loads(text[start : end + 1])
+                if isinstance(candidate, dict):
+                    parsed = candidate
+            except json.JSONDecodeError:
+                parsed = None
+
+    if parsed is None:
+        return {
+            "summary": "",
+            "themes": [],
+            "contradictions": [],
+            "parsed_ok": False,
+        }
+
+    summary = str(parsed.get("summary", "")).strip()
+    themes_raw = parsed.get("themes") or []
+    contradictions_raw = parsed.get("contradictions") or []
+
+    themes = []
+    if isinstance(themes_raw, list):
+        for item in themes_raw:
+            if not isinstance(item, dict):
+                continue
+            personas = item.get("personas") or []
+            if not isinstance(personas, list):
+                personas = [str(personas)]
+            themes.append(
+                {
+                    "title": str(item.get("title", "")).strip(),
+                    "personas": [str(p).strip() for p in personas if str(p).strip()],
+                    "consolidated": str(item.get("consolidated", "")).strip(),
+                }
+            )
+
+    contradictions = []
+    if isinstance(contradictions_raw, list):
+        for item in contradictions_raw:
+            if not isinstance(item, dict):
+                continue
+            personas_a = item.get("personas_a") or []
+            personas_b = item.get("personas_b") or []
+            if not isinstance(personas_a, list):
+                personas_a = [str(personas_a)]
+            if not isinstance(personas_b, list):
+                personas_b = [str(personas_b)]
+            contradictions.append(
+                {
+                    "description": str(item.get("description", "")).strip(),
+                    "personas_a": [str(p).strip() for p in personas_a if str(p).strip()],
+                    "personas_b": [str(p).strip() for p in personas_b if str(p).strip()],
+                }
+            )
+
+    return {
+        "summary": summary,
+        "themes": themes,
+        "contradictions": contradictions,
+        "parsed_ok": bool(summary or themes or contradictions),
+    }
+
+
+def run_editorial_pass(
+    member_rows: list[dict],
+    model: ModelSpec,
+    api_key: str,
+    temperature: float,
+    max_tokens: int,
+    timeout_seconds: float,
+    max_retries: int,
+) -> dict[str, Any]:
+    user_message = build_editorial_user_message(member_rows)
+    api_result = together_request(
+        model=model,
+        paper={},
+        api_key=api_key,
+        temperature=temperature,
+        top_p=1.0,
+        max_tokens=max_tokens,
+        timeout_seconds=timeout_seconds,
+        max_retries=max_retries,
+        system_message=EDITORIAL_SYSTEM_PROMPT,
+        user_message=user_message,
+    )
+    parsed = parse_editorial_response(api_result.get("raw_response", ""))
+    return {
+        "model_id": model.model_id,
+        "model_label": model.label,
+        "summary": parsed["summary"],
+        "themes": parsed["themes"],
+        "contradictions": parsed["contradictions"],
+        "parsed_ok": parsed["parsed_ok"],
+        "usage": api_result.get("usage", {}),
+        "elapsed_seconds": api_result.get("elapsed_seconds"),
+        "http_error": api_result.get("http_error"),
+        "raw_response": api_result.get("raw_response"),
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -51,7 +208,28 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Drop papers without local human review during comparison.",
     )
+    parser.add_argument(
+        "--editorial-dedup",
+        action="store_true",
+        help="Run an LLM editorial pass that dedupes themes and flags contradictions across personas.",
+    )
+    parser.add_argument(
+        "--editorial-model",
+        default="gpt-oss-120b",
+        help=f"Together alias or model ID for the editorial pass. Aliases: {', '.join(sorted(MODEL_ALIASES))}",
+    )
+    parser.add_argument("--editorial-temperature", type=float, default=0.0)
+    parser.add_argument("--editorial-max-tokens", type=int, default=2000)
+    parser.add_argument("--editorial-timeout-seconds", type=float, default=120.0)
+    parser.add_argument("--editorial-max-retries", type=int, default=3)
     return parser.parse_args()
+
+
+def resolve_editorial_model(model_arg: str) -> ModelSpec:
+    alias = MODEL_ALIASES.get(model_arg.lower())
+    if alias is not None:
+        return ModelSpec(alias[0], alias[1])
+    return ModelSpec(model_arg, model_arg)
 
 
 def parse_personas(personas_arg: str) -> list[str]:
@@ -145,6 +323,7 @@ def build_committee_row(
     paper_id: str,
     member_rows: list[dict],
     weights: dict[str, float],
+    editorial_config: dict | None = None,
 ) -> dict:
     base_row = dict(member_rows[0])
     scores = aggregate_scores(member_rows, weights)
@@ -167,6 +346,31 @@ def build_committee_row(
         )
 
     variant_slug = f"{slugify(model_id)}__committee_equal"
+    raw_concatenated = aggregate_rationale(member_rows)
+
+    editorial_result: dict | None = None
+    if editorial_config is not None:
+        editorial_result = run_editorial_pass(
+            member_rows=member_rows,
+            model=editorial_config["model"],
+            api_key=editorial_config["api_key"],
+            temperature=editorial_config["temperature"],
+            max_tokens=editorial_config["max_tokens"],
+            timeout_seconds=editorial_config["timeout_seconds"],
+            max_retries=editorial_config["max_retries"],
+        )
+        if editorial_result.get("elapsed_seconds"):
+            total_elapsed += float(editorial_result["elapsed_seconds"])
+        editorial_usage = editorial_result.get("usage", {}) or {}
+        usage["prompt_tokens"] += int(editorial_usage.get("prompt_tokens") or 0)
+        usage["completion_tokens"] += int(editorial_usage.get("completion_tokens") or 0)
+
+    final_rationale = raw_concatenated
+    parser_label = "committee_weighted_average"
+    if editorial_result and editorial_result["parsed_ok"] and editorial_result["summary"]:
+        final_rationale = editorial_result["summary"][:4000]
+        parser_label = "committee_weighted_average__editorial_dedup"
+
     base_row["prompt"] = {
         "name": "persona_committee_equal_v1",
         "source": "code/08_aggregate_persona_reviews.py",
@@ -174,6 +378,7 @@ def build_committee_row(
         "persona_label": "Committee Equal Weight",
         "member_personas": [row["persona_slug"] for row in member_summaries],
         "member_weights": weights,
+        "editorial_dedup": editorial_result is not None,
     }
     base_row["run_variant"] = {
         "id": f"{model_id}::committee_equal",
@@ -182,14 +387,14 @@ def build_committee_row(
     }
     base_row["llm_review"] = {
         "scores": scores,
-        "rationale": aggregate_rationale(member_rows),
+        "rationale": final_rationale,
         "parsed_ok": all(bool(row.get("llm_review", {}).get("parsed_ok")) for row in member_rows),
-        "parser": "committee_weighted_average",
+        "parser": parser_label,
         "cleaned_content": None,
         "model_decision_bucket": "Accept" if (scores.get("rating") or 0.0) >= 6.0 else "Reject" if scores.get("rating") is not None else None,
         "raw_response": None,
         "usage": usage,
-        "http_error": None,
+        "http_error": editorial_result.get("http_error") if editorial_result else None,
         "elapsed_seconds": round(total_elapsed, 3),
         "received_at_utc": now_utc(),
     }
@@ -198,6 +403,8 @@ def build_committee_row(
         "aggregation": "weighted_average",
         "weights": weights,
         "members": member_summaries,
+        "raw_concatenated_rationale": raw_concatenated,
+        "editorial": editorial_result,
     }
     return base_row
 
@@ -254,6 +461,21 @@ def main() -> None:
     grouped = load_response_groups(response_dir)
     human_reviews = load_human_reviews(args.human_review_dir)
 
+    editorial_config: dict | None = None
+    if args.editorial_dedup:
+        api_key = os.environ.get("TOGETHER_API_KEY", "").strip()
+        if not api_key:
+            raise ValueError("TOGETHER_API_KEY is required when --editorial-dedup is set.")
+        editorial_model = resolve_editorial_model(args.editorial_model)
+        editorial_config = {
+            "model": editorial_model,
+            "api_key": api_key,
+            "temperature": args.editorial_temperature,
+            "max_tokens": args.editorial_max_tokens,
+            "timeout_seconds": args.editorial_timeout_seconds,
+            "max_retries": args.editorial_max_retries,
+        }
+
     manifest = {
         "run_created_at_utc": now_utc(),
         "run_type": "persona_committee_aggregate",
@@ -263,6 +485,13 @@ def main() -> None:
         "personas": personas,
         "weights": weights,
         "aggregation": "weighted_average",
+        "editorial_dedup": {
+            "enabled": editorial_config is not None,
+            "model_id": editorial_config["model"].model_id if editorial_config else None,
+            "model_label": editorial_config["model"].label if editorial_config else None,
+            "temperature": args.editorial_temperature if editorial_config else None,
+            "max_tokens": args.editorial_max_tokens if editorial_config else None,
+        },
     }
     write_json(output_dir / "run_manifest.json", manifest)
 
@@ -286,6 +515,7 @@ def main() -> None:
                 paper_id=paper_id,
                 member_rows=[per_persona_by_paper[persona][paper_id] for persona in personas],
                 weights=weights,
+                editorial_config=editorial_config,
             )
             for paper_id in common_paper_ids
         ]
