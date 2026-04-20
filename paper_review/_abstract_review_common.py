@@ -9,6 +9,7 @@ import hashlib
 import json
 import math
 import re
+import socket
 import statistics
 import time
 from dataclasses import dataclass
@@ -487,15 +488,17 @@ def together_request(
                 body = response.read().decode("utf-8")
             elapsed = time.time() - started
             payload = json.loads(body)
-            content = payload["choices"][0]["message"]["content"]
+            choice = payload["choices"][0]
+            content = choice["message"].get("content") or ""
             usage = payload.get("usage", {})
             return {
                 "raw_response": content,
                 "usage": usage,
+                "finish_reason": choice.get("finish_reason"),
                 "elapsed_seconds": round(elapsed, 3),
                 "http_error": None,
             }
-        except (error.HTTPError, error.URLError, json.JSONDecodeError, KeyError) as exc:
+        except (error.HTTPError, error.URLError, json.JSONDecodeError, KeyError, socket.timeout, TimeoutError) as exc:
             last_error = str(exc)
             if attempt < max_retries - 1:
                 time.sleep(2 ** attempt)
@@ -503,6 +506,7 @@ def together_request(
             return {
                 "raw_response": f"[API error] {last_error}",
                 "usage": {},
+                "finish_reason": None,
                 "elapsed_seconds": round(time.time() - started, 3),
                 "http_error": last_error,
             }
@@ -510,6 +514,7 @@ def together_request(
     return {
         "raw_response": f"[API error] {last_error or 'unknown error'}",
         "usage": {},
+        "finish_reason": None,
         "elapsed_seconds": None,
         "http_error": last_error or "unknown error",
     }

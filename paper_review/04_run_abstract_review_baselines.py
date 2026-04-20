@@ -11,9 +11,11 @@ code/05_compare_abstract_review_outputs.py.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import statistics
 import time
+from dataclasses import replace
 from pathlib import Path
 
 from _abstract_review_common import (
@@ -37,10 +39,22 @@ from _abstract_review_common import (
 from _paper_content import get_fulltext_path, infer_fulltext_dir, resolve_paper_content
 from _review_prompt_library import (
     DEFAULT_PROMPT_ROOT,
+    ReviewPromptBundle,
     build_review_prompt_bundle,
     render_review_user_prompt,
     resolve_personas,
 )
+
+
+CALIBRATION_SUFFIXES = {
+    "none": "",
+    "neg-mild": (
+        "\n\nIMPORTANT CALIBRATION NOTE:\n"
+        "When you are uncertain about a paper's quality, lean toward rejection and lower scores.\n"
+        "Most submissions to top venues are rejected. A skeptical default is more accurate than a generous one.\n"
+        "Only give scores of 6+ when you can clearly identify strong, specific evidence of merit.\n"
+    ),
+}
 
 
 def log(message: str) -> None:
@@ -116,6 +130,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--max-tokens", type=int, default=800)
+    parser.add_argument(
+        "--bias-mode",
+        choices=sorted(CALIBRATION_SUFFIXES),
+        default="none",
+        help="Optional prompt calibration suffix to append to the system prompt.",
+    )
     parser.add_argument("--sleep-seconds", type=float, default=0.0)
     parser.add_argument("--timeout-seconds", type=float, default=90.0)
     parser.add_argument("--max-retries", type=int, default=3)
@@ -213,6 +233,37 @@ def build_variant_identity(model_id: str, model_label: str, persona_slug: str, p
     }
 
 
+def apply_calibration_bias(bundle: ReviewPromptBundle, bias_mode: str) -> ReviewPromptBundle:
+    suffix = CALIBRATION_SUFFIXES[bias_mode]
+    if not suffix:
+        return bundle
+    system_prompt = bundle.system_prompt.rstrip() + suffix
+    return replace(
+        bundle,
+        prompt_name=f"{bundle.prompt_name}__{bias_mode}",
+        prompt_source=f"{bundle.prompt_source} + calibration:{bias_mode}",
+        system_prompt=system_prompt,
+        system_prompt_sha256=hashlib.sha256(system_prompt.encode("utf-8")).hexdigest(),
+    )
+
+
+def build_variant_identity_with_bias(
+    model_id: str,
+    model_label: str,
+    persona_slug: str,
+    persona_label: str,
+    bias_mode: str,
+) -> dict[str, str]:
+    variant = build_variant_identity(model_id, model_label, persona_slug, persona_label)
+    if bias_mode == "none":
+        return variant
+    return {
+        "id": f"{variant['id']}::{bias_mode}",
+        "label": f"{variant['label']} / {bias_mode}",
+        "slug": f"{variant['slug']}__{slugify(bias_mode)}",
+    }
+
+
 def build_selected_paper_rows(papers: list[dict], fulltext_dir: Path | None) -> list[dict]:
     rows = []
     for paper in papers:
@@ -297,7 +348,10 @@ def main() -> None:
     prompt_snapshots_dir = output_dir / "prompts"
 
     prompt_bundles = {
-        persona.slug: build_review_prompt_bundle(args.content_mode, persona.slug, PRIMARY_AREA, prompt_root=prompt_root)
+        persona.slug: apply_calibration_bias(
+            build_review_prompt_bundle(args.content_mode, persona.slug, PRIMARY_AREA, prompt_root=prompt_root),
+            args.bias_mode,
+        )
         for persona in personas
     }
 
@@ -318,6 +372,7 @@ def main() -> None:
                 "persona_label": persona.label,
                 "persona_description": persona.description,
                 "persona_path": str(persona.path),
+                "bias_mode": args.bias_mode,
                 "prompt_name": bundle.prompt_name,
                 "prompt_source": bundle.prompt_source,
                 "system_template_path": str(bundle.system_template_path),
@@ -366,6 +421,7 @@ def main() -> None:
             "temperature": args.temperature,
             "top_p": args.top_p,
             "max_tokens": args.max_tokens,
+            "bias_mode": args.bias_mode,
             "sleep_seconds": args.sleep_seconds,
             "max_retries": args.max_retries,
             "timeout_seconds": args.timeout_seconds,
@@ -414,7 +470,13 @@ def main() -> None:
     for model in models:
         for persona in personas:
             bundle = prompt_bundles[persona.slug]
-            variant = build_variant_identity(model.model_id, model.label, persona.slug, persona.label)
+            variant = build_variant_identity_with_bias(
+                model.model_id,
+                model.label,
+                persona.slug,
+                persona.label,
+                args.bias_mode,
+            )
             output_file = responses_dir / f"{variant['slug']}.jsonl"
             existing_ids = set()
             if output_file.exists():
@@ -502,6 +564,7 @@ def main() -> None:
                         "id": variant["id"],
                         "label": variant["label"],
                         "slug": variant["slug"],
+                        "bias_mode": args.bias_mode,
                     },
                     "model": {
                         "id": model.model_id,
@@ -524,6 +587,7 @@ def main() -> None:
                         "model_decision_bucket": model_decision_from_rating(parsed["scores"].get("rating")),
                         "raw_response": api_result["raw_response"],
                         "usage": api_result["usage"],
+                        "finish_reason": api_result["finish_reason"],
                         "http_error": api_result["http_error"],
                         "elapsed_seconds": api_result["elapsed_seconds"],
                         "received_at_utc": now_utc(),
@@ -544,10 +608,12 @@ def main() -> None:
                 req_seconds = api_result["elapsed_seconds"]
                 req_display = f"{req_seconds:.1f}s" if req_seconds is not None else "n/a"
                 avg_display = f"{avg_request:.1f}s" if avg_request is not None else "n/a"
+                finish_reason = api_result["finish_reason"] or "n/a"
                 log(
                     f"[{done}/{total} {100 * done / total:5.1f}%] "
                     f"{variant['slug']} {paper['paper_id']} {parse_status} "
                     f"source={content_meta['used_source']} "
+                    f"finish={finish_reason} "
                     f"req={req_display} avg={avg_display} "
                     f"eta={format_seconds(eta_seconds)} "
                     f"model_elapsed={format_seconds(model_elapsed)} "

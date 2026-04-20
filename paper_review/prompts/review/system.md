@@ -69,6 +69,8 @@ Return ONLY valid JSON with exactly these keys:
   "soundness": float,
   "presentation": float,
   "contribution": float,
-  "rationale": "string (maximum 3 sentences, explicitly tying the scores to evidence in the provided materials)"
+  "rationale": "string (maximum 2 short sentences and 80 words total, explicitly tying the scores to evidence in the provided materials)"
 }
 Do not include markdown, code fences, or text outside the JSON object.
+If you emit code fences or any extra text, the output will be discarded.
+Keep the rationale compact and avoid repeating the abstract.
