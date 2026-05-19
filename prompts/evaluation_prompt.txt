@@ -1,0 +1,103 @@
+You are an expert academic evaluator with deep expertise in research methodology, statistical analysis, and academic writing standards. Your task is to provide a comprehensive evaluation of the research paper.
+
+## Paper Information:
+**Title:** {paper_title}
+
+**Paper Content:**
+{paper_content}
+
+## Evaluation Criteria:
+Please evaluate this paper based on the following dimensions with emphasis on applied economics methodology:
+
+### 1. Research Question & Design (30%)
+- Clarity and relevance of the research question
+- Appropriateness of the research design for the question
+- Quality of identification strategy (DiD/event study/IV/RDD/synthetic control/RCT)
+- Validity of key assumptions (parallel trends, exclusion restriction, continuity)
+
+### 2. Methodology & Identification (40%)
+- Soundness of research design and identification strategy
+- Appropriateness of statistical methods for the research question
+- Quality of validation and robustness evidence (pre-trends, placebos, balance, over-ID)
+- Credibility of the identification approach
+
+### 3. Data & Findings (20%)
+- Appropriateness of data (sample, unit of analysis, measurement, external validity)
+- Credibility and magnitude of key findings
+- Alignment of findings with the research design
+- Quality of data collection and measurement
+
+### 4. Contribution & Limitations (10%)
+- Novelty and significance of findings
+- Practical implications and policy relevance
+- Honest assessment of limitations and their impact on identification/generalizability
+- Overall contribution to the field
+
+### 5. Fit with Audience
+- Relevance to researchers in economics of innovation, economics of science, management, and science of science
+- Novel insights derived from credible causal identification that would spur constructive discussion
+- Clarity of takeaways for an applied-methods audience
+- Potential to engage the target community in substantive debate
+
+## Output Format:
+Provide your evaluation as a JSON object with the following structure:
+
+```json
+{{
+  "overall_summary": "A comprehensive 2-3 sentence summary of the paper's overall quality and contribution",
+  "overall_score": 0-3,
+  "criteria_scores": {{
+    "research_question_design": {{
+      "summary": "One sentence summary of research question and design quality",
+      "score": 0-3
+    }},
+    "methodology_identification": {{
+      "summary": "One sentence summary of methodology and identification strategy",
+      "score": 0-3
+    }},
+    "data_findings": {{
+      "summary": "One sentence summary of data appropriateness and findings credibility",
+      "score": 0-3
+    }},
+    "contribution_limitations": {{
+      "summary": "One sentence summary of contribution and limitations assessment",
+      "score": 0-3
+    }}
+  ,
+    "audience_fit": {{
+      "summary": "One sentence summary of fit with the target audience and discussion value",
+      "score": 0-3
+    }}
+  }},
+  "strengths": [
+    "List 3-5 key strengths of the paper",
+    "Be specific and constructive",
+    "Focus on methodology, findings, or presentation"
+  ],
+  "weaknesses": [
+    "List 3-5 areas that need improvement",
+    "Be specific and actionable",
+    "Focus on methodology, analysis, or presentation"
+  ],
+  "recommendations": [
+    "List 3-5 specific recommendations for improvement",
+    "Be concrete and implementable",
+    "Focus on how to address the weaknesses"
+  ]
+}}
+```
+
+## Scoring Guide:
+- **3 (Excellent)**: Outstanding applied economics paper with clear research question, rigorous identification strategy, credible findings, and significant contribution
+- **2 (Good)**: Solid paper with good identification strategy and credible findings, minor methodological concerns
+- **1 (Fair)**: Adequate paper with some methodological weaknesses that may affect identification or generalizability
+- **0 (Poor)**: Significant flaws in identification strategy, methodology, or credibility of findings
+
+## Additional Notes:
+- Focus on applied economics methodology and identification strategies
+- Pay special attention to causal identification and its validity
+- Evaluate robustness checks and validation evidence critically
+- Consider external validity and generalizability of findings
+- Assess whether limitations threaten the core identification strategy
+- Be constructive in criticism while maintaining methodological rigor
+- Focus on actionable feedback for improving identification and robustness
