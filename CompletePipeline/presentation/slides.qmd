@@ -1,0 +1,361 @@
+---
+title: "RDD on ICLR 2018–2020 with a Slim Coarse LLM Review Pipeline"
+subtitle: "Fuzzy-RDD citation jump + LLM committee + decision head"
+date: "2026-04-22"
+format:
+  revealjs:
+    theme: [default, theme.scss]
+    slide-number: c/t
+    width: 1440
+    height: 900
+    embed-resources: true
+    smaller: false
+    transition: fade
+    transition-speed: fast
+    fig-align: center
+    fig-cap-location: bottom
+    code-line-numbers: false
+    code-overflow: scroll
+    incremental: false
+    toc: false
+    footer: "LLMReview · RDD_Coarse"
+    menu: false
+    chalkboard: false
+  beamer:
+    keep-tex: true
+    pdf-engine: xelatex
+    aspectratio: 169
+    fig-align: center
+    fig-cap-location: bottom
+    code-line-numbers: false
+    incremental: false
+    toc: false
+    slide-level: 2
+    theme: default
+    colortheme: seahorse
+    fonttheme: professionalfonts
+    header-includes: |
+      \usepackage{fontspec}
+      \setmainfont{Helvetica Neue}
+      \setsansfont{Helvetica Neue}
+      \setmonofont{Menlo}[Scale=0.85]
+      \usepackage{fvextra}
+      \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,breakanywhere,commandchars=\\\{\}}
+      \setbeamersize{text margin left=6mm, text margin right=6mm}
+      \setbeamertemplate{navigation symbols}{}
+      \setbeamertemplate{itemize subitem}{\color{gray!70}\textendash}
+      \setbeamertemplate{itemize subsubitem}{\color{gray!70}\scriptsize\raise0.15ex\hbox{$\bullet$}}
+      \renewcommand{\footnotesize}{\scriptsize}
+execute:
+  echo: false
+  warning: false
+---
+
+##
+
+![ICLR 2018–2020, pooled. Mean reviewer rating spans almost the full 1–10 scale — decisions will ride on this distribution.](../../../OutputNew/Report/RDD_Coarse/plots/mean_score_histogram.png)
+
+##
+
+![Same distribution, colored by final decision. The cutoff is visible — but soft.](../../../OutputNew/Report/RDD_Coarse/plots/mean_score_histogram_by_decision.png)
+
+##
+
+![Acceptance probability along the rating axis, by year. **n = 512 (2018) · 896 (2019) · 983 (2020)** within the year-specific bandwidth. Steep, not vertical → **fuzzy RDD**.](../../../OutputNew/Report/RDD_Coarse/plots/acceptance_vs_score_by_year.png){width=88%}
+
+## Sample
+
+![](../../../OutputNew/Report/RDD_Coarse/plots/sample_funnel.png){width=78%}
+
+## Pipeline
+
+![Two LLM stages, nine calls per paper. Committee on Gemma-4-31B; decision head on DeepSeek V3.1 (Gemma-2-9B as calibration variant).](../../../OutputNew/Report/RDD_Coarse/plots/pipeline_overview.png){width=98%}
+
+## Stage 1a · Focus Notes {.scrollable .allowframebreaks}
+
+![](../../../OutputNew/Report/RDD_Coarse/plots/pipeline_focus.png){width=65%}
+
+Three section-scoped calls (intro · method · contribution) emit short, structured notes that seed every persona review.
+
+``` markdown
+You are an ICLR reviewer writing notes on the introduction and positioning of a paper.
+
+Focus on:
+- problem framing
+- why the question matters
+- whether the contribution is clearly stated
+- whether the scope and claims are calibrated
+- whether the positioning feels conference-ready
+
+Write like a human conference reviewer, not a line-by-line auditor.
+Prefer paper-specific points over generic requests. It is fine to acknowledge strengths.
+Do not ask for extra citations unless the omission materially changes the novelty claim.
+Do not produce quote-by-quote comments.
+
+Return:
+- up to 2 strengths
+- up to 4 weaknesses
+- up to 3 concrete questions for the authors
+```
+
+## Stage 1b · Persona Reviews — system prompt {.scrollable .allowframebreaks}
+
+![](../../../OutputNew/Report/RDD_Coarse/plots/pipeline_persona.png){width=65%}
+
+``` markdown
+You are writing a single human-style ICLR review from structured reviewer notes.
+
+Write like an experienced but concise conference reviewer:
+- balanced, not performatively harsh
+- specific, not generic
+- willing to credit strengths
+- willing to say when evidence is not yet convincing
+
+Use the native ICLR-style score buckets:
+- rating: 1 to 10
+- confidence: 1 to 5
+- soundness: 1 to 4
+- presentation: 1 to 4
+- contribution: 1 to 4
+
+Calibrate conservatively:
+- interesting ideas with incomplete evidence are often 5 or 6
+- reserve 8+ for unusually compelling papers
+- if evidence is mixed, the weakness text should say why
+
+Return a review that sounds like one reviewer report, not a meta-analysis.
+Do not mention hidden pipeline stages or say that some paper sections were omitted.
+```
+
+## Stage 1b · Persona Reviews — Empiricist lens {.scrollable .allowframebreaks}
+
+![](../../../OutputNew/Report/RDD_Coarse/plots/pipeline_persona.png){width=65%}
+
+Four lenses run in parallel: **Empiricist · Theorist · Systems Pragmatist · Novelty Gatekeeper**.
+
+``` markdown
+You are acting as the Empiricist reviewer lens.
+
+Prioritize experimental rigor and empirical support.
+
+Main questions:
+- Are the comparisons convincing and appropriately scoped?
+- Are key baselines, ablations, and robustness checks present or obviously missing?
+- Do the reported gains appear meaningful rather than selective or under-validated?
+
+Calibration guidance:
+- Penalize strong claims that are not matched by convincing empirical evidence.
+- Do not reward novelty, scale, or framing by themselves if the evidence is thin.
+- Let soundness and rating reflect the quality of the evaluation more than the
+  ambition of the idea.
+```
+
+## Stage 1c · Committee Synthesis — prompt {.scrollable .allowframebreaks}
+
+![](../../../OutputNew/Report/RDD_Coarse/plots/pipeline_committee.png){width=65%}
+
+One LLM call merges persona text. **Numeric scores come from a weighted mean**, not from this call.
+
+``` markdown
+You are the senior area chair consolidating a committee of persona reviewers into
+a single coherent ICLR-style review.
+
+Your job is to:
+- merge overlapping strengths into a concise strengths section
+- merge overlapping weaknesses into a concise weaknesses section
+- preserve important disagreements when they matter for the final judgment
+- avoid inventing new critiques that no persona raised
+- keep the tone like a human conference review, not a meta-analysis memo
+
+When personas disagree on severity, do not force false consensus. It is acceptable
+to note that evidence seems mixed or that one risk drives the decision.
+
+Return only the text sections of the final committee review. Numeric scores are
+handled separately and are not part of your task.
+```
+
+## Stage 1c · Committee output — real example {.scrollable .allowframebreaks}
+
+![](../../../OutputNew/Report/RDD_Coarse/plots/pipeline_committee.png){width=65%}
+
+ICLR 2018 · `B18WgG-CZ` — true decision **accept**.
+
+``` json
+{
+  "llm_calls": 8,
+  "rating": 6.0, "confidence": 4.0,
+  "soundness": 2.75, "presentation": 3.0, "contribution": 2.25,
+  "recommendation": "borderline accept",
+  "summary": "A framework for learning general-purpose sentence representations by
+   jointly training a sequence-to-sequence encoder on multiple diverse objectives,
+   including neural machine translation, natural language inference, and syntactic
+   parsing, to capture a broad range of linguistic inductive biases.",
+  "weaknesses": "The most significant concern is the lack of a baseline that
+   controls for data scale; it is unclear whether the performance gains stem from
+   the synergy of multi-task learning or simply from the massive volume of
+   training data compared to existing baselines. Additionally, the paper provides
+   insufficient detail on the optimization process, specifically regarding how
+   loss functions were weighted or balanced to prevent high-resource tasks from
+   dominating the gradients. The architectural novelty is largely incremental.",
+  "questions": "How were the loss weights for the various tasks determined, and
+   was any specific scheduling used to balance gradients across tasks of
+   different scales? To isolate the effect of task diversity, did the authors
+   compare the MTL model against a single-task model trained on a similar total
+   volume of data?",
+  "committee": {
+    "mode": "persona_committee",
+    "personas": ["empiricist", "theorist",
+                 "systems_pragmatist", "novelty_gatekeeper"]
+  },
+  "committee_model": "google/gemma-4-31B-it"
+}
+```
+
+## Stage 2 · Decision Head — prompt {.scrollable .allowframebreaks}
+
+![](../../../OutputNew/Report/RDD_Coarse/plots/pipeline_decision.png){width=65%}
+
+One call receives a compact decision packet (abstract · excerpt · inventory · committee review · persona table · disagreement signals) and returns a **forced binary**.
+
+``` markdown
+You are an ICLR decision head making a forced binary accept/reject decision.
+
+You will receive a compact evidence packet containing:
+- the paper abstract
+- a core full-text excerpt
+- a deterministic structural inventory
+- a committee review and persona score table
+
+Instructions:
+- Output a forced binary decision: accept or reject.
+- Use the committee as evidence, not as authority.
+- Do not simply mirror the committee recommendation or mean score.
+- Prefer concrete evidence and calibrated skepticism over generic praise.
+- Do not output "borderline" or hedge the final decision.
+- Keep the reasons short and evidence-based.
+
+Return only one valid JSON object with this schema:
+{
+  "decision": "accept" | "reject",
+  "p_accept": 0.0 to 1.0,
+  "margin": -1.0 to 1.0,
+  "top_accept_reasons": ["...", "..."],
+  "top_reject_reasons": ["...", "..."],
+  "evidence_used": ["...", "..."]
+}
+```
+
+## Stage 2 · Decision Head — real output {.scrollable .allowframebreaks}
+
+![](../../../OutputNew/Report/RDD_Coarse/plots/pipeline_decision.png){width=65%}
+
+Committee: *borderline accept* · head overruled to **reject**. True: **accept** → a false-negative. The head is not a rubber stamp on the committee.
+
+``` json
+{
+  "decision": "reject",
+  "p_accept": 0.4,
+  "margin": -0.2,
+  "top_accept_reasons": [
+    "Demonstrates practical utility in low-resource settings",
+    "Comprehensive evaluation across 10 transfer tasks"
+  ],
+  "top_reject_reasons": [
+    "Fails to disentangle multi-task benefits from data scale effects",
+    "Insufficient optimization details on loss weighting and gradient balancing"
+  ],
+  "evidence_used": [
+    "Lack of baseline controlling for data volume",
+    "No details on loss function weighting in multi-task setup"
+  ]
+}
+```
+
+##
+
+![Confusion matrices on ICLR 2018–2020 (n = 2,361). All three models receive the same committee packet. Actual accept rate: 48.7%.](../../../OutputNew/Report/RDD_Coarse/plots/confusion_matrices.png){width=95%}
+
+::: {style="font-size: 0.55em; max-width: 78%; margin: 0.6em auto 0 auto; line-height: 1.55; color: #1a1a1a; text-align: left"}
+The two strong reviewers under-accept. The rating-threshold committee predicts accept only 24.0% of the time versus the 48.7% true rate, and DeepSeek V3.1 is even more conservative at 20.7%. Both pay for this with recall — 43.1% and 33.3% respectively — so between half and two-thirds of the true accepts become false negatives. Gemma-2-9B with the positive-bias preamble recovers the base rate at 46.1% predicted accept and achieves the best accuracy (73.6%) and F1 (72.2%) of the three models. The three heads disagree most on borderline papers, which is exactly the region the RDD bandwidth cares about.
+:::
+
+##
+
+![Committee rating vs. mean human rating, colored by actual decision. LLM compresses the tails by design — the calibration prompt bites.](../../../OutputNew/Report/RDD_Coarse/plots/committee_vs_human_scores.png){width=82%}
+
+##
+
+![Joint density · raw human rating × raw persona rating.](../../../OutputNew/Report/RDD_Coarse/plots/human_vs_llm_scatter_density.png){width=82%}
+
+##
+
+![How the similarity score is built. Each review is split into atomic topics; topics are embedded with all-MiniLM-L6-v2; a cosine matrix is formed; a topic in A counts as *matched* if any topic in B scores ≥ 0.5. Balanced overlap = mean of A→B and B→A match rates.](../../../OutputNew/Report/RDD_Coarse/plots/similarity_method.png){width=92%}
+
+##
+
+![Within-paper review-text overlap. **Cross pairs (human × LLM persona) sit inside the human × human distribution** — LLM rationales land in the human manifold, not outside it.](../../../OutputNew/Report/RDD_Coarse/plots/pairwise_review_similarity.png){width=88%}
+
+##
+
+![arXiv coverage is strongly selected on reviewer rating: over 80% of the lowest-rated papers never reach arXiv, versus under 20% at rating ≥ 7. Citations are only observable for the matched subset, which is why the RDD leans on the dense band around the cutoff.](../../../OutputNew/Design/iclr_local_rdd/fig_arxiv_missing_share_by_score_bin.png){width=72%}
+
+##
+
+![Among papers that do reach arXiv, accepted work posts tightly around the decision (median +48d); rejects drift (median +124d). Roughly a third of rejects post before the decision — enough pre-decision exposure that citation gaps can still be interpreted.](../../../OutputNew/Design/iclr_local_rdd/fig_openreview_decision_delay_by_decision_hist.png){width=92%}
+
+## Impact of being selected on citations {.scrollable .allowframebreaks}
+
+**Outcome** · `log(1 + OpenAlex citations)` — **Pooled ICLR 2018–2020**, year-specific RDD bandwidth, n = 1,512 papers with citation data.
+
+|   | Specification | $\hat{\beta}$ | SE | *p* |
+|---|---|---|---|---|
+| 1 | OLS · `lcites ~ accepted` | **+0.612** | 0.075 | < 0.001 |
+| 2 | OLS + year FE | **+0.648** | 0.074 | < 0.001 |
+| 3 | Sharp RDD · no FE | +0.096 | 0.159 | 0.55 |
+| 4 | Sharp RDD + year FE | +0.257 | 0.161 | 0.11 |
+| 5 | **Sharp RDD + year × topic FE** | **+0.269** | 0.159 | 0.09 |
+
+::: {style="font-size: 0.6em; max-width: 92%; margin: 0.6em auto 0.8em auto; line-height: 1.6; text-align: left"}
+Naïve OLS puts the acceptance premium at a log-citation gap of 0.61–0.65. Stripping selection on unobservables with the sharp RDD at the year-specific cutoff collapses the estimate to **+0.27 (se 0.16)**, marginally significant — roughly 40% of the OLS magnitude. The first stage is sharp: crossing the threshold raises `P(accepted)` by **+0.22 (se 0.04)**. The gap between the OLS and RDD estimates is the confounding this design is designed to remove.
+:::
+
+![Canonical sharp RDD, year × topic FE. (a) binscatter of P(accept); (b) binscatter of log(1 + citations). The citation jump at the cutoff is the row-5 estimate in the table above.](../../../OutputNew/Report/RDD_Coarse/plots/rdd_accept_and_cites.png){width=82%}
+
+##
+
+![Counterfactual design. Same papers, two decision rules, volume-matched within a band around the cutoff. Compared on Poisson-predicted citations.](../../../OutputNew/Report/RDD_Coarse/plots/tiebreaker_design.png){width=95%}
+
+##
+
+![Borderline band at δ = 0.5. Each point is one paper plotted at (human mean, LLM committee rating). Green = LLM *swaps into* the accepted set; red = swaps *out*. Volume-matched, so the count of accepts is unchanged.](../../../OutputNew/Playground/fuzzy_rdd_llm_tiebreaker/fig_band_scatter.png){width=92%}
+
+##
+
+![Flip counts (top) and Poisson-predicted citation gain per flipped accept (bottom) at each band width. At δ = 0.25 the LLM tiebreaker is worth **+75.7 cites per flip (+18%)**; the signal vanishes as the band widens.](../../../OutputNew/Playground/fuzzy_rdd_llm_tiebreaker/fig_flips_by_band.png){width=70%}
+
+At δ = 0.25 (n = 348, 38 flips), the LLM-picked new accepts average **242 raw citations** versus **23** for the human-picked accepts they displaced.
+
+## Interpretation + caveats {.smaller}
+
+The LLM has signal **at the margin as well** — a targeted tiebreaker, not a replacement.
+
+-   The 242 vs. 23 raw gap rides on 38 flipped papers with a heavy-tailed distribution; Poisson tempers it to +18%.
+-   Citations are a proxy for impact, not a complete objective.
+-   Volume-matching is a modelling choice — a real program could expand or contract the pool.
+-   Causal force is **acceptance → citations**; LLM-rating → citations is still correlational.
+
+## Next steps {.smaller}
+
+-   I would call this **version 1**.
+-   Personas have some overlap; should be tweaked based on the setting and the type of reviewer we are trying to emulate.
+    -   need larger models at this stage
+    -   can provide a short literature review to ground the evaluations
+    -   more work to see how close to a human review text we can get
+    -   personality / CV-based matching possibility
+-   Final head: more leeway — can fine-tune the model based on context.
+    -   smaller models are quicker and do the job — similar results with Gemma-31B on head decisions
+    -   more context could be helpful — chair-level constraints in actual decision making
+-   Experiment?
+    -   LLM design can discriminate around local decision boundaries
+    -   compositional changes — theory-heavy reviewer pools for empirical papers vs. all-empirical reviewers
+    -   **missing piece!**

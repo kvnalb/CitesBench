@@ -1,0 +1,143 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage{parskip}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  urlcolor=blue!50!black
+}
+
+\title{Citation Imputation Methods Note}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section*{Purpose}
+This note isolates the imputation problem from the policy counterfactual. The
+question here is narrower: \emph{given the papers with observed OpenAlex
+citations, which imputation model best predicts downstream citations for the
+2018--2020 RDD sample?}
+
+\section*{1. Evaluation Setup}
+The evaluation set is the common observed-paper subset where all methods are
+comparable: 1{,}511 papers from the 2018--2020 RDD bandwidth sample with
+observed citations, abstract embeddings, and full-text embeddings.
+
+Observed citations are evaluated in both log and level space. The main ranking
+metric is Spearman correlation on $\log(1+\text{citations})$; the main error
+metric is mean absolute error in the same space. This reflects the actual use
+case: we care more about preserving relative ordering than about exact
+paper-level citation counts.
+
+All neighbor-based methods are year-aware: a paper can only borrow information
+from papers in the same or earlier year.
+
+\section*{2. Methods}
+\textbf{Abstract $K=20$ kNN.}
+This is the original baseline. Each paper is represented by a single SPECTER2
+embedding of \texttt{title [SEP] abstract}. Prediction is a similarity-weighted
+average of the 20 nearest observed papers in cosine space.
+
+\textbf{Full-text $K=20$ kNN.}
+This keeps the same neighbor rule but upgrades the representation. For each
+paper we remove the \texttt{References} section, split the full submission body
+into evenly spaced chunks, embed each chunk with SPECTER2, and average the
+chunk vectors into one paper embedding.
+
+\textbf{Full-text topic-restricted $K=20$ kNN.}
+This uses the same full-text representation but restricts neighbors to the same
+coarse topic when enough same-topic neighbors exist. When the topic pool is too
+small, the method falls back to the global pool.
+
+\textbf{Full-text ridge.}
+This uses the same full-text representation as the two full-text kNN methods,
+but replaces the neighbor rule with a supervised ridge regression on the
+embedding coordinates. This is still year-aware in evaluation: each paper is
+predicted using papers from the same or earlier year only.
+
+\section*{3. Main Benchmark Results}
+
+\begin{center}
+\small
+\begin{tabular}{>{\raggedright}p{4.2cm}rrrr}
+\toprule
+Method & Pearson(log) & Spearman(log) & MAE(log) & MAE(level) \\
+\midrule
+Abstract $K=20$ kNN & 0.246 & 0.216 & 1.125 & 68.7 \\
+Full-text $K=20$ kNN & 0.235 & 0.216 & 1.125 & 68.7 \\
+Full-text topic $K=20$ kNN & 0.221 & 0.205 & 1.127 & 68.8 \\
+Full-text ridge & 0.321 & 0.299 & 1.081 & 67.1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Three conclusions are clear.
+
+First, moving from abstracts to full submission text does not help by itself.
+The two full-text nearest-neighbor variants do not beat the original abstract
+baseline.
+
+Second, the improvement comes from switching from a neighbor rule to a
+supervised model on the same full-text representation. Full-text ridge is the
+only method that clearly improves both ranking and error.
+
+Third, the gain is not small. Relative to the original abstract baseline, ridge
+raises Spearman from 0.216 to 0.299 and lowers log-space MAE from 1.125 to
+1.081.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.90\textwidth]{figures/model_comparison.png}
+  \caption{Observed-paper comparison of the four imputation methods. Full-text
+  ridge is the clear winner.}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.98\textwidth]{figures/predicted_vs_actual.png}
+  \caption{Predicted versus actual $\log(1+\text{citations})$ for each method.
+  The ridge model still compresses the outcome, but less severely than the
+  neighbor-based methods.}
+\end{figure}
+
+\section*{4. Neighbor Sensitivity: $K=5$ vs. $K=20$}
+We also reran the neighbor-based methods with $K=5$ instead of $K=20$.
+
+\begin{center}
+\small
+\begin{tabular}{>{\raggedright}p{4.0cm}rrrr}
+\toprule
+Method & Spearman($K=20$) & Spearman($K=5$) & MAE($K=20$) & MAE($K=5$) \\
+\midrule
+Abstract kNN & 0.216 & 0.180 & 1.125 & 1.216 \\
+Full-text kNN & 0.216 & 0.179 & 1.125 & 1.216 \\
+Full-text topic kNN & 0.205 & 0.190 & 1.127 & 1.202 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Reducing the neighbor count makes every nearest-neighbor imputer worse. The
+small local neighborhood is noisier, and the extra locality does not buy enough
+precision to compensate. So if we keep a nearest-neighbor baseline for
+comparison, $K=20$ is the better operating point than $K=5$.
+
+\section*{5. Recommendation}
+The recommended default imputer is now \textbf{full-text ridge}. It is the only
+method that materially improves on the original baseline, and it does so with a
+simple and transparent model. The full-text kNN variants remain useful as
+diagnostic baselines, but they are no longer the main path for policy or
+counterfactual work.
+
+\end{document}

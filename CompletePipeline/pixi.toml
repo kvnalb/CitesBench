@@ -1,0 +1,27 @@
+[workspace]
+authors = ["saqibmtz <saqib.mumtaz.h@gmail.com>"]
+channels = ["conda-forge"]
+name = "Empirics"
+platforms = ["osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+rdd = "Rscript 01_citation_rdd.R"
+tier = "Rscript 02_score_by_tier.R"
+embed = "python 03a_embed_abstracts.py"
+predict = "Rscript 03b_predict_citations.R"
+reviews = "Rscript 04_reviews_predict_cites.R"
+disagree = "Rscript 05_reviewer_disagreement.R"
+citeplots = "Rscript 06_citation_discontinuity_plots.R"
+
+[dependencies]
+r-base = ">=4.5.3,<4.6"
+"r-data.table" = ">=1.17.8,<2"
+r-ggplot2 = ">=4.0.2,<5"
+r-fixest = ">=0.14.0,<0.15"
+r-dbi = ">=1.3.0,<2"
+r-rsqlite = ">=2.4.6,<3"
+python = ">=3.14.4,<3.15"
+pytorch = ">=2.10.0,<3"
+transformers = ">=5.5.4,<6"
+scikit-learn = ">=1.8.0,<2"

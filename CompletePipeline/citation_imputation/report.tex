@@ -1,0 +1,158 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage{parskip}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  urlcolor=blue!50!black
+}
+
+\title{Citation Imputation and RDD LLM Tiebreaker Counterfactual}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section*{Purpose}
+This note studies citation imputation and an RDD-style policy counterfactual
+using a ridge model on full-submission SPECTER2 embeddings. The narrow
+question is:
+\emph{if we keep the number of accepted papers fixed near the human
+accept/reject cutoff, does replacing some human accepts with high-scoring LLM
+rejects move us toward papers with higher downstream citation potential?}
+
+\section*{1. What Was Done}
+The workflow has three layers.
+
+First, observed citations were recovered from OpenAlex through the arXiv match
+pipeline. In the broader RDD data build, this recovered citations for
+11{,}006 paper-level rows out of 11{,}336 arXiv-linked rows, a 97.1\% match
+rate conditional on having an arXiv match.
+
+Second, the imputation stage uses a supervised ridge model on full-paper
+SPECTER2 embeddings. The full-text representation uses the
+extracted submission body with the \texttt{References} section removed. Each
+paper is split into evenly spaced chunks across the full body, each chunk is
+embedded with SPECTER2, and the paper embedding is the mean of the chunk
+vectors. On the 2018--2020 RDD sample, this covered 2{,}390 of 2{,}391 papers;
+the one missing full-text file already had observed citations and no LLM score,
+so it does not affect the counterfactual.
+
+Third, we run a volume-matched LLM tiebreaker exercise on the 2018--2020 local
+RDD sample. The human rule is the sharp cutoff ``accept if mean reviewer
+rating is at or above the year-specific threshold.'' Inside a narrow band
+around that threshold, we replace the human rule with an LLM committee-score
+rule while forcing the within-band acceptance rate to stay constant. This
+isolates \emph{who} gets picked rather than changing \emph{how many} papers are
+accepted.
+
+\section*{2. How Good Is Ridge Imputation?}
+The 2018--2020 counterfactual sample contains 2{,}391 papers. Of these, 1{,}512
+have observed OpenAlex citations, 879 require imputation, 2{,}361 have LLM
+committee scores, and 2{,}390 have full-text embeddings.
+
+The ridge model is validated on the observed-paper subset: 1{,}511 papers with
+observed OpenAlex citations and full-text embeddings. On that set, ridge
+achieves Pearson correlation 0.321 and Spearman correlation
+0.299 in $\log(1+\text{citations})$, with mean absolute error 1.081 in log
+space and 67.1 citations in levels. Ridge predictions are used only where
+citations are missing; observed OpenAlex counts remain untouched.
+
+For the 879 unmatched papers that require imputation, the ridge predictions
+have mean 30.1 citations, median 27.1, and 90th percentile 50.8. These should
+still be read as a rough ranking surrogate rather than literal paper-level
+citation forecasts.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.78\textwidth]{figures/ridge_pred_vs_actual.png}
+  \caption{Observed-paper validation for the full-text ridge imputer. The model
+  preserves useful ordering signal in log citations, but still compresses the
+  realized outcome variance, so the imputed values are best treated as a
+  quality-ranking surrogate rather than literal paper-level forecasts.}
+\end{figure}
+
+\section*{3. Counterfactual with Ridge-Filled Citations}
+The main counterfactual now uses
+\[
+\text{cites\_filled} \sim \text{accepted} + \text{mean\_rating} \mid \text{year\_topic},
+\]
+where \texttt{year\_topic} is a coarse topic bucket from full-text embeddings
+crossed with year. In this model, acceptance carries a coefficient of 0.622,
+which corresponds to an 86\% increase in expected citations conditional on
+paper-quality controls.
+
+We then reran the volume-matched LLM tiebreaker inside three bands around the
+human cutoff: $\delta \in \{0.25, 0.50, 0.75\}$. For each band we keep the
+within-band acceptance volume fixed and compare the human rule to the LLM rule.
+
+\begin{center}
+\small
+\begin{tabular}{>{\raggedright}p{1.25cm}rrrr}
+\toprule
+Band $\delta$ & Flips each way & Swap gain / flip & Accept gain / flip & Net policy gain \\
+\midrule
+0.25 & 38  & +150.5 & +55.6 & +1160.4 \\
+0.50 & 223 & +30.0  & +36.3 & +467.7 \\
+0.75 & 278 & +27.2  & +36.7 & -22.4 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The interpretation is stable. At narrow bands, the LLM tiebreaker appears to
+pick substantially stronger papers than the human sharp rule leaves out. At the
+main operating point, $\delta = 0.50$, 223 rejects are flipped in and 223
+accepts are flipped out. The average citation potential of the flipped-in set
+is 59.9, compared with 29.9 for the flipped-out set, a gain of 30.0 per swap.
+The Poisson model implies that the flipped-in papers would gain another 36.3
+citations each if they had been accepted. The overall net policy gain is
++467.7 predicted citations.
+
+The design lesson is clear: the LLM is most useful as a \emph{local
+tiebreaker}, not as a broad override rule.
+
+Composition remains an important caveat. At the main $\delta = 0.50$ band,
+31.4\% of the flipped-in papers rely on imputed rather than observed citations.
+So the sign of the result is informative, but part of the magnitude still
+depends on a surrogate outcome model.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.86\textwidth]{figures/fig_swap_and_gain_by_band.png}
+  \caption{Main policy results by band width under the full-text ridge
+  imputer. Narrow-band gains remain clearly positive; the broad-band policy is
+  close to break-even rather than strongly negative.}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=0.98\textwidth]{figures/fig_band_scatter.png}
+  \caption{Borderline papers at the main band width $\delta = 0.50$. The
+  dashed vertical line is the human cutoff; the dashed horizontal line is the
+  volume-matched LLM cutoff. Shape marks whether the citation outcome is
+  observed or ridge-imputed.}
+\end{figure}
+
+\section*{4. Takeaways}
+The citation imputer in this analysis is a supervised ridge model on
+full-submission embeddings. The imputed values should still be read as a rough
+quality-ranking surrogate rather than literal paper-level forecasts, but they
+are strong enough to support the local policy exercise.
+
+The policy conclusion is limited but positive. The evidence supports a narrow
+claim: \emph{an LLM committee may be useful as a volume-matched tiebreaker
+among borderline papers}. The results do not support using the LLM as a broad
+override rule away from the acceptance margin.
+
+\end{document}

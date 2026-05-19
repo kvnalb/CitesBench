@@ -1,0 +1,294 @@
+/*-- scss:defaults --*/
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+// Palette
+$body-bg:              #ffffff;
+$body-color:           #1a1a1a;
+$link-color:           #1f3a5f;
+$selection-bg:         #1f3a5f;
+
+$accent:               #1f3a5f;
+$accent-soft:          #2E7FB8;
+$muted:                #6b7280;
+$rule:                 #e5e7eb;
+
+// Fonts
+$font-family-sans-serif: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+$font-family-monospace:  "JetBrains Mono", "SF Mono", Monaco, Consolas, monospace;
+$presentation-font-family:        $font-family-sans-serif;
+$presentation-heading-font:       $font-family-sans-serif;
+
+// Type scale — compact, figures-first
+$presentation-font-size-root:     28px;
+$presentation-h1-font-size:       2.0em;
+$presentation-h2-font-size:       1.35em;
+$presentation-h3-font-size:       1.05em;
+$presentation-h4-font-size:       1.0em;
+$presentation-heading-color:      $accent;
+$presentation-heading-font-weight: 600;
+$presentation-heading-line-height: 1.2;
+$presentation-line-height:        1.4;
+
+$code-block-font-size:            0.62em;
+$code-block-border-color:         $rule;
+$code-block-bg:                   #fafbfc;
+
+/*-- scss:rules --*/
+
+.reveal {
+  font-weight: 400;
+  letter-spacing: -0.003em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+// Headings
+.reveal h1, .reveal h2, .reveal h3 {
+  letter-spacing: -0.015em;
+  margin-top: 0;
+  margin-bottom: 0.35em;
+  text-transform: none;
+}
+
+.reveal h2 {
+  border-bottom: 1.5px solid $rule;
+  padding-bottom: 0.25em;
+  margin-bottom: 0.65em;
+}
+
+// Collapse empty H2s so figure-only slides give the figure the full canvas
+.reveal h2:empty,
+.reveal h2:blank {
+  display: none;
+}
+.reveal section > h2:empty + figure,
+.reveal section > h2:empty + p,
+.reveal section > h2:empty + .columns {
+  margin-top: 0;
+}
+
+// Title slide
+.reveal .title-slide h1.title {
+  font-size: 1.7em;
+  font-weight: 700;
+  line-height: 1.15;
+  color: $body-color;
+}
+.reveal .title-slide .subtitle {
+  font-size: 1.0em;
+  color: $muted;
+  font-weight: 400;
+  margin-top: 0.2em;
+}
+.reveal .title-slide .author,
+.reveal .title-slide .date {
+  font-size: 0.75em;
+  color: $muted;
+  font-weight: 400;
+}
+
+// (Section-divider overrides removed — the deck no longer uses them.
+//  The previous rule whited-out body text on any slide with a
+//  data-background-color attribute, which caused light-bg figure slides
+//  to render non-bold text invisibly.)
+
+// Figures
+.reveal figure {
+  display: block;
+  margin: 0.2em auto 0.4em auto;
+  text-align: center;
+}
+.reveal img {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  border: none;
+  box-shadow: none;
+}
+.reveal figure.figure > p,
+.reveal figure figcaption,
+.reveal .figure-caption {
+  font-size: 0.65em;
+  color: $muted;
+  font-style: normal;
+  font-weight: 400;
+  margin-top: 0.5em;
+  line-height: 1.3;
+  text-align: center;
+}
+
+// Lists — tighter
+.reveal ul, .reveal ol {
+  margin: 0.3em 0 0.3em 1.1em;
+  line-height: 1.4;
+}
+.reveal li {
+  margin: 0.25em 0;
+}
+.reveal li > ul, .reveal li > ol {
+  margin-top: 0.15em;
+  margin-bottom: 0.15em;
+}
+
+// Paragraphs
+.reveal p {
+  line-height: 1.45;
+  margin: 0.45em 0;
+}
+
+// Blockquote — equation-friendly
+.reveal blockquote {
+  font-style: normal;
+  background: #f6f8fb;
+  border-left: 3px solid $accent;
+  padding: 0.55em 1em;
+  margin: 0.7em auto;
+  font-size: 0.95em;
+  box-shadow: none;
+  color: #2a2a2a;
+  max-width: 85%;
+  border-radius: 0 4px 4px 0;
+}
+
+// Code blocks
+.reveal pre {
+  box-shadow: none;
+  border: 1px solid $rule;
+  border-radius: 6px;
+  background: $code-block-bg;
+  margin: 0.4em auto;
+  max-width: 95%;
+}
+.reveal pre code {
+  padding: 0.8em 1em;
+  line-height: 1.55;
+  max-height: 650px;
+  font-family: $font-family-monospace;
+  color: #24292e;
+}
+.reveal code {
+  background: #f2f4f7;
+  padding: 0.08em 0.32em;
+  border-radius: 3px;
+  font-size: 0.88em;
+  color: #24292e;
+  font-family: $font-family-monospace;
+}
+.reveal pre code {
+  background: transparent;
+  padding: 0.8em 1em;
+}
+
+// Tables
+.reveal table {
+  font-size: 0.7em;
+  border-collapse: collapse;
+  margin: 0.7em auto;
+  border: none;
+}
+.reveal th {
+  background: #f2f4f7;
+  font-weight: 600;
+  padding: 0.5em 0.8em;
+  border-bottom: 2px solid #d0d4da;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  text-align: left;
+}
+.reveal td {
+  padding: 0.4em 0.8em;
+  border-bottom: 1px solid $rule;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+}
+.reveal tr:last-child td {
+  border-bottom: none;
+}
+
+// Callouts
+.reveal .callout {
+  font-size: 0.88em;
+  border-radius: 6px;
+  margin: 0.5em auto;
+  max-width: 92%;
+}
+.reveal .callout-title {
+  font-size: 0.9em;
+  font-weight: 600;
+}
+
+// Aside / footnotes
+.reveal aside,
+.reveal .aside {
+  font-size: 0.62em;
+  color: $muted;
+  margin-top: 0.8em;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+// Slide number + footer
+.reveal .slide-number {
+  font-size: 0.45em;
+  color: #cbd0d7;
+  background: transparent;
+}
+.reveal .footer {
+  font-size: 0.5em;
+  color: #9aa1ab;
+  font-weight: 400;
+}
+
+// Columns spacing
+.reveal .columns {
+  gap: 1.4em;
+}
+
+// Controls
+.reveal .controls {
+  color: $accent;
+}
+
+// Progress
+.reveal .progress {
+  color: $accent;
+  height: 3px;
+}
+
+// Links
+.reveal a {
+  color: $accent;
+  text-decoration: none;
+  border-bottom: 1px dotted rgba(31, 58, 95, 0.35);
+}
+.reveal a:hover {
+  color: $accent-soft;
+  border-bottom-color: $accent-soft;
+}
+
+// Math
+.reveal .math {
+  font-size: 1.0em;
+}
+.reveal .MathJax {
+  font-size: 1.0em !important;
+}
+
+// Inline emphasis
+.reveal strong {
+  font-weight: 600;
+  color: #111;
+}
+.reveal em {
+  font-style: italic;
+  color: #2a2a2a;
+}
+
+// Roadmap / Takeaways helper (if a slide adds class="compact")
+.reveal .slide.compact ul li {
+  margin: 0.15em 0;
+  font-size: 0.95em;
+}

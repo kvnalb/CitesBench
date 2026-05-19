@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+presentation/slides.html
+presentation/Latex/
+
+citation_imputation/*.aux
+citation_imputation/*.log
+citation_imputation/*.out
+citation_imputation/*.pdf
+citation_imputation/*.csv
+citation_imputation/*.json
+citation_imputation/figures/
