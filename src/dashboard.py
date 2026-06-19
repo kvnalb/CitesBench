@@ -201,6 +201,11 @@ impute_zeros = st.sidebar.checkbox(
     help="~37% of papers have no OpenAlex citation match. Off: exclude them from metrics. On: count them as 0 — penalizes regimes that accept uncited/unknown papers.",
 )
 
+show_drawdown = st.sidebar.checkbox(
+    "Show drawdown from ideal", value=False,
+    help="Off: % of gap closed vs. random (higher = better). On: % left on the table vs. ideal ceiling (lower = better).",
+)
+
 st.sidebar.markdown("---")
 
 # ── Build dff ─────────────────────────────────────────────────────────────────
@@ -270,7 +275,11 @@ st.markdown("")
 
 # ── Normalized performance chart (hero) ───────────────────────────────────────
 # Scale: 0% = random, 100% = ideal
-st.markdown('<div class="section-label">Overall performance — % of gap closed vs. random baseline (100% = ideal)</div>', unsafe_allow_html=True)
+if show_drawdown:
+    chart_label = "Drawdown from ideal — % left on the table (0% = ideal, 100% = random)"
+else:
+    chart_label = "Overall performance — % of gap closed vs. random baseline (100% = ideal)"
+st.markdown(f'<div class="section-label">{chart_label}</div>', unsafe_allow_html=True)
 
 norm_rows = []
 for regime in regimes:
@@ -281,8 +290,9 @@ for regime in regimes:
             continue
         v, rand, ideal = row["value"].values[0], row["random_value"].values[0], row["ideal_value"].values[0]
         gap = ideal - rand
-        pct = (v - rand) / gap * 100 if gap != 0 else 0
-        scores.append(pct)
+        if gap and not np.isnan(gap):
+            pct = (ideal - v) / gap * 100 if show_drawdown else (v - rand) / gap * 100
+            scores.append(pct)
     if scores:
         norm_rows.append({"regime": regime, "score": np.mean(scores)})
 
@@ -310,6 +320,7 @@ fig_hero.update_layout(
         showgrid=True, gridcolor=BORDER, gridwidth=1,
         zeroline=True, zerolinecolor=BORDER,
         ticksuffix="%", tickfont=dict(color=SUBTEXT, size=11),
+        autorange="reversed" if show_drawdown else True,
     ),
     yaxis=dict(showgrid=False, tickfont=dict(color=TEXT, size=12)),
     showlegend=False,
@@ -355,7 +366,7 @@ selected_metric = st.selectbox(
     index=0,
 )
 
-def metric_gap_chart(metric):
+def metric_gap_chart(metric, drawdown=False):
     sub_rows = []
     for regime in regimes:
         sub = dff[(dff["regime"] == regime) & (dff["metric"] == metric)]
@@ -365,7 +376,7 @@ def metric_gap_chart(metric):
         rand = sub["random_value"].values[0]
         ideal= sub["ideal_value"].values[0]
         gap  = ideal - rand
-        pct  = (v - rand) / gap * 100 if gap and not np.isnan(gap) else 0
+        pct  = (ideal - v) / gap * 100 if (drawdown and gap and not np.isnan(gap)) else (v - rand) / gap * 100 if gap and not np.isnan(gap) else 0
         sub_rows.append({"regime": regime, "pct": pct, "value": v, "rand": rand, "ideal": ideal})
 
     sub_df = pd.DataFrame(sub_rows).sort_values("pct", ascending=True)
@@ -388,10 +399,13 @@ def metric_gap_chart(metric):
         customdata=sub_df["value"],
     ))
     # 0% = random baseline, 100% = ideal ceiling
-    fig.add_vline(x=0,   line_dash="dash", line_color=RANDOM_COLOR, line_width=1.5,
-                  annotation_text=f"Random ({rand_val:.2f})",  annotation_position="bottom right",
+    # reference lines: in drawdown mode 0%=ideal, 100%=random; in lift mode 0%=random, 100%=ideal
+    fig.add_vline(x=0 if not drawdown else 100,
+                  line_dash="dash", line_color=RANDOM_COLOR, line_width=1.5,
+                  annotation_text=f"Random ({rand_val:.2f})", annotation_position="bottom right",
                   annotation_font=dict(size=10, color=RANDOM_COLOR))
-    fig.add_vline(x=100, line_dash="dot",  line_color=IDEAL_COLOR,  line_width=1.5,
+    fig.add_vline(x=100 if not drawdown else 0,
+                  line_dash="dot", line_color=IDEAL_COLOR, line_width=1.5,
                   annotation_text=f"Ideal ({ideal_val:.2f})", annotation_position="bottom left",
                   annotation_font=dict(size=10, color=IDEAL_COLOR))
     fig.update_layout(
@@ -402,6 +416,7 @@ def metric_gap_chart(metric):
         showlegend=False,
         xaxis=dict(
             range=[-5, 125],
+            autorange="reversed" if drawdown else True,
             showgrid=True, gridcolor=BORDER, gridwidth=1,
             zeroline=False,
             ticksuffix="%", tickfont=dict(color=SUBTEXT, size=11),
@@ -410,5 +425,5 @@ def metric_gap_chart(metric):
     )
     return fig
 
-st.plotly_chart(metric_gap_chart(selected_metric), use_container_width=True)
+st.plotly_chart(metric_gap_chart(selected_metric, drawdown=show_drawdown), use_container_width=True)
 
