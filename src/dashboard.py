@@ -137,6 +137,51 @@ def compute_live(regime, year, mode, impute_zeros):
         })
     return rows
 
+@st.cache_data
+def compute_pooled(regime_name, lam, mode, impute_zeros):
+    """Pool all years: select per year, then compute metrics on the combined set."""
+    all_years = sorted(eval_table["year"].unique().astype(int).tolist())
+    regime_map = {
+        "Human (AC decisions)": HumanActual(),
+        "Human (score top-N)": HumanScore(),
+    }
+    regime = regime_map.get(regime_name) or HumanDisagree(lam)
+
+    pooled_selected, pooled_pool = [], []
+    total_rand, total_ideal = {}, {}
+
+    for year in all_years:
+        pool = prepare_pool(year, mode, impute_zeros)
+        rand, ideal_vals, n = get_baselines(year, mode, impute_zeros)
+        try:
+            selected = regime.select(pool, n)
+        except Exception:
+            continue
+        pooled_selected.extend(selected)
+        pooled_pool.append(pool)
+        for k in rand:
+            total_rand[k]  = total_rand.get(k, [])  + [rand[k]]
+            total_ideal[k] = total_ideal.get(k, []) + [ideal_vals[k]]
+
+    if not pooled_pool:
+        return []
+
+    full_pool = pd.concat(pooled_pool, ignore_index=True)
+    metrics = compute_metrics(pooled_selected, full_pool, mode)
+    rows = []
+    for metric, value in metrics.items():
+        rv = np.mean(total_rand.get(metric,  [np.nan]))
+        iv = np.mean(total_ideal.get(metric, [np.nan]))
+        rows.append({
+            "regime": regime_name if regime_name in ("Human (AC decisions)", "Human (score top-N)")
+                      else f"Human (disagreement-adjusted, λ={lam:+.2g})",
+            "year": "All years", "metric": metric, "mode": mode,
+            "value": value, "random_value": rv, "ideal_value": iv,
+            "lift": (value - rv) / abs(rv) if rv and rv != 0 else np.nan,
+            "drawdown": (iv - value) / abs(iv) if iv and iv != 0 else np.nan,
+        })
+    return rows
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 st.sidebar.markdown("## Controls")
 
@@ -165,38 +210,36 @@ all_regimes_live = [
     HumanActual(), HumanScore(), HumanDisagree(lam),
 ]
 
-if impute_zeros:
-    # recompute everything live when imputation changes the ground truth
-    live_rows = []
-    for year in years:
+static_regime_names = ["Human (AC decisions)", "Human (score top-N)"]
+
+if selected_year == "All years":
+    # pool across years — compute metrics on combined selected set, not average of per-year metrics
+    pooled_rows = []
+    for rname in static_regime_names + ["Human (disagreement-adjusted)"]:
+        try:
+            pooled_rows.extend(compute_pooled(rname, lam, mode, impute_zeros))
+        except Exception:
+            pass
+    dff = pd.DataFrame(pooled_rows)
+else:
+    year = int(selected_year)
+    if impute_zeros:
+        live_rows = []
         for regime in all_regimes_live:
             try:
                 live_rows.extend(compute_live(regime, year, mode, impute_zeros))
             except Exception:
                 pass
-    dff = pd.DataFrame(live_rows)
-    if not dff.empty and selected_year == "All years":
-        dff = dff.groupby(["regime","metric","mode"])[["value","random_value","ideal_value","lift","drawdown"]].mean().reset_index()
-else:
-    # use precomputed CSV for fixed regimes, live for disagreement
-    static_names = ["Human (AC decisions)", "Human (score top-N)"]
-    dff_static = df_static[df_static["mode"].eq(mode) & df_static["regime"].isin(static_names)].copy()
-    if selected_year != "All years":
-        dff_static = dff_static[dff_static["year"] == int(selected_year)]
+        dff = pd.DataFrame(live_rows)
     else:
-        dff_static = dff_static.groupby(["regime","metric","mode"])[["value","random_value","ideal_value","lift","drawdown"]].mean().reset_index()
-
-    live_rows = []
-    for year in years:
-        for regime in [HumanDisagree(lam)]:
-            try:
-                live_rows.extend(compute_live(regime, year, mode, impute_zeros))
-            except Exception:
-                pass
-    dff_live = pd.DataFrame(live_rows)
-    if not dff_live.empty and selected_year == "All years":
-        dff_live = dff_live.groupby(["regime","metric","mode"])[["value","random_value","ideal_value","lift","drawdown"]].mean().reset_index()
-    dff = pd.concat([dff_static, dff_live], ignore_index=True) if not dff_live.empty else dff_static
+        dff_static = df_static[df_static["mode"].eq(mode) & df_static["regime"].isin(static_regime_names) & df_static["year"].eq(year)].copy()
+        live_rows = []
+        try:
+            live_rows.extend(compute_live(HumanDisagree(lam), year, mode, impute_zeros))
+        except Exception:
+            pass
+        dff_live = pd.DataFrame(live_rows)
+        dff = pd.concat([dff_static, dff_live], ignore_index=True) if not dff_live.empty else dff_static
 
 if dff.empty:
     st.warning("No data — try raw mode or re-run run_eval.py")
