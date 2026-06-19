@@ -157,9 +157,6 @@ impute_zeros = st.sidebar.checkbox(
 )
 
 st.sidebar.markdown("---")
-show_ideal    = st.sidebar.checkbox("Show ideal ceiling", value=True)
-show_random   = st.sidebar.checkbox("Show random baseline", value=True)
-show_drawdown = st.sidebar.checkbox("Show drawdown from ideal", value=False)
 
 # ── Build dff ─────────────────────────────────────────────────────────────────
 years = sorted(eval_table["year"].unique().astype(int).tolist()) if selected_year == "All years" else [int(selected_year)]
@@ -298,7 +295,12 @@ def _pct_gap(regime):
 regime_order = sorted(regimes, key=_pct_gap, reverse=True)
 pivot_display = pivot.loc[[r for r in regime_order if r in pivot.index], display_cols].round(3).rename(columns=METRIC_SHORT)
 pivot_display.index = pivot_display.index.str.replace("Human (", "").str.rstrip(")")
-st.dataframe(pivot_display, use_container_width=True)
+
+# add random and ideal rows
+rand_row  = {METRIC_SHORT[m]: dff[dff["metric"]==m]["random_value"].mean() for m in display_cols if m in METRIC_SHORT}
+ideal_row = {METRIC_SHORT[m]: dff[dff["metric"]==m]["ideal_value"].mean()  for m in display_cols if m in METRIC_SHORT}
+baselines = pd.DataFrame([rand_row, ideal_row], index=["— Random baseline", "— Ideal ceiling"]).round(3)
+st.dataframe(pd.concat([pivot_display, baselines]), use_container_width=True)
 
 st.markdown("---")
 
@@ -326,6 +328,9 @@ def metric_gap_chart(metric):
     sub_df = pd.DataFrame(sub_rows).sort_values("pct", ascending=True)
     short  = sub_df["regime"].str.replace("Human (", "").str.rstrip(")")
 
+    rand_val  = sub_df["rand"].mean()
+    ideal_val = sub_df["ideal"].mean()
+
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=sub_df["pct"],
@@ -336,18 +341,26 @@ def metric_gap_chart(metric):
         text=[f"{p:.0f}%  ({v:.3f})" for p, v in zip(sub_df["pct"], sub_df["value"])],
         textposition="outside",
         textfont=dict(size=12, color=TEXT),
-        hovertemplate="%{y}<br>%{x:.1f}% of gap closed<extra></extra>",
+        hovertemplate="%{y}<br>%{x:.1f}% of gap closed<br>raw value: %{customdata:.3f}<extra></extra>",
+        customdata=sub_df["value"],
     ))
+    # 0% = random baseline, 100% = ideal ceiling
+    fig.add_vline(x=0,   line_dash="dash", line_color=RANDOM_COLOR, line_width=1.5,
+                  annotation_text=f"Random ({rand_val:.2f})",  annotation_position="bottom right",
+                  annotation_font=dict(size=10, color=RANDOM_COLOR))
+    fig.add_vline(x=100, line_dash="dot",  line_color=IDEAL_COLOR,  line_width=1.5,
+                  annotation_text=f"Ideal ({ideal_val:.2f})", annotation_position="bottom left",
+                  annotation_font=dict(size=10, color=IDEAL_COLOR))
     fig.update_layout(
         height=200,
-        margin=dict(l=0, r=120, t=8, b=8),
+        margin=dict(l=0, r=140, t=8, b=32),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         showlegend=False,
         xaxis=dict(
-            range=[0, 120],
+            range=[-5, 125],
             showgrid=True, gridcolor=BORDER, gridwidth=1,
-            zeroline=True, zerolinecolor=BORDER,
+            zeroline=False,
             ticksuffix="%", tickfont=dict(color=SUBTEXT, size=11),
         ),
         yaxis=dict(showgrid=False, tickfont=dict(color=TEXT, size=12)),
