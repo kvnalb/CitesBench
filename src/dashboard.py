@@ -387,11 +387,11 @@ def metric_gap_chart(metric, drawdown=False):
     # reference lines: in drawdown mode 0%=ideal, 100%=random; in lift mode 0%=random, 100%=ideal
     fig.add_vline(x=0 if not drawdown else 100,
                   line_dash="dash", line_color=RANDOM_COLOR, line_width=1.5,
-                  annotation_text=f"Random ({rand_val:.2f})", annotation_position="bottom right",
+                  annotation_text=f"Random ({rand_val:.2f})", annotation_position="top right",
                   annotation_font=dict(size=10, color=RANDOM_COLOR))
     fig.add_vline(x=100 if not drawdown else 0,
                   line_dash="dot", line_color=IDEAL_COLOR, line_width=1.5,
-                  annotation_text=f"Ideal ({ideal_val:.2f})", annotation_position="bottom left",
+                  annotation_text=f"Ideal ({ideal_val:.2f})", annotation_position="top left",
                   annotation_font=dict(size=10, color=IDEAL_COLOR))
     fig.update_layout(
         height=200,
