@@ -217,48 +217,33 @@ all_regimes_live = [
 
 static_regime_names = ["Human (AC decisions)", "Human (score top-N)"]
 
-if selected_year == "All years":
-    # pool across years — compute metrics on combined selected set, not average of per-year metrics
-    pooled_rows = []
-    for rname in static_regime_names + ["Human (disagreement-adjusted)"]:
+all_years = sorted(eval_table["year"].unique().astype(int).tolist())
+years = all_years if selected_year == "All years" else [int(selected_year)]
+
+# Always compute everything live (static CSV is stale after metrics.py changes)
+live_rows = []
+for year in years:
+    for regime in all_regimes_live:
         try:
-            pooled_rows.extend(compute_pooled(rname, lam, mode, impute_zeros))
+            live_rows.extend(compute_live(regime, year, mode, impute_zeros))
         except Exception:
             pass
-    dff = pd.DataFrame(pooled_rows)
-else:
-    year = int(selected_year)
-    if impute_zeros:
-        live_rows = []
-        for regime in all_regimes_live:
-            try:
-                live_rows.extend(compute_live(regime, year, mode, impute_zeros))
-            except Exception:
-                pass
-        dff = pd.DataFrame(live_rows)
-    else:
-        dff_static = df_static[df_static["mode"].eq(mode) & df_static["regime"].isin(static_regime_names) & df_static["year"].eq(year)].copy()
-        live_rows = []
-        try:
-            live_rows.extend(compute_live(HumanDisagree(lam), year, mode, impute_zeros))
-        except Exception:
-            pass
-        dff_live = pd.DataFrame(live_rows)
-        dff = pd.concat([dff_static, dff_live], ignore_index=True) if not dff_live.empty else dff_static
+
+dff = pd.DataFrame(live_rows)
+if not dff.empty and selected_year == "All years":
+    # average per-year metrics — keeps value/random/ideal on the same scale
+    dff = dff.groupby(["regime","metric","mode"])[
+        ["value","random_value","ideal_value","lift","drawdown"]
+    ].mean().reset_index()
 
 if dff.empty:
     st.warning("No data — try raw mode or re-run run_eval.py")
     st.stop()
 
-if mode == "normalized":
-    try:
-        tagged = eval_table["citation_pct_rank"].notna().sum()
-        total = len(eval_table)
-        if tagged < total:
-            pct = tagged / total * 100
-            st.warning(f"Field tagging is {pct:.0f}% complete ({tagged:,}/{total:,} papers). Normalized results are partial — re-run `build_eval_table.py` + `run_eval.py` once tagging finishes.")
-    except Exception:
-        pass
+matched = eval_table["openalex_citations"].notna().sum()
+total_papers = len(eval_table)
+if not impute_zeros:
+    st.caption(f"⚠️ Median/mean citations are computed over OpenAlex-matched papers only (coverage: accepts ~89%, rejects ~63% of pool). Recall metrics are unaffected. Toggle 'Impute 0 citations' to include all papers.")
 
 
 COLOR_LIST = ["#2563EB", "#D97706", "#0D9488", "#9333EA"]

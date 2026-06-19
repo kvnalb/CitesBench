@@ -38,6 +38,8 @@ reviews = (
     .agg(mean_rating="mean", rating_std="std", n_reviews="count")
     .reset_index()
 )
+# single-review papers have NaN std (ddof=1); treat as zero disagreement
+reviews["rating_std"] = reviews["rating_std"].fillna(0)
 
 citations = pd.read_csv("output/citations_2018_2020.csv")[
     ["paper_id", "openalex_citations", "status"]
