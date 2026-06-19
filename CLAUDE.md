@@ -26,6 +26,32 @@ Never write outputs to the repo root or `data/`.
 - One script = one logical step. Name with a verb: `cite_hist.py`, `fetch_citations.py`.
 - Use `data/` and `outputs/` paths relative to the repo root; always run scripts from the repo root.
 
+## Evaluation dashboard
+
+Compares reviewer selection regimes (human discretionary, human score-based, LLM variants) against citation-based ground truth across ICLR 2018-2020.
+
+- N per year = actual accept count for that year (pinned, same across all regimes)
+- Every regime implements `select(papers_df, n) -> List[paper_id]` returning exactly n IDs
+- Metrics: median citations, mean log(1+citations), count in true top 1/5/10%, recall@k
+- Baselines: random (1000 runs averaged), ideal (top-N by citations)
+- Reports lift over random and drawdown from ideal per metric per regime
+- **Field normalization toggle**: dashboard supports both raw citations and field×year normalized citation percentile ranks as the ground truth signal. Fields: nlp, computer_vision, generative_models, reinforcement_learning, theory_methods.
+
+## Secrets
+
+All secrets live in `.env` (gitignored). Every script loads it at the top:
+
+```python
+from dotenv import load_dotenv
+load_dotenv()
+```
+
+Never hardcode keys. Never read `os.environ["KEY"]` without `load_dotenv()` first.
+
+## External API scripts
+
+Any script that calls an external API in a loop must write results incrementally — one row per API call, appended immediately to the output CSV. Never accumulate in memory and flush at the end. This makes scripts resumable by default: on restart, read the output file, skip already-processed IDs, continue from where it left off.
+
 ## What not to add
 
 - No intermediate abstraction layers unless two scripts share >10 lines of identical logic.

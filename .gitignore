@@ -27,3 +27,4 @@ Thumbs.db
 # Project specific
 processed/
 truncated.txt
+.gstack/
