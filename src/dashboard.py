@@ -264,7 +264,9 @@ if show_drawdown:
     chart_label = "Drawdown from ideal — % left on the table (0% = ideal, 100% = random)"
 else:
     chart_label = "Overall performance — % of gap closed vs. random baseline (100% = ideal)"
-st.markdown(f'<div class="section-label">{chart_label}</div>', unsafe_allow_html=True)
+col_label, col_note = st.columns([3, 2])
+col_label.markdown(f'<div class="section-label">{chart_label}</div>', unsafe_allow_html=True)
+col_note.caption("Equal-weighted average across all 5 metrics (median cites, mean log cites, recall @1/5/10%). See table below for per-metric breakdown.")
 
 norm_rows = []
 for regime in regimes:
