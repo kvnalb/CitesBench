@@ -112,14 +112,43 @@ def prepare_pool(year, mode, impute_zeros):
         pool = pool[pool["citation_pct_rank"].notna()].copy()
     return pool
 
+BASELINE_CACHE = "outputs/baselines_cache.csv"
+
 @st.cache_data
 def get_baselines(year, mode, impute_zeros):
+    # check disk cache first
+    key = f"{year}_{mode}_{int(impute_zeros)}"
+    if os.path.exists(BASELINE_CACHE):
+        cached = pd.read_csv(BASELINE_CACHE)
+        hit = cached[cached["key"] == key]
+        if not hit.empty:
+            rand  = {m: hit[hit["which"]=="random"][m].values[0]  for m in hit["metric"].unique() if m in hit.columns}
+            # rebuild dicts from long format
+            rand  = dict(zip(hit[hit["which"]=="random"]["metric"],  hit[hit["which"]=="random"]["value"]))
+            ideal = dict(zip(hit[hit["which"]=="ideal"]["metric"],   hit[hit["which"]=="ideal"]["value"]))
+            n     = int(hit["n"].values[0])
+            return rand, ideal, n
+
     pool = prepare_pool(year, mode, impute_zeros)
     n_accepts = eval_table[
         eval_table["year"].eq(year) & eval_table["decision"].str.startswith("Accept", na=False)
     ].shape[0]
     n = n_accepts if mode == "raw" else int(round(n_accepts * len(pool) / eval_table[eval_table["year"] == year].shape[0]))
-    return random_baseline(pool, n, mode), ideal_baseline(pool, n, mode), n
+    rand  = random_baseline(pool, n, mode)
+    ideal = ideal_baseline(pool, n, mode)
+
+    # persist to disk
+    rows = []
+    for which, d in [("random", rand), ("ideal", ideal)]:
+        for metric, value in d.items():
+            rows.append({"key": key, "year": year, "mode": mode, "impute_zeros": impute_zeros,
+                         "which": which, "metric": metric, "value": value, "n": n})
+    new_df = pd.DataFrame(rows)
+    if os.path.exists(BASELINE_CACHE):
+        new_df = pd.concat([pd.read_csv(BASELINE_CACHE), new_df], ignore_index=True)
+    new_df.to_csv(BASELINE_CACHE, index=False)
+
+    return rand, ideal, n
 
 def compute_live(regime, year, mode, impute_zeros):
     pool = prepare_pool(year, mode, impute_zeros)
