@@ -14,6 +14,9 @@ from baselines import random_baseline, ideal_baseline
 from regimes.human_actual import HumanActual
 from regimes.human_score import HumanScore
 from regimes.human_disagree import HumanDisagree
+from regimes.llm_neutral import LLMNeutral
+from regimes.llm_ensemble import LLMEnsemble
+from regimes.llm_positive import LLMPositive
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -242,6 +245,7 @@ years = sorted(eval_table["year"].unique().astype(int).tolist()) if selected_yea
 
 all_regimes_live = [
     HumanActual(), HumanScore(), HumanDisagree(lam),
+    LLMNeutral(), LLMEnsemble(), LLMPositive(),
 ]
 
 static_regime_names = ["Human (AC decisions)", "Human (score top-N)"]
@@ -275,7 +279,7 @@ if not impute_zeros:
     st.caption(f"⚠️ Median/mean citations are computed over OpenAlex-matched papers only (coverage: accepts ~89%, rejects ~63% of pool). Recall metrics are unaffected. Toggle 'Impute 0 citations' to include all papers.")
 
 
-COLOR_LIST = ["#2563EB", "#D97706", "#0D9488", "#9333EA"]
+COLOR_LIST = ["#2563EB", "#D97706", "#0D9488", "#9333EA", "#DC2626", "#059669"]
 all_regimes = dff["regime"].unique().tolist()
 regime_color = {r: COLOR_LIST[i % len(COLOR_LIST)] for i, r in enumerate(all_regimes)}
 regimes = all_regimes
@@ -442,4 +446,7 @@ def metric_gap_chart(metric, drawdown=False):
     return fig
 
 st.plotly_chart(metric_gap_chart(selected_metric, drawdown=show_drawdown), use_container_width=True)
+
+st.markdown("---")
+st.caption("**LLM1–3** reviews (neutral, ensemble, positive-advocate) are synthetically generated reviews from the OpenReview dataset authors, not produced by this project. Human reviews are from ICLR 2018–2020 via OpenReview.")
 

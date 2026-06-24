@@ -29,6 +29,7 @@ reviews_raw = pd.read_sql(
     "SELECT paper_id, rating FROM REVIEW",
     con,
 )
+llm_raw = pd.read_sql("SELECT paper_id, type, rating FROM GENAI_REVIEW", con)
 con.close()
 
 # Parse "6: Marginally above acceptance threshold" → 6.0
@@ -40,6 +41,14 @@ reviews = (
 )
 # single-review papers have NaN std (ddof=1); treat as zero disagreement
 reviews["rating_std"] = reviews["rating_std"].fillna(0)
+llm_raw["rating_num"] = llm_raw["rating"].str.extract(r"^(\d+)").astype(float)
+llm_scores = llm_raw.pivot_table(
+    index="paper_id", columns="type", values="rating_num", aggfunc="mean"
+).rename(columns={"neutral": "llm_neutral_rating", "positive": "llm_positive_rating",
+                  "negative": "llm_negative_rating"}).reset_index()
+llm_scores["llm_mean_rating"] = llm_scores[
+    ["llm_neutral_rating", "llm_positive_rating", "llm_negative_rating"]
+].mean(axis=1)
 
 citations = pd.read_csv("output/citations_2018_2020.csv")[
     ["paper_id", "openalex_citations", "status"]
@@ -57,6 +66,7 @@ df = (
     .merge(reviews, on="paper_id", how="left")
     .merge(citations, on="paper_id", how="left")
     .merge(fields, on="paper_id", how="left")
+    .merge(llm_scores, on="paper_id", how="left")
 )
 
 # Only use citations where OpenAlex found the paper
