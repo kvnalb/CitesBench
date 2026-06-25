@@ -67,7 +67,15 @@ st.markdown(f"""
 def load_results(): return pd.read_csv("outputs/eval_results.csv")
 
 @st.cache_data
-def load_eval_table(): return pd.read_csv("outputs/eval_table.csv")
+def load_eval_table():
+    et = pd.read_csv("outputs/eval_table.csv")
+    rej_path = "outputs/outlier_reviews.csv"
+    if os.path.exists(rej_path):
+        rej = pd.read_csv(rej_path)[["title", "rejection_tags"]].drop_duplicates("title")
+        et = et.merge(rej, on="title", how="left")
+    else:
+        et["rejection_tags"] = pd.NA
+    return et
 
 try:
     df_static = load_results()
@@ -590,32 +598,44 @@ if dive_regime_name in llm_score_col:
     st.plotly_chart(fig_llm, use_container_width=True)
     st.markdown("---")
 
-# ── 3e. MISSED GEMS + UNIQUE FINDS ───────────────────────────────────────────
-st.markdown("#### 3e. Missed Gems and Unique Finds")
+# ── 3e. MISSED GEMS + HUMAN CONSENSUS WRONG ─────────────────────────────────
+st.markdown("#### 3e. Missed Gems and Human Consensus Errors")
 st.markdown('<p class="explainer">'
-            '<b>Missed gems</b> (left): high-impact papers the regime failed to select — '
-            'these were in the citation ideal but not picked by this regime. '
-            '<b>Unique finds</b> (right): papers this regime selected that are not in the '
-            'citation ideal — sorted by citations to show how wrong (or right) the unique '
-            'picks were. Hover for paper title.</p>', unsafe_allow_html=True)
+            '<b>Missed gems</b> (left): high-citation papers the regime failed to select — '
+            'in the citation ideal but not picked. Where available, reviewer rejection tags '
+            'show why they were passed over. '
+            '<b>Human consensus errors</b> (right): papers selected by both this regime '
+            '<i>and</i> AC decisions, yet absent from the citation ideal — cases where human '
+            'consensus agreed but the citation signal says they were wrong.</p>',
+            unsafe_allow_html=True)
 
 merged = pool_df.dropna(subset=["openalex_citations"])
 
-missed = merged[merged["quadrant"] == "ideal only"].nlargest(10, "openalex_citations")[
-    ["title","year","openalex_citations","mean_rating"]].round(2)
-missed.columns = ["Title","Year","Citations","Avg reviewer score"]
-missed["Title"] = missed["Title"].str[:70] + "…"
+# Missed gems: ideal only, sorted by citations
+missed_raw = merged[merged["quadrant"] == "ideal only"].nlargest(10, "openalex_citations")[
+    ["title", "year", "openalex_citations", "mean_rating", "rejection_tags"]]
+missed_raw = missed_raw.round({"openalex_citations": 0, "mean_rating": 2})
+missed_raw.columns = ["Title", "Year", "Citations", "Avg rating", "Rejection tags"]
+missed_raw["Title"] = missed_raw["Title"].str[:65] + "…"
+missed_raw["Rejection tags"] = missed_raw["Rejection tags"].fillna("—")
 
-unique = merged[merged["quadrant"] == "regime only"].nlargest(10, "openalex_citations")[
-    ["title","year","openalex_citations","mean_rating"]].round(2)
-unique.columns = ["Title","Year","Citations","Avg reviewer score"]
-unique["Title"] = unique["Title"].str[:70] + "…"
+# Human consensus errors: regime ∩ AC but NOT in citation ideal
+consensus_wrong = merged[
+    merged["paper_id"].isin(regime_ids & ac_ids) &
+    ~merged["paper_id"].isin(ideal_ids)
+].nlargest(10, "openalex_citations")[
+    ["title", "year", "openalex_citations", "mean_rating"]]
+consensus_wrong = consensus_wrong.round({"openalex_citations": 0, "mean_rating": 2})
+consensus_wrong.columns = ["Title", "Year", "Citations", "Avg rating"]
+consensus_wrong["Title"] = consensus_wrong["Title"].str[:65] + "…"
 
 col_l, col_r = st.columns(2)
-col_l.markdown(f"**Missed gems** — top-impact papers regime didn't pick (n={len(merged[merged['quadrant']=='ideal only'])})")
-col_l.dataframe(missed, use_container_width=True, hide_index=True)
-col_r.markdown(f"**Unique finds** — regime's picks outside the ideal set (n={len(merged[merged['quadrant']=='regime only'])})")
-col_r.dataframe(unique, use_container_width=True, hide_index=True)
+n_missed = len(merged[merged["quadrant"] == "ideal only"])
+n_wrong  = len(merged[merged["paper_id"].isin(regime_ids & ac_ids) & ~merged["paper_id"].isin(ideal_ids)])
+col_l.markdown(f"**Missed gems** — high-impact papers regime didn't select (n={n_missed})")
+col_l.dataframe(missed_raw, use_container_width=True, hide_index=True)
+col_r.markdown(f"**Human consensus errors** — both regime & AC accepted, but below citation ideal (n={n_wrong})")
+col_r.dataframe(consensus_wrong, use_container_width=True, hide_index=True)
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
