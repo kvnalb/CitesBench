@@ -67,7 +67,7 @@ st.markdown(f"""
 def load_results(): return pd.read_csv("outputs/eval_results.csv")
 
 @st.cache_data
-def load_eval_table():
+def load_eval_table(_v=2):  # bump _v to bust cache on redeploy
     et = pd.read_csv("outputs/eval_table.csv")
     rej_path = "outputs/outlier_reviews.csv"
     if os.path.exists(rej_path):
