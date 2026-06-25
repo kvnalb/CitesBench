@@ -611,26 +611,28 @@ st.markdown('<p class="explainer">'
 
 merged = pool_df.dropna(subset=["openalex_citations"])
 
+# Fetch rejection_tags directly from eval_table to avoid stale cache issues
+_rej_map = eval_table.set_index("paper_id")["rejection_tags"] \
+    if "rejection_tags" in eval_table.columns else None
+
 # Missed gems: ideal only, sorted by citations
-_missed_cols = ["title", "year", "openalex_citations", "mean_rating"]
-if "rejection_tags" in merged.columns:
-    _missed_cols.append("rejection_tags")
-missed_raw = merged[merged["quadrant"] == "ideal only"].nlargest(10, "openalex_citations")[_missed_cols]
+missed_raw = merged[merged["quadrant"] == "ideal only"].nlargest(10, "openalex_citations")[
+    ["paper_id", "title", "year", "openalex_citations", "mean_rating"]].copy()
 missed_raw = missed_raw.round({"openalex_citations": 0, "mean_rating": 2})
-missed_raw.columns = ["Title", "Year", "Citations", "Avg rating"] + (["Rejection tags"] if "rejection_tags" in merged.columns else [])
-missed_raw["Title"] = missed_raw["Title"].str[:65] + "…"
-if "Rejection tags" in missed_raw.columns:
-    missed_raw["Rejection tags"] = missed_raw["Rejection tags"].fillna("(accepted by AC — no rejection tag)")
+if _rej_map is not None:
+    missed_raw["rejection_tags"] = missed_raw["paper_id"].map(_rej_map).fillna("(accepted by AC — no rejection tag)")
+missed_raw = missed_raw.drop(columns=["paper_id"])
+missed_raw.columns = (["Title", "Year", "Citations", "Avg rating"] +
+                      (["Rejection tags"] if _rej_map is not None else []))
 
 # Human consensus errors: regime ∩ AC but NOT in citation ideal
 consensus_wrong = merged[
     merged["paper_id"].isin(regime_ids & ac_ids) &
     ~merged["paper_id"].isin(ideal_ids)
 ].nlargest(10, "openalex_citations")[
-    ["title", "year", "openalex_citations", "mean_rating"]]
+    ["title", "year", "openalex_citations", "mean_rating"]].copy()
 consensus_wrong = consensus_wrong.round({"openalex_citations": 0, "mean_rating": 2})
 consensus_wrong.columns = ["Title", "Year", "Citations", "Avg rating"]
-consensus_wrong["Title"] = consensus_wrong["Title"].str[:65] + "…"
 
 col_l, col_r = st.columns(2)
 n_missed = len(merged[merged["quadrant"] == "ideal only"])
