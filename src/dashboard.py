@@ -452,10 +452,10 @@ st.markdown("#### 3b. Citation Distribution by Quadrant")
 st.markdown('<p class="explainer">'
             'Each curve shows the distribution of citation counts (log scale) for one quadrant. '
             'The key diagnostic: if <b>regime only</b> (green) overlaps with '
-            '<b>ideal only</b> (amber) — the regime is making different but equally good picks. '
+            '<b>ideal only</b> (amber) — the regime is making different but equally impactful picks. '
             'If it overlaps with <b>neither</b> (grey) — the regime is selecting low-impact papers '
-            'that AC correctly rejected. Curves are normalized so shape is visible regardless '
-            'of group size.</p>', unsafe_allow_html=True)
+            'that the citation-based ideal also excludes. Curves are normalized so shape is '
+            'visible regardless of group size.</p>', unsafe_allow_html=True)
 
 known = pool_df.dropna(subset=["openalex_citations"])
 fig_kde = go.Figure()
