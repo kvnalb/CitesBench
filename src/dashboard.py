@@ -620,7 +620,7 @@ missed_raw = missed_raw.round({"openalex_citations": 0, "mean_rating": 2})
 missed_raw.columns = ["Title", "Year", "Citations", "Avg rating"] + (["Rejection tags"] if "rejection_tags" in merged.columns else [])
 missed_raw["Title"] = missed_raw["Title"].str[:65] + "…"
 if "Rejection tags" in missed_raw.columns:
-    missed_raw["Rejection tags"] = missed_raw["Rejection tags"].fillna("—")
+    missed_raw["Rejection tags"] = missed_raw["Rejection tags"].fillna("(accepted by AC — no rejection tag)")
 
 # Human consensus errors: regime ∩ AC but NOT in citation ideal
 consensus_wrong = merged[
