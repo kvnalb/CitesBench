@@ -405,33 +405,56 @@ def cm_stats(selected, ground_truth, all_ids):
     f1     = 2 * prec * recall / (prec + recall) if (prec + recall) else 0
     return dict(tp=tp, fp=fp, fn=fn, tn=tn, prec=prec, recall=recall, f1=f1, n=n)
 
-def cm_figure(stats, title):
-    # Rows: Selected (top), Not selected (bottom)  — standard predicted-on-rows layout
-    # Cols: Positive (left), Negative (right)
-    z    = [[stats["tp"], stats["fp"]], [stats["fn"], stats["tn"]]]
-    text = [[f"TP\n{stats['tp']}", f"FP\n{stats['fp']}"],
-            [f"FN\n{stats['fn']}", f"TN\n{stats['tn']}"]]
-    fig = go.Figure(go.Heatmap(
-        z=z, text=text, texttemplate="%{text}",
-        textfont=dict(size=13, color="white"),
-        colorscale=[[0,"#EFF6FF"],[0.5,"#3B82F6"],[1,"#1E3A8A"]],
-        showscale=False,
-        x=["Positive", "Negative"],
-        y=["Selected", "Not selected"],
-        hovertemplate="Count: %{z}<extra></extra>",
+def cm_figure(stats, title, gt_label):
+    """Draws a 2×2 confusion matrix using shapes for full color control."""
+    # Semantic cell colors
+    cell_cfg = {
+        (0, 0): ("#166534", "#DCFCE7", f"TP\n{stats['tp']:,}",  "Regime ∩ ground truth"),
+        (0, 1): ("#9A3412", "#FEE2E2", f"FP\n{stats['fp']:,}",  "Regime − ground truth"),
+        (1, 0): ("#92400E", "#FEF3C7", f"FN\n{stats['fn']:,}",  "Missed by regime"),
+        (1, 1): ("#374151", "#F1F5F9", f"TN\n{stats['tn']:,}",  "Correctly excluded"),
+    }
+    col_labels = [f"In {gt_label}", f"Not in {gt_label}"]
+    row_labels = ["Selected", "Not selected"]
+
+    shapes, annotations = [], []
+    for (row, col), (fg, bg, label, hover) in cell_cfg.items():
+        x0, x1 = col, col + 1
+        y0, y1 = row, row + 1
+        shapes.append(dict(type="rect", x0=x0, y0=y0, x1=x1, y1=y1,
+                           fillcolor=bg, line=dict(color="white", width=2)))
+        annotations.append(dict(
+            x=(x0 + x1) / 2, y=(y0 + y1) / 2,
+            text=label.replace("\n", "<br>"),
+            font=dict(size=13, color=fg, family="monospace"),
+            showarrow=False, align="center",
+        ))
+
+    # Column headers (x-axis labels)
+    for i, lbl in enumerate(col_labels):
+        annotations.append(dict(x=i + 0.5, y=2.15, text=f"<b>{lbl}</b>",
+                                font=dict(size=11, color=SUBTEXT), showarrow=False))
+    # Row headers (y-axis labels)
+    for i, lbl in enumerate(row_labels):
+        annotations.append(dict(x=-0.22, y=i + 0.5, text=lbl,
+                                font=dict(size=11, color=TEXT), showarrow=False,
+                                xanchor="right"))
+    # Stats footer
+    annotations.append(dict(
+        x=1, y=-0.12, xref="paper", yref="paper", showarrow=False,
+        text=f"Precision {stats['prec']:.2f}  ·  Recall {stats['recall']:.2f}  ·  F1 {stats['f1']:.2f}",
+        font=dict(size=11, color=SUBTEXT), xanchor="center",
     ))
+
+    fig = go.Figure()
     fig.update_layout(
         title=dict(text=title, font=dict(size=12, color=TEXT), x=0),
-        height=260, margin=dict(l=0, r=0, t=36, b=56),
+        shapes=shapes, annotations=annotations,
+        height=280, margin=dict(l=80, r=10, t=36, b=48),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        xaxis=dict(tickfont=dict(size=11, color=TEXT), side="bottom"),
-        yaxis=dict(tickfont=dict(size=11, color=TEXT), autorange="reversed"),
-        annotations=[dict(
-            x=0.5, y=1.0, xref="paper", yref="paper", showarrow=False,
-            yanchor="bottom",
-            text=f"Precision {stats['prec']:.2f}  ·  Recall {stats['recall']:.2f}  ·  F1 {stats['f1']:.2f}",
-            font=dict(size=11, color=SUBTEXT)
-        )]
+        xaxis=dict(range=[0, 2], showticklabels=False, showgrid=False, zeroline=False),
+        yaxis=dict(range=[0, 2.4], showticklabels=False, showgrid=False, zeroline=False,
+                   scaleanchor="x", scaleratio=1),
     )
     return fig
 
@@ -440,9 +463,9 @@ cm_ideal = cm_stats(regime_ids, ideal_ids, all_ids)
 cm_ac    = cm_stats(regime_ids, ac_ids,    all_ids)
 
 col1, col2 = st.columns(2)
-col1.plotly_chart(cm_figure(cm_ideal, "vs Citation Ideal (top-N by citations)"),
+col1.plotly_chart(cm_figure(cm_ideal, "vs Citation Ideal (top-N by citations)", "citation ideal"),
                   use_container_width=True)
-col2.plotly_chart(cm_figure(cm_ac, "vs AC Decisions (human ground truth)"),
+col2.plotly_chart(cm_figure(cm_ac, "vs AC Decisions (human ground truth)", "AC decisions"),
                   use_container_width=True)
 
 st.markdown("---")
