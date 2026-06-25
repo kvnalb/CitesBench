@@ -447,10 +447,10 @@ def cm_figure(stats, title, gt_label):
         annotations.append(dict(x=-0.22, y=i + 0.5, text=lbl,
                                 font=dict(size=11, color=TEXT), showarrow=False,
                                 xanchor="right"))
-    # Stats footer — precision = recall by construction (both sets have size n)
+    # Stats footer
     annotations.append(dict(
         x=1, y=-0.12, xref="paper", yref="paper", showarrow=False,
-        text=f"Overlap rate {stats['prec']:.2f}  ({stats['tp']:,} of {stats['tp']+stats['fp']:,} — equal-size sets, so precision = recall)",
+        text=f"Precision {stats['prec']:.2f}  ·  Recall {stats['recall']:.2f}  ·  F1 {stats['f1']:.2f}",
         font=dict(size=11, color=SUBTEXT), xanchor="center",
     ))
 
