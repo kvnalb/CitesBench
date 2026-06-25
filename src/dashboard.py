@@ -406,25 +406,29 @@ def cm_stats(selected, ground_truth, all_ids):
     return dict(tp=tp, fp=fp, fn=fn, tn=tn, prec=prec, recall=recall, f1=f1, n=n)
 
 def cm_figure(stats, title):
-    z    = [[stats["tp"], stats["fn"]], [stats["fp"], stats["tn"]]]
-    text = [[f"TP\n{stats['tp']}", f"FN\n{stats['fn']}"],
-            [f"FP\n{stats['fp']}", f"TN\n{stats['tn']}"]]
+    # Rows: Selected (top), Not selected (bottom)  — standard predicted-on-rows layout
+    # Cols: Positive (left), Negative (right)
+    z    = [[stats["tp"], stats["fp"]], [stats["fn"], stats["tn"]]]
+    text = [[f"TP\n{stats['tp']}", f"FP\n{stats['fp']}"],
+            [f"FN\n{stats['fn']}", f"TN\n{stats['tn']}"]]
     fig = go.Figure(go.Heatmap(
         z=z, text=text, texttemplate="%{text}",
-        textfont=dict(size=14, color="white"),
+        textfont=dict(size=13, color="white"),
         colorscale=[[0,"#EFF6FF"],[0.5,"#3B82F6"],[1,"#1E3A8A"]],
         showscale=False,
-        x=["Positive (ideal/AC)", "Negative (ideal/AC)"],
-        y=["Selected by regime", "Not selected"],
+        x=["Positive", "Negative"],
+        y=["Selected", "Not selected"],
         hovertemplate="Count: %{z}<extra></extra>",
     ))
     fig.update_layout(
-        title=dict(text=title, font=dict(size=13, color=TEXT), x=0),
-        height=220, margin=dict(l=0, r=0, t=36, b=0),
+        title=dict(text=title, font=dict(size=12, color=TEXT), x=0),
+        height=260, margin=dict(l=0, r=0, t=36, b=56),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        xaxis=dict(tickfont=dict(size=11)), yaxis=dict(tickfont=dict(size=11)),
+        xaxis=dict(tickfont=dict(size=11, color=TEXT), side="bottom"),
+        yaxis=dict(tickfont=dict(size=11, color=TEXT), autorange="reversed"),
         annotations=[dict(
-            x=0.5, y=-0.22, xref="paper", yref="paper", showarrow=False,
+            x=0.5, y=1.0, xref="paper", yref="paper", showarrow=False,
+            yanchor="bottom",
             text=f"Precision {stats['prec']:.2f}  ·  Recall {stats['recall']:.2f}  ·  F1 {stats['f1']:.2f}",
             font=dict(size=11, color=SUBTEXT)
         )]
