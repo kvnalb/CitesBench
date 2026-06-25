@@ -612,12 +612,15 @@ st.markdown('<p class="explainer">'
 merged = pool_df.dropna(subset=["openalex_citations"])
 
 # Missed gems: ideal only, sorted by citations
-missed_raw = merged[merged["quadrant"] == "ideal only"].nlargest(10, "openalex_citations")[
-    ["title", "year", "openalex_citations", "mean_rating", "rejection_tags"]]
+_missed_cols = ["title", "year", "openalex_citations", "mean_rating"]
+if "rejection_tags" in merged.columns:
+    _missed_cols.append("rejection_tags")
+missed_raw = merged[merged["quadrant"] == "ideal only"].nlargest(10, "openalex_citations")[_missed_cols]
 missed_raw = missed_raw.round({"openalex_citations": 0, "mean_rating": 2})
-missed_raw.columns = ["Title", "Year", "Citations", "Avg rating", "Rejection tags"]
+missed_raw.columns = ["Title", "Year", "Citations", "Avg rating"] + (["Rejection tags"] if "rejection_tags" in merged.columns else [])
 missed_raw["Title"] = missed_raw["Title"].str[:65] + "…"
-missed_raw["Rejection tags"] = missed_raw["Rejection tags"].fillna("—")
+if "Rejection tags" in missed_raw.columns:
+    missed_raw["Rejection tags"] = missed_raw["Rejection tags"].fillna("—")
 
 # Human consensus errors: regime ∩ AC but NOT in citation ideal
 consensus_wrong = merged[
