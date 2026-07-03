@@ -423,42 +423,77 @@ col2.plotly_chart(cm_figure(cm_ac, "vs AC Decisions (human ground truth)", "AC d
 
 st.markdown("---")
 
-# ── 3b. CITATION KDE BY QUADRANT ─────────────────────────────────────────────
-st.markdown("#### 3b. Citation Distribution by Quadrant")
+# ── 3b. FLIPPED PAPERS: CITATION RESIDUALS vs AC ─────────────────────────────
+st.markdown("#### 3b. Flipped Papers vs Human AC — Citation Residuals")
 st.markdown('<p class="explainer">'
-            'Each curve shows the distribution of citation counts (log scale) for one quadrant. '
-            'The key diagnostic: if <b>regime only</b> (green) overlaps with '
-            '<b>ideal only</b> (amber) — the regime is making different but equally impactful picks. '
-            'If it overlaps with <b>neither</b> (grey) — the regime is selecting low-impact papers '
-            'that the citation-based ideal also excludes. Curves are normalized so shape is '
-            'visible regardless of group size.</p>', unsafe_allow_html=True)
+            'Papers where this regime disagrees with human AC decisions, split by direction. '
+            '<b>FP</b> = regime accepts, AC rejects. <b>FN</b> = AC accepts, regime rejects. '
+            'Y-axis = citation residual after regressing out mean reviewer score per year — '
+            'positive means more impactful than the score predicts, negative means less. '
+            'If FP residuals are above zero, the regime finds underscored high-impact papers AC missed. '
+            'If FN residuals are above zero, the regime is dropping impactful papers.</p>',
+            unsafe_allow_html=True)
 
-known = pool_df.dropna(subset=["openalex_citations"])
-fig_kde = go.Figure()
-for quad in quad_order:
-    vals = known[known["quadrant"] == quad]["openalex_citations"].values
-    if len(vals) < 5: continue
-    log_vals = np.log1p(vals)
-    xs = np.linspace(log_vals.min(), log_vals.max(), 200)
-    kde = gaussian_kde(log_vals, bw_method=0.4)
-    fig_kde.add_trace(go.Scatter(
-        x=xs, y=kde(xs), mode="lines", name=f"{quad} (n={len(vals)})",
-        line=dict(color=QUAD_COLORS[quad], width=2.5),
-        fill="tozeroy",
-        fillcolor=f"rgba({int(QUAD_COLORS[quad][1:3],16)},"
-                  f"{int(QUAD_COLORS[quad][3:5],16)},"
-                  f"{int(QUAD_COLORS[quad][5:7],16)},0.08)",
-    ))
+_resid_df = pool_df.dropna(subset=["mean_rating", "openalex_citations"]).copy()
+_resid_df["log_cites"] = np.log1p(_resid_df["openalex_citations"])
 
-fig_kde.update_layout(
-    height=280, margin=dict(l=0, r=0, t=8, b=8),
-    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-    legend=dict(orientation="h", y=-0.15, font=dict(size=11)),
-    xaxis=dict(title="log(1 + citations)", showgrid=True, gridcolor=BORDER,
-               tickfont=dict(size=11, color=SUBTEXT)),
-    yaxis=dict(title="density", showgrid=False, tickfont=dict(size=11, color=SUBTEXT)),
-)
-st.plotly_chart(fig_kde, use_container_width=True)
+from scipy.stats import linregress
+_parts = []
+for _yr, _grp in _resid_df.groupby("year"):
+    _grp = _grp.copy()
+    if len(_grp) >= 5:
+        _sl, _ic, *_ = linregress(_grp["mean_rating"], _grp["log_cites"])
+        _grp["cite_resid"] = _grp["log_cites"] - (_ic + _sl * _grp["mean_rating"])
+    else:
+        _grp["cite_resid"] = _grp["log_cites"] - _grp["log_cites"].mean()
+    _parts.append(_grp)
+_resid_df = pd.concat(_parts, ignore_index=True)
+
+_AC_LABELS = {
+    "FP — regime only": ("FP — regime only<br>(regime accepts, AC rejects)", "#10B981"),
+    "FN — AC only":     ("FN — AC only<br>(AC accepts, regime rejects)",     "#F59E0B"),
+    "TP — both accept": ("TP — both accept",                                  "#2563EB"),
+    "TN — both reject": ("TN — both reject",                                  "#CBD5E1"),
+}
+
+def _vs_ac(pid):
+    in_r = pid in regime_ids
+    in_a = pid in ac_ids
+    if in_r and in_a: return "TP — both accept"
+    elif in_r:        return "FP — regime only"
+    elif in_a:        return "FN — AC only"
+    else:             return "TN — both reject"
+
+_resid_df["vs_ac"] = _resid_df["paper_id"].map(_vs_ac)
+
+if dive_regime_name == "Human (AC decisions)":
+    st.info("FP/FN are both zero for Human (AC decisions) — this regime IS the AC baseline.")
+else:
+    fig_resid = go.Figure()
+    for key, (label, color) in _AC_LABELS.items():
+        sub = _resid_df[_resid_df["vs_ac"] == key]
+        if sub.empty: continue
+        fig_resid.add_trace(go.Box(
+            y=sub["cite_resid"],
+            name=label,
+            marker_color=color,
+            line_color=color,
+            fillcolor=f"rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.25)",
+            boxmean=True,
+            whiskerwidth=0.6,
+            hovertemplate="%{y:.3f}<extra>" + key + "</extra>",
+        ))
+    fig_resid.add_hline(y=0, line_dash="dash", line_color=SUBTEXT, line_width=1)
+    fig_resid.update_layout(
+        height=340, margin=dict(l=0, r=0, t=8, b=8),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        showlegend=True,
+        legend=dict(orientation="h", y=-0.2, font=dict(size=11)),
+        yaxis=dict(title="Citation residual (log scale)", zeroline=False,
+                   showgrid=True, gridcolor=BORDER, tickfont=dict(size=11, color=SUBTEXT)),
+        xaxis=dict(showticklabels=False, showgrid=False),
+    )
+    st.plotly_chart(fig_resid, use_container_width=True)
 st.markdown("---")
 
 # ── 3c. SCATTER: HUMAN SCORE vs LOG CITATIONS ────────────────────────────────
@@ -497,54 +532,8 @@ fig_sc.update_layout(
 st.plotly_chart(fig_sc, use_container_width=True)
 st.markdown("---")
 
-# ── 3d. LLM SCORE vs HUMAN SCORE (LLM regimes only) ─────────────────────────
-llm_score_col = {
-    "LLM1 (neutral)":          "llm_neutral_rating",
-    "LLM2 (ensemble)":         "llm_mean_rating",
-    "LLM3 (positive advocate)":"llm_positive_rating",
-}
-if dive_regime_name in llm_score_col:
-    col = llm_score_col[dive_regime_name]
-    st.markdown("#### 3d. LLM Score vs Human Reviewer Score")
-    st.markdown('<p class="explainer">'
-                'X-axis = mean human reviewer rating; Y-axis = LLM score for this regime. '
-                'Where the LLM diverges from humans (off-diagonal clusters) tells you where '
-                'it is making independent judgments. Papers in the upper-left '
-                '(LLM liked it, humans didn\'t) are the regime\'s "champion picks" — '
-                'check whether those are in the ideal set (blue) or not (green).</p>',
-                unsafe_allow_html=True)
-
-    llm_df = pool_df.dropna(subset=["mean_rating", col]).copy()
-    fig_llm = go.Figure()
-    for quad in quad_order:
-        sub = llm_df[llm_df["quadrant"] == quad]
-        fig_llm.add_trace(go.Scatter(
-            x=sub["mean_rating"], y=sub[col], mode="markers",
-            name=f"{quad} (n={len(sub)})",
-            marker=dict(color=QUAD_COLORS[quad], size=5, opacity=0.6,
-                        line=dict(width=0)),
-            hovertemplate="Human: %{x:.1f}<br>LLM: %{y:.1f}<extra>" + quad + "</extra>",
-        ))
-    # diagonal agreement line
-    mn = max(llm_df["mean_rating"].min(), llm_df[col].min())
-    mx = min(llm_df["mean_rating"].max(), llm_df[col].max())
-    fig_llm.add_trace(go.Scatter(x=[mn,mx], y=[mn,mx], mode="lines",
-        line=dict(color=SUBTEXT, width=1, dash="dash"), showlegend=False,
-        hoverinfo="skip"))
-    fig_llm.update_layout(
-        height=350, margin=dict(l=0, r=0, t=8, b=8),
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        legend=dict(orientation="h", y=-0.18, font=dict(size=11)),
-        xaxis=dict(title="Mean human reviewer rating", showgrid=True, gridcolor=BORDER,
-                   tickfont=dict(size=11, color=SUBTEXT)),
-        yaxis=dict(title=f"LLM score ({dive_regime_name})", showgrid=True, gridcolor=BORDER,
-                   tickfont=dict(size=11, color=SUBTEXT)),
-    )
-    st.plotly_chart(fig_llm, use_container_width=True)
-    st.markdown("---")
-
-# ── 3e. MISSED GEMS + HUMAN CONSENSUS WRONG ─────────────────────────────────
-st.markdown("#### 3e. Missed Gems and Human Consensus Errors")
+# ── 3d. MISSED GEMS + HUMAN CONSENSUS WRONG ─────────────────────────────────
+st.markdown("#### 3d. Missed Gems and Human Consensus Errors")
 st.markdown('<p class="explainer">'
             '<b>Missed gems</b> (left): high-citation papers the regime failed to select — '
             'in the citation ideal but not picked. Where available, reviewer rejection tags '
@@ -589,6 +578,5 @@ col_r.dataframe(consensus_wrong, use_container_width=True, hide_index=True)
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
-st.caption("**LLM1–3** reviews (neutral, ensemble, positive-advocate) are synthetically "
-           "generated reviews from the OpenReview dataset authors, not produced by this project. "
-           "Human reviews are from ICLR 2018–2020 via OpenReview.")
+st.caption("Human reviews are from ICLR 2018–2020 via OpenReview. "
+           "LLM reviews generated by a Gemma-4-31B committee pipeline — see sidebar note for details.")
