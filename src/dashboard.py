@@ -15,7 +15,6 @@ from scipy.stats import gaussian_kde
 from metrics import METRIC_LABELS, compute_metrics
 from baselines import random_baseline, ideal_baseline
 from regimes.human_actual import HumanActual
-from regimes.human_score import HumanScore
 from regimes.human_disagree import HumanDisagree
 from regimes.llm_committee import LLMCommittee
 from regimes.llm_deepseek import LLMDeepSeek
@@ -27,7 +26,6 @@ st.set_page_config(page_title="CitesBench — Reviewer Regime Dashboard",
 # ── Design tokens ─────────────────────────────────────────────────────────────
 COLORS = {
     "Human (AC decisions)":                  "#2563EB",
-    "Human (score top-N)":                   "#D97706",
     "Human (disagreement-adjusted)":         "#0D9488",
     "LLM Committee (Gemma)":                 "#DC2626",
     "LLM Decision Head":                     "#7C3AED",
@@ -164,7 +162,7 @@ st.sidebar.caption(
 )
 
 # ── Regime list ───────────────────────────────────────────────────────────────
-all_regimes = [HumanActual(), HumanScore(), HumanDisagree(lam),
+all_regimes = [HumanActual(), HumanDisagree(lam),
                LLMCommittee(), LLMDeepSeek()]
 all_years = sorted(eval_table["year"].unique().astype(int).tolist())
 years = all_years if selected_year == "All years" else [int(selected_year)]
@@ -350,8 +348,8 @@ dive_years = all_years if dive_year_opt == "All years" else [dive_year_opt]
 
 # Build regime object
 def get_regime(name):
-    for r in [HumanActual(), HumanScore(), HumanDisagree(lam),
-              LLMNeutral(), LLMEnsemble(), LLMPositive()]:
+    for r in [HumanActual(), HumanDisagree(lam),
+              LLMCommittee(), LLMDeepSeek()]:
         if r.name == name:
             return r
 dive_regime = get_regime(dive_regime_name)
