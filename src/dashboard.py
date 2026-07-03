@@ -17,9 +17,8 @@ from baselines import random_baseline, ideal_baseline
 from regimes.human_actual import HumanActual
 from regimes.human_score import HumanScore
 from regimes.human_disagree import HumanDisagree
-from regimes.llm_neutral import LLMNeutral
-from regimes.llm_ensemble import LLMEnsemble
-from regimes.llm_positive import LLMPositive
+from regimes.llm_committee import LLMCommittee
+from regimes.llm_deepseek import LLMDeepSeek
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="CitesBench — Reviewer Regime Dashboard",
@@ -30,9 +29,8 @@ COLORS = {
     "Human (AC decisions)":                  "#2563EB",
     "Human (score top-N)":                   "#D97706",
     "Human (disagreement-adjusted)":         "#0D9488",
-    "LLM1 (neutral)":                        "#DC2626",
-    "LLM2 (ensemble)":                       "#059669",
-    "LLM3 (positive advocate)":              "#7C3AED",
+    "LLM Committee (Gemma)":                 "#DC2626",
+    "LLM Decision Head":                     "#7C3AED",
 }
 QUAD_COLORS = {
     "regime ∩ ideal":  "#2563EB",
@@ -156,10 +154,18 @@ show_drawdown = st.sidebar.checkbox("Show drawdown from ideal", value=False,
 st.sidebar.markdown("---")
 st.sidebar.caption("⚠️ Median/mean citations computed over OpenAlex-matched papers only "
                    "(accepts ~89%, rejects ~63%). Recall metrics unaffected.")
+st.sidebar.markdown("---")
+st.sidebar.caption(
+    "ℹ️ **LLM regimes** use a two-stage pipeline: Gemma-4-31B committee (4 reviewer "
+    "personas) → decision head. Borderline papers (n=2,361, ratings 4–7) used a "
+    "fine-tuned Gemma + DeepSeek V3.1; remaining papers used base Gemma + GPT-oss-20b. "
+    "Base model scores are less calibrated (r=0.10 vs r=0.26 with human ratings). "
+    "Results reflect a mixed-model pipeline and should be interpreted accordingly."
+)
 
 # ── Regime list ───────────────────────────────────────────────────────────────
 all_regimes = [HumanActual(), HumanScore(), HumanDisagree(lam),
-               LLMNeutral(), LLMEnsemble(), LLMPositive()]
+               LLMCommittee(), LLMDeepSeek()]
 all_years = sorted(eval_table["year"].unique().astype(int).tolist())
 years = all_years if selected_year == "All years" else [int(selected_year)]
 
