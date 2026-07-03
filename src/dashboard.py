@@ -15,6 +15,7 @@ from scipy.stats import gaussian_kde
 from metrics import METRIC_LABELS, compute_metrics
 from baselines import random_baseline, ideal_baseline
 from regimes.human_actual import HumanActual
+from regimes.human_score import HumanScore
 from regimes.human_disagree import HumanDisagree
 from regimes.llm_committee import LLMCommittee
 from regimes.llm_deepseek import LLMDeepSeek
@@ -26,6 +27,7 @@ st.set_page_config(page_title="CitesBench — Reviewer Regime Dashboard",
 # ── Design tokens ─────────────────────────────────────────────────────────────
 COLORS = {
     "Human (AC decisions)":                  "#2563EB",
+    "Human (score top-N)":                   "#D97706",
     "Human (disagreement-adjusted)":         "#0D9488",
     "LLM Committee (Gemma)":                 "#DC2626",
     "LLM Decision Head":                     "#7C3AED",
@@ -162,7 +164,7 @@ st.sidebar.caption(
 )
 
 # ── Regime list ───────────────────────────────────────────────────────────────
-all_regimes = [HumanActual(), HumanDisagree(lam),
+all_regimes = [HumanActual(), HumanScore(), HumanDisagree(lam),
                LLMCommittee(), LLMDeepSeek()]
 all_years = sorted(eval_table["year"].unique().astype(int).tolist())
 years = all_years if selected_year == "All years" else [int(selected_year)]
@@ -189,45 +191,6 @@ regimes   = dff["regime"].unique().tolist()
 color_map = {r: list(COLORS.values())[i % len(COLORS)] for i, r in enumerate(regimes)}
 metrics   = [m for m in METRIC_LABELS if m in dff["metric"].unique()]
 
-def _pct_gap(regime, drawdown=show_drawdown):
-    scores = []
-    for metric in metrics:
-        sub = dff[(dff["regime"] == regime) & (dff["metric"] == metric)]
-        if sub.empty: continue
-        v, rand, ideal = sub["value"].values[0], sub["random_value"].values[0], sub["ideal_value"].values[0]
-        gap = ideal - rand
-        if gap and not np.isnan(gap):
-            scores.append((ideal - v) / gap * 100 if drawdown else (v - rand) / gap * 100)
-    return np.mean(scores) if scores else 0
-
-def bar_chart(scores_df, title_label, drawdown=False):
-    """Horizontal bar chart showing % of gap closed (or drawdown)."""
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=scores_df["score"],
-        y=scores_df["label"],
-        orientation="h",
-        marker_color=[color_map.get(r, "#94A3B8") for r in scores_df["regime"]],
-        marker_line_width=0,
-        text=[f"{v:.0f}%" for v in scores_df["score"]],
-        textposition="outside",
-        textfont=dict(size=12, color=TEXT),
-        hovertemplate="%{y}<br>%{x:.1f}%<extra></extra>",
-    ))
-    fig.update_layout(
-        height=40 * len(scores_df) + 60,
-        margin=dict(l=0, r=80, t=8, b=8),
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        showlegend=False,
-        xaxis=dict(range=[0, 115] if not drawdown else [-5, 110],
-                   autorange="reversed" if drawdown else True,
-                   showgrid=True, gridcolor=BORDER,
-                   ticksuffix="%", tickfont=dict(color=SUBTEXT, size=11),
-                   zeroline=True, zerolinecolor=BORDER),
-        yaxis=dict(showgrid=False, tickfont=dict(color=TEXT, size=12)),
-    )
-    return fig
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 1 — OVERVIEW
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -236,58 +199,18 @@ st.markdown(f"<span style='color:{SUBTEXT};font-size:15px'>ICLR 2018–2020  · 
             f"{selected_year}  ·  Raw citations</span>", unsafe_allow_html=True)
 st.markdown("")
 
-st.markdown('<p class="section-header">Section 1 — Overall Performance</p>', unsafe_allow_html=True)
-c_label, c_note = st.columns([2, 3])
-mode_label = "drawdown from ideal (lower = better, 0% = ideal)" if show_drawdown \
-             else "% of ideal gap closed (higher = better, 100% = ideal)"
-c_label.markdown(f'<p class="explainer">Each bar = <b>{mode_label}</b>, '
-                 'averaged equally across all 5 metrics (median cites, mean log cites, '
-                 'recall @1/5/10%). This is a summary score — see the table below for '
-                 'per-metric breakdown.</p>', unsafe_allow_html=True)
-
-regime_order = sorted(regimes, key=lambda r: _pct_gap(r, show_drawdown),
-                      reverse=not show_drawdown)
-scores_df = pd.DataFrame([{
-    "regime": r,
-    "label":  r.replace("Human (", "").rstrip(")").replace("LLM", "LLM "),
-    "score":  _pct_gap(r, show_drawdown),
-} for r in regime_order])
-
-st.plotly_chart(bar_chart(scores_df, "Overall", show_drawdown), use_container_width=True)
-
-# Summary table
-pivot = dff[dff["regime"].isin(regimes)].pivot_table(
-    index="regime", columns="metric", values="value")
-display_cols = [m for m in METRIC_LABELS if m in pivot.columns]
-pivot = pivot.loc[[r for r in regime_order if r in pivot.index], display_cols].round(3)
-pivot.rename(columns=METRIC_SHORT, inplace=True)
-pivot.index = pivot.index.str.replace("Human (", "").str.rstrip(")")
-
-rand_row  = {METRIC_SHORT[m]: dff[dff["metric"]==m]["random_value"].mean()
-             for m in display_cols if m in METRIC_SHORT}
-ideal_row = {METRIC_SHORT[m]: dff[dff["metric"]==m]["ideal_value"].mean()
-             for m in display_cols if m in METRIC_SHORT}
-ref = pd.DataFrame([rand_row, ideal_row],
-                   index=["— Random baseline", "— Ideal ceiling"]).round(3)
-st.dataframe(pd.concat([pivot, ref]), use_container_width=True)
-
-st.markdown("---")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 2 — METRIC BREAKDOWN
-# ═══════════════════════════════════════════════════════════════════════════════
-st.markdown('<p class="section-header">Section 2 — Metric Breakdown</p>', unsafe_allow_html=True)
-st.markdown('<p class="explainer">Different metrics capture different aspects of quality. '
-            'Median citations rewards consistently good picks; recall @1% rewards finding '
-            'the rare breakthrough papers. Select a metric to see per-regime performance '
-            'on that dimension. Bars show % of gap closed; raw values shown in parentheses. '
+st.markdown('<p class="section-header">Section 1 — Performance by Metric</p>', unsafe_allow_html=True)
+st.markdown('<p class="explainer">Select a metric to compare regimes. '
+            'Bars show % of ideal gap closed (higher = better, 100% = ideal); '
+            'raw values shown in parentheses. '
             'The dashed line is random selection; the dotted line is the theoretical ceiling '
-            '(top-N papers by citations).</p>', unsafe_allow_html=True)
+            '(top-N papers by citations). Full per-metric table below.</p>',
+            unsafe_allow_html=True)
 
 sel_metric = st.selectbox("Select metric", metrics, format_func=lambda m: METRIC_LABELS[m])
 
 sub_rows = []
-for r in regime_order:
+for r in regimes:
     sub = dff[(dff["regime"] == r) & (dff["metric"] == sel_metric)]
     if sub.empty: continue
     v, rand, ideal = sub["value"].values[0], sub["random_value"].values[0], sub["ideal_value"].values[0]
@@ -299,6 +222,7 @@ for r in regime_order:
                      "score": pct, "value": v, "rand": rand, "ideal": ideal})
 
 sub_df   = pd.DataFrame(sub_rows).sort_values("score", ascending=show_drawdown)
+regime_order = sub_df["regime"].tolist()
 rand_val = sub_df["rand"].mean(); ideal_val = sub_df["ideal"].mean()
 
 fig2 = go.Figure()
@@ -330,6 +254,23 @@ fig2.update_layout(
     yaxis=dict(showgrid=False, tickfont=dict(color=TEXT, size=12)),
 )
 st.plotly_chart(fig2, use_container_width=True)
+
+# Summary table
+pivot = dff[dff["regime"].isin(regimes)].pivot_table(
+    index="regime", columns="metric", values="value")
+display_cols = [m for m in METRIC_LABELS if m in pivot.columns]
+pivot = pivot.loc[[r for r in regime_order if r in pivot.index], display_cols].round(3)
+pivot.rename(columns=METRIC_SHORT, inplace=True)
+pivot.index = pivot.index.str.replace("Human (", "").str.rstrip(")")
+
+rand_row  = {METRIC_SHORT[m]: dff[dff["metric"]==m]["random_value"].mean()
+             for m in display_cols if m in METRIC_SHORT}
+ideal_row = {METRIC_SHORT[m]: dff[dff["metric"]==m]["ideal_value"].mean()
+             for m in display_cols if m in METRIC_SHORT}
+ref = pd.DataFrame([rand_row, ideal_row],
+                   index=["— Random baseline", "— Ideal ceiling"]).round(3)
+st.dataframe(pd.concat([pivot, ref]), use_container_width=True)
+
 st.markdown("---")
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -348,7 +289,7 @@ dive_years = all_years if dive_year_opt == "All years" else [dive_year_opt]
 
 # Build regime object
 def get_regime(name):
-    for r in [HumanActual(), HumanDisagree(lam),
+    for r in [HumanActual(), HumanScore(), HumanDisagree(lam),
               LLMCommittee(), LLMDeepSeek()]:
         if r.name == name:
             return r
