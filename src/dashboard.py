@@ -274,6 +274,106 @@ st.dataframe(pd.concat([pivot, ref]), use_container_width=True)
 st.markdown("---")
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 2 — LEAKAGE-ROBUST CHECK (TOP DECILE EXCLUDED)
+# ═══════════════════════════════════════════════════════════════════════════════
+st.markdown('<p class="section-header">Section 2 — Leakage-Robust Check</p>', unsafe_allow_html=True)
+st.markdown('<p class="explainer">LLMs trained on recent data may recognise highly-cited '
+            'papers by reputation, inflating performance at the top end. This table repeats '
+            'the evaluation after removing the top-10% of papers by citations from each '
+            'year\'s pool (N adjusted to accepted papers in the remaining pool). '
+            'If LLM regimes still outperform human AC here, the signal is harder to '
+            'attribute to memorisation of famous papers.</p>', unsafe_allow_html=True)
+
+_td_rows = []
+_cutoff_info = {}
+for _yr in all_years:
+    _pool = prepare_pool(_yr, mode, impute_zeros)
+    _known = _pool.dropna(subset=["openalex_citations"])
+    if _known.empty:
+        continue
+    _cut = _known["openalex_citations"].quantile(0.90)
+    _cutoff_info[_yr] = int(_cut)
+    _fpool = _pool[
+        _pool["openalex_citations"].isna() | (_pool["openalex_citations"] <= _cut)
+    ].copy()
+    _n_f = _fpool[_fpool["decision"].str.startswith("Accept", na=False)].shape[0]
+    if _n_f == 0:
+        continue
+    _rand_f  = random_baseline(_fpool, _n_f, mode)
+    _ideal_f = ideal_baseline(_fpool, _n_f, mode)
+    for _reg in all_regimes:
+        try:
+            _sel = _reg.select(_fpool, _n_f)
+            _mets = compute_metrics(_sel, _fpool, mode)
+            for _met, _val in _mets.items():
+                _td_rows.append({
+                    "regime": _reg.name, "year": _yr, "metric": _met,
+                    "value": _val,
+                    "random_value": _rand_f.get(_met, np.nan),
+                    "ideal_value":  _ideal_f.get(_met, np.nan),
+                })
+        except Exception:
+            pass
+
+_td_df = pd.DataFrame(_td_rows)
+if not _td_df.empty:
+    if selected_year == "All years":
+        _td_df = _td_df.groupby(["regime", "metric"])[
+            ["value", "random_value", "ideal_value"]].mean().reset_index()
+    else:
+        _td_df = _td_df[_td_df["year"] == int(selected_year)]
+
+    _show_m = [m for m in
+               ["median_citations", "mean_log_citations", "recall_at_5", "recall_at_10"]
+               if m in _td_df["metric"].unique() and m in dff["metric"].unique()]
+
+    _td_piv = _td_df[_td_df["regime"].isin(regimes)].pivot_table(
+        index="regime", columns="metric", values="value")
+    _full_piv = dff[dff["regime"].isin(regimes)].pivot_table(
+        index="regime", columns="metric", values="value")
+
+    _td_piv   = _td_piv.loc[[r for r in regime_order if r in _td_piv.index],
+                              [m for m in _show_m if m in _td_piv.columns]].round(3)
+    _full_piv = _full_piv.loc[[r for r in regime_order if r in _full_piv.index],
+                                [m for m in _show_m if m in _full_piv.columns]].round(3)
+
+    _td_piv.rename(  columns={m: f"{METRIC_SHORT[m]} †" for m in _show_m if m in METRIC_SHORT}, inplace=True)
+    _full_piv.rename(columns={m: METRIC_SHORT[m]         for m in _show_m if m in METRIC_SHORT}, inplace=True)
+    _td_piv.index   = _td_piv.index.str.replace("Human (", "").str.rstrip(")")
+    _full_piv.index = _full_piv.index.str.replace("Human (", "").str.rstrip(")")
+
+    # Interleave columns: Metric (full), Metric † (excl), ...
+    _cols_ord = []
+    for m in _show_m:
+        if m not in METRIC_SHORT: continue
+        lbl = METRIC_SHORT[m]
+        if lbl in _full_piv.columns:     _cols_ord.append(lbl)
+        if f"{lbl} †" in _td_piv.columns: _cols_ord.append(f"{lbl} †")
+    _combined = pd.concat([_full_piv, _td_piv], axis=1)[[c for c in _cols_ord if c in pd.concat([_full_piv, _td_piv], axis=1).columns]]
+
+    _rand_ref = {}
+    _ideal_ref = {}
+    for m in _show_m:
+        if m not in METRIC_SHORT: continue
+        lbl = METRIC_SHORT[m]
+        _rand_ref[lbl]        = dff[dff["metric"]==m]["random_value"].mean()
+        _rand_ref[f"{lbl} †"] = _td_df[_td_df["metric"]==m]["random_value"].mean()
+        _ideal_ref[lbl]        = dff[dff["metric"]==m]["ideal_value"].mean()
+        _ideal_ref[f"{lbl} †"] = _td_df[_td_df["metric"]==m]["ideal_value"].mean()
+    _ref_td = pd.DataFrame([_rand_ref, _ideal_ref],
+                           index=["— Random baseline", "— Ideal ceiling"]).round(3)
+    _ref_td = _ref_td[[c for c in _cols_ord if c in _ref_td.columns]]
+
+    if _cutoff_info:
+        st.caption("† top-decile excluded  ·  cutoffs: " +
+                   "  ·  ".join(f"{yr}: ≥{cut:,} cites" for yr, cut in sorted(_cutoff_info.items())))
+    st.dataframe(pd.concat([_combined, _ref_td]), use_container_width=True)
+else:
+    st.info("No citation data available for top-decile exclusion.")
+
+st.markdown("---")
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 3 — REGIME DEEP DIVE
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown('<p class="section-header">Section 3 — Regime Deep Dive</p>', unsafe_allow_html=True)
