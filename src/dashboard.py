@@ -122,6 +122,40 @@ def get_baselines(year, mode, impute_zeros):
     new_df.to_csv(BASELINE_CACHE, index=False)
     return rand, ideal, n
 
+@st.cache_data
+def compute_td_eval(years_tuple, lam, mode, impute_zeros):
+    """Top-decile-excluded evaluation. Cached keyed on years/lam/mode/impute."""
+    _regs = [HumanActual(), HumanScore(), HumanDisagree(lam),
+             LLMCommittee(), LLMDeepSeek()]
+    rows, cutoffs = [], {}
+    for yr in years_tuple:
+        pool = prepare_pool(yr, mode, impute_zeros)
+        known = pool.dropna(subset=["openalex_citations"])
+        if known.empty:
+            continue
+        cut = known["openalex_citations"].quantile(0.90)
+        cutoffs[yr] = int(cut)
+        fpool = pool[
+            pool["openalex_citations"].isna() | (pool["openalex_citations"] <= cut)
+        ].copy()
+        n_f = fpool[fpool["decision"].str.startswith("Accept", na=False)].shape[0]
+        if n_f == 0:
+            continue
+        rand_f  = random_baseline(fpool, n_f, mode)
+        ideal_f = ideal_baseline(fpool, n_f, mode)
+        for reg in _regs:
+            try:
+                sel  = reg.select(fpool, n_f)
+                mets = compute_metrics(sel, fpool, mode)
+                for met, val in mets.items():
+                    rows.append({"regime": reg.name, "year": yr, "metric": met,
+                                 "value": val,
+                                 "random_value": rand_f.get(met, np.nan),
+                                 "ideal_value":  ideal_f.get(met, np.nan)})
+            except Exception:
+                pass
+    return pd.DataFrame(rows), cutoffs
+
 def compute_live(regime, year, mode, impute_zeros):
     pool = prepare_pool(year, mode, impute_zeros)
     rand, ideal_vals, n = get_baselines(year, mode, impute_zeros)
@@ -284,38 +318,7 @@ st.markdown('<p class="explainer">LLMs trained on recent data may recognise high
             'If LLM regimes still outperform human AC here, the signal is harder to '
             'attribute to memorisation of famous papers.</p>', unsafe_allow_html=True)
 
-_td_rows = []
-_cutoff_info = {}
-for _yr in all_years:
-    _pool = prepare_pool(_yr, mode, impute_zeros)
-    _known = _pool.dropna(subset=["openalex_citations"])
-    if _known.empty:
-        continue
-    _cut = _known["openalex_citations"].quantile(0.90)
-    _cutoff_info[_yr] = int(_cut)
-    _fpool = _pool[
-        _pool["openalex_citations"].isna() | (_pool["openalex_citations"] <= _cut)
-    ].copy()
-    _n_f = _fpool[_fpool["decision"].str.startswith("Accept", na=False)].shape[0]
-    if _n_f == 0:
-        continue
-    _rand_f  = random_baseline(_fpool, _n_f, mode)
-    _ideal_f = ideal_baseline(_fpool, _n_f, mode)
-    for _reg in all_regimes:
-        try:
-            _sel = _reg.select(_fpool, _n_f)
-            _mets = compute_metrics(_sel, _fpool, mode)
-            for _met, _val in _mets.items():
-                _td_rows.append({
-                    "regime": _reg.name, "year": _yr, "metric": _met,
-                    "value": _val,
-                    "random_value": _rand_f.get(_met, np.nan),
-                    "ideal_value":  _ideal_f.get(_met, np.nan),
-                })
-        except Exception:
-            pass
-
-_td_df = pd.DataFrame(_td_rows)
+_td_df, _cutoff_info = compute_td_eval(tuple(all_years), lam, mode, impute_zeros)
 if not _td_df.empty:
     if selected_year == "All years":
         _td_df = _td_df.groupby(["regime", "metric"])[
