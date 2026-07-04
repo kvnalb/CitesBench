@@ -85,18 +85,23 @@ except FileNotFoundError:
 BASELINE_CACHE = "outputs/baselines_cache.csv"
 
 @st.cache_data
-def prepare_pool(year, mode, impute_zeros):
+def prepare_pool(year, mode, impute_zeros, exclude_top_decile=False):
     pool = eval_table[eval_table["year"] == year].copy()
     if impute_zeros:
         pool["openalex_citations"] = pool["openalex_citations"].fillna(0)
         for field, grp in pool.groupby("field"):
             mask = pool["field"].eq(field) & pool["openalex_citations"].notna()
             pool.loc[mask, "citation_pct_rank"] = pool.loc[mask, "openalex_citations"].rank(pct=True)
+    if exclude_top_decile:
+        known = pool.dropna(subset=["openalex_citations"])
+        if not known.empty:
+            cut = known["openalex_citations"].quantile(0.90)
+            pool = pool[pool["openalex_citations"].isna() | (pool["openalex_citations"] <= cut)].copy()
     return pool
 
 @st.cache_data
-def get_baselines(year, mode, impute_zeros):
-    key = f"{year}_{mode}_{int(impute_zeros)}"
+def get_baselines(year, mode, impute_zeros, exclude_top_decile=False):
+    key = f"{year}_{mode}_{int(impute_zeros)}_{int(exclude_top_decile)}"
     if os.path.exists(BASELINE_CACHE):
         cached = pd.read_csv(BASELINE_CACHE)
         hit = cached[cached["key"] == key]
@@ -105,9 +110,8 @@ def get_baselines(year, mode, impute_zeros):
             ideal = dict(zip(hit[hit["which"]=="ideal"]["metric"],  hit[hit["which"]=="ideal"]["value"]))
             n     = int(hit["n"].values[0])
             return rand, ideal, n
-    pool = prepare_pool(year, mode, impute_zeros)
-    n = eval_table[eval_table["year"].eq(year) &
-                   eval_table["decision"].str.startswith("Accept", na=False)].shape[0]
+    pool = prepare_pool(year, mode, impute_zeros, exclude_top_decile)
+    n = pool[pool["decision"].str.startswith("Accept", na=False)].shape[0]
     rand  = random_baseline(pool, n, mode)
     ideal = ideal_baseline(pool, n, mode)
     rows = []
@@ -122,43 +126,9 @@ def get_baselines(year, mode, impute_zeros):
     new_df.to_csv(BASELINE_CACHE, index=False)
     return rand, ideal, n
 
-@st.cache_data
-def compute_td_eval(years_tuple, lam, mode, impute_zeros):
-    """Top-decile-excluded evaluation. Cached keyed on years/lam/mode/impute."""
-    _regs = [HumanActual(), HumanScore(), HumanDisagree(lam),
-             LLMCommittee(), LLMDeepSeek()]
-    rows, cutoffs = [], {}
-    for yr in years_tuple:
-        pool = prepare_pool(yr, mode, impute_zeros)
-        known = pool.dropna(subset=["openalex_citations"])
-        if known.empty:
-            continue
-        cut = known["openalex_citations"].quantile(0.90)
-        cutoffs[yr] = int(cut)
-        fpool = pool[
-            pool["openalex_citations"].isna() | (pool["openalex_citations"] <= cut)
-        ].copy()
-        n_f = fpool[fpool["decision"].str.startswith("Accept", na=False)].shape[0]
-        if n_f == 0:
-            continue
-        rand_f  = random_baseline(fpool, n_f, mode)
-        ideal_f = ideal_baseline(fpool, n_f, mode)
-        for reg in _regs:
-            try:
-                sel  = reg.select(fpool, n_f)
-                mets = compute_metrics(sel, fpool, mode)
-                for met, val in mets.items():
-                    rows.append({"regime": reg.name, "year": yr, "metric": met,
-                                 "value": val,
-                                 "random_value": rand_f.get(met, np.nan),
-                                 "ideal_value":  ideal_f.get(met, np.nan)})
-            except Exception:
-                pass
-    return pd.DataFrame(rows), cutoffs
-
-def compute_live(regime, year, mode, impute_zeros):
-    pool = prepare_pool(year, mode, impute_zeros)
-    rand, ideal_vals, n = get_baselines(year, mode, impute_zeros)
+def compute_live(regime, year, mode, impute_zeros, exclude_top_decile=False):
+    pool = prepare_pool(year, mode, impute_zeros, exclude_top_decile)
+    rand, ideal_vals, n = get_baselines(year, mode, impute_zeros, exclude_top_decile)
     selected = regime.select(pool, n)
     metrics = compute_metrics(selected, pool, mode)
     rows = []
@@ -184,6 +154,10 @@ impute_zeros = st.sidebar.checkbox("Impute 0 citations for unmatched papers", va
     help="~37% of papers have no OpenAlex match. Off: exclude from metrics. On: count as 0.")
 show_drawdown = st.sidebar.checkbox("Show drawdown from ideal", value=False,
     help="Off: % of gap closed (higher = better). On: % left on table vs ideal (lower = better).")
+exclude_top_decile = st.sidebar.checkbox("Exclude top-10% by citations (leakage-robust)", value=False,
+    help="Removes the top citation decile per year and adjusts N. "
+         "LLMs may recognise famous papers from training data — stripping them tests whether "
+         "the signal survives without memorisation of high-impact work.")
 
 st.sidebar.markdown("---")
 st.sidebar.caption("⚠️ Median/mean citations computed over OpenAlex-matched papers only "
@@ -208,7 +182,7 @@ live_rows = []
 for year in years:
     for regime in all_regimes:
         try:
-            live_rows.extend(compute_live(regime, year, mode, impute_zeros))
+            live_rows.extend(compute_live(regime, year, mode, impute_zeros, exclude_top_decile))
         except Exception:
             pass
 
@@ -229,8 +203,9 @@ metrics   = [m for m in METRIC_LABELS if m in dff["metric"].unique()]
 # SECTION 1 — OVERVIEW
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("# CitesBench — Reviewer Regime Comparison")
+_mode_label = "Top-10% excluded (leakage-robust)" if exclude_top_decile else "Full citation pool"
 st.markdown(f"<span style='color:{SUBTEXT};font-size:15px'>ICLR 2018–2020  ·  "
-            f"{selected_year}  ·  Raw citations</span>", unsafe_allow_html=True)
+            f"{selected_year}  ·  {_mode_label}</span>", unsafe_allow_html=True)
 st.markdown("")
 
 st.markdown('<p class="section-header">Section 1 — Performance by Metric</p>', unsafe_allow_html=True)
@@ -308,78 +283,9 @@ st.dataframe(pd.concat([pivot, ref]), use_container_width=True)
 st.markdown("---")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 2 — LEAKAGE-ROBUST CHECK (TOP DECILE EXCLUDED)
+# SECTION 2 — REGIME DEEP DIVE
 # ═══════════════════════════════════════════════════════════════════════════════
-st.markdown('<p class="section-header">Section 2 — Leakage-Robust Check</p>', unsafe_allow_html=True)
-st.markdown('<p class="explainer">LLMs trained on recent data may recognise highly-cited '
-            'papers by reputation, inflating performance at the top end. This table repeats '
-            'the evaluation after removing the top-10% of papers by citations from each '
-            'year\'s pool (N adjusted to accepted papers in the remaining pool). '
-            'If LLM regimes still outperform human AC here, the signal is harder to '
-            'attribute to memorisation of famous papers.</p>', unsafe_allow_html=True)
-
-_td_df, _cutoff_info = compute_td_eval(tuple(all_years), lam, mode, impute_zeros)
-if not _td_df.empty:
-    if selected_year == "All years":
-        _td_df = _td_df.groupby(["regime", "metric"])[
-            ["value", "random_value", "ideal_value"]].mean().reset_index()
-    else:
-        _td_df = _td_df[_td_df["year"] == int(selected_year)]
-
-    _show_m = [m for m in
-               ["median_citations", "mean_log_citations", "recall_at_5", "recall_at_10"]
-               if m in _td_df["metric"].unique() and m in dff["metric"].unique()]
-
-    _td_piv = _td_df[_td_df["regime"].isin(regimes)].pivot_table(
-        index="regime", columns="metric", values="value")
-    _full_piv = dff[dff["regime"].isin(regimes)].pivot_table(
-        index="regime", columns="metric", values="value")
-
-    _td_piv   = _td_piv.loc[[r for r in regime_order if r in _td_piv.index],
-                              [m for m in _show_m if m in _td_piv.columns]].round(3)
-    _full_piv = _full_piv.loc[[r for r in regime_order if r in _full_piv.index],
-                                [m for m in _show_m if m in _full_piv.columns]].round(3)
-
-    _td_piv.rename(  columns={m: f"{METRIC_SHORT[m]} †" for m in _show_m if m in METRIC_SHORT}, inplace=True)
-    _full_piv.rename(columns={m: METRIC_SHORT[m]         for m in _show_m if m in METRIC_SHORT}, inplace=True)
-    _td_piv.index   = _td_piv.index.str.replace("Human (", "").str.rstrip(")")
-    _full_piv.index = _full_piv.index.str.replace("Human (", "").str.rstrip(")")
-
-    # Interleave columns: Metric (full), Metric † (excl), ...
-    _cols_ord = []
-    for m in _show_m:
-        if m not in METRIC_SHORT: continue
-        lbl = METRIC_SHORT[m]
-        if lbl in _full_piv.columns:     _cols_ord.append(lbl)
-        if f"{lbl} †" in _td_piv.columns: _cols_ord.append(f"{lbl} †")
-    _combined = pd.concat([_full_piv, _td_piv], axis=1)[[c for c in _cols_ord if c in pd.concat([_full_piv, _td_piv], axis=1).columns]]
-
-    _rand_ref = {}
-    _ideal_ref = {}
-    for m in _show_m:
-        if m not in METRIC_SHORT: continue
-        lbl = METRIC_SHORT[m]
-        _rand_ref[lbl]        = dff[dff["metric"]==m]["random_value"].mean()
-        _rand_ref[f"{lbl} †"] = _td_df[_td_df["metric"]==m]["random_value"].mean()
-        _ideal_ref[lbl]        = dff[dff["metric"]==m]["ideal_value"].mean()
-        _ideal_ref[f"{lbl} †"] = _td_df[_td_df["metric"]==m]["ideal_value"].mean()
-    _ref_td = pd.DataFrame([_rand_ref, _ideal_ref],
-                           index=["— Random baseline", "— Ideal ceiling"]).round(3)
-    _ref_td = _ref_td[[c for c in _cols_ord if c in _ref_td.columns]]
-
-    if _cutoff_info:
-        st.caption("† top-decile excluded  ·  cutoffs: " +
-                   "  ·  ".join(f"{yr}: ≥{cut:,} cites" for yr, cut in sorted(_cutoff_info.items())))
-    st.dataframe(pd.concat([_combined, _ref_td]), use_container_width=True)
-else:
-    st.info("No citation data available for top-decile exclusion.")
-
-st.markdown("---")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 3 — REGIME DEEP DIVE
-# ═══════════════════════════════════════════════════════════════════════════════
-st.markdown('<p class="section-header">Section 3 — Regime Deep Dive</p>', unsafe_allow_html=True)
+st.markdown('<p class="section-header">Section 2 — Regime Deep Dive</p>', unsafe_allow_html=True)
 st.markdown('<p class="explainer">Select a regime to understand <i>how</i> it differs from '
             'both the citation ideal and human AC decisions. Papers are split into four '
             'quadrants based on whether the regime selected them and whether they appear in '
@@ -399,12 +305,12 @@ def get_regime(name):
 dive_regime = get_regime(dive_regime_name)
 
 @st.cache_data
-def compute_quadrants(regime_name, lam, years_tuple, mode, impute_zeros):
+def compute_quadrants(regime_name, lam, years_tuple, mode, impute_zeros, exclude_top_decile=False):
     """Returns pool_df with 'quadrant' column and sets of IDs."""
     pools, regime_ids, ideal_ids, ac_ids = [], set(), set(), set()
     for year in years_tuple:
-        pool = prepare_pool(year, mode, impute_zeros)
-        _, _, n = get_baselines(year, mode, impute_zeros)
+        pool = prepare_pool(year, mode, impute_zeros, exclude_top_decile)
+        _, _, n = get_baselines(year, mode, impute_zeros, exclude_top_decile)
         regime = get_regime(regime_name)
         try:
             sel = set(regime.select(pool, n))
@@ -435,7 +341,7 @@ def compute_quadrants(regime_name, lam, years_tuple, mode, impute_zeros):
 
 with st.spinner("Computing quadrants..."):
     pool_df, regime_ids, ideal_ids, ac_ids = compute_quadrants(
-        dive_regime_name, lam, tuple(dive_years), mode, impute_zeros)
+        dive_regime_name, lam, tuple(dive_years), mode, impute_zeros, exclude_top_decile)
 
 quad_order = ["regime ∩ ideal", "ideal only", "regime only", "neither"]
 
