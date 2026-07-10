@@ -865,7 +865,7 @@ st.markdown('<p class="explainer">'
 
 @st.cache_data  # pure: no global captures
 def _load_rdd_sample(_v=1):
-    rdd_path = "data/OpenAlex/openalex_rdd_arxiv_paper_level.csv"
+    rdd_path = "data/OpenAlex/openalex_rdd_dashboard.csv"
     if not os.path.exists(rdd_path):
         return None
     raw = pd.read_csv(rdd_path)
