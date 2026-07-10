@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
-from scipy.stats import gaussian_kde
+from scipy.stats import gaussian_kde, spearmanr
 
 from metrics import METRIC_LABELS, compute_metrics
 from baselines import random_baseline, ideal_baseline
@@ -584,6 +584,273 @@ col_l.markdown(f"**Missed gems** — high-impact papers regime didn't select (n=
 col_l.dataframe(missed_raw, use_container_width=True, hide_index=True)
 col_r.markdown(f"**Human consensus errors** — both regime & AC accepted, but below citation ideal (n={n_wrong})")
 col_r.dataframe(consensus_wrong, use_container_width=True, hide_index=True)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 3 — COVARIATE HETEROGENEITY
+# ═══════════════════════════════════════════════════════════════════════════════
+st.markdown('<p class="section-header">Section 3 — Covariate Heterogeneity</p>', unsafe_allow_html=True)
+st.markdown('<p class="explainer">'
+            'Does the LLM committee\'s accuracy advantage vary by paper or author characteristics? '
+            'Spearman ρ measures how well committee_rating rank-orders papers by citation impact '
+            'within each subgroup. Recall@10% shows whether field-specific selection differs across regimes.</p>',
+            unsafe_allow_html=True)
+
+@st.cache_data
+def _load_hetero():
+    cov_path = "outputs/paper_author_covariates.csv"
+    if not os.path.exists(cov_path):
+        return None, None
+    cov = pd.read_csv(cov_path)
+    df = eval_table.merge(cov, on="paper_id", how="left")
+    df = df.dropna(subset=["committee_rating", "citation_pct_rank", "field"])
+    df["log_cites"] = np.log1p(df["openalex_citations"].fillna(0))
+    # ρ by field × year
+    grid = []
+    for (field, year), g in df.groupby(["field", "year"]):
+        if len(g) < 10: continue
+        rho, _ = spearmanr(g["committee_rating"], g["citation_pct_rank"])
+        grid.append({"field": field, "year": int(year), "rho": rho, "n": len(g)})
+    # ρ by author flags
+    flags = []
+    for gcol in ["top_institution_flag", "industry_flag", "us_team_flag"]:
+        for gval, sub in df.groupby(gcol):
+            if len(sub) < 30: continue
+            rho, _ = spearmanr(sub["committee_rating"], sub["log_cites"])
+            label = gcol.replace("_flag", "").replace("_", " ")
+            flags.append({"label": f"{label}={'yes' if gval else 'no'}", "rho": rho, "n": len(sub)})
+    return pd.DataFrame(grid), pd.DataFrame(flags)
+
+_grid_df, _flags_df = _load_hetero()
+
+if _grid_df is None:
+    st.info("Run `python src/build_author_covariates.py` to enable this section.")
+else:
+    col3a, col3b = st.columns([1.3, 1])
+
+    with col3a:
+        st.markdown("#### 3a. Spearman ρ by field × year")
+        pivot = _grid_df.pivot(index="year", columns="field", values="rho")
+        fig_heat = go.Figure(go.Heatmap(
+            z=pivot.values,
+            x=[c.replace("_", " ") for c in pivot.columns],
+            y=pivot.index.tolist(),
+            colorscale="Blues", zmin=0.3, zmax=0.75,
+            text=[[f"{v:.2f}" if not (isinstance(v, float) and np.isnan(v)) else ""
+                   for v in row] for row in pivot.values],
+            texttemplate="%{text}",
+            hovertemplate="Field: %{x}<br>Year: %{y}<br>ρ = %{z:.3f}<extra></extra>",
+        ))
+        fig_heat.update_layout(
+            height=200, margin=dict(l=0, r=0, t=8, b=0),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            xaxis=dict(tickangle=-20, tickfont=dict(size=10, color=TEXT)),
+            yaxis=dict(tickfont=dict(size=10, color=TEXT)),
+            coloraxis_showscale=False,
+        )
+        st.plotly_chart(fig_heat, use_container_width=True)
+
+    with col3b:
+        st.markdown("#### 3b. ρ by author profile")
+        if _flags_df is not None and not _flags_df.empty:
+            _flags_df = _flags_df.sort_values("rho")
+            fig_flags = go.Figure(go.Bar(
+                x=_flags_df["rho"], y=_flags_df["label"], orientation="h",
+                marker_color=[COLORS["LLM Committee (Gemma)"] if "yes" in v
+                              else COLORS["Human (score top-N)"]
+                              for v in _flags_df["label"]],
+                marker_line_width=0,
+                text=[f"ρ={r:.3f}  n={n:,}" for r, n in zip(_flags_df["rho"], _flags_df["n"])],
+                textposition="outside", textfont=dict(size=10, color=TEXT),
+            ))
+            fig_flags.update_layout(
+                height=200, margin=dict(l=0, r=110, t=8, b=0),
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                xaxis=dict(range=[0.4, 0.7], showgrid=True, gridcolor=BORDER,
+                           tickfont=dict(size=10, color=SUBTEXT)),
+                yaxis=dict(showgrid=False, tickfont=dict(size=11, color=TEXT)),
+            )
+            st.plotly_chart(fig_flags, use_container_width=True)
+
+    # Recall@10% by field across regimes
+    st.markdown("#### 3c. Recall@10% by field")
+    @st.cache_data
+    def _recall_by_field(years_tuple, mode_key, impute, excl):
+        rows = []
+        _regs = [LLMCommittee(), HumanActual(), HumanScore()]
+        for field in eval_table["field"].dropna().unique():
+            for yr in years_tuple:
+                pf = prepare_pool(yr, mode_key, impute, excl)
+                pf = pf[pf["field"] == field].copy()
+                n_acc = int(pf["decision"].str.startswith("Accept", na=False).sum())
+                if n_acc < 3: continue
+                for reg in _regs:
+                    try:
+                        sel = reg.select(pf, n_acc)
+                        m = compute_metrics(sel, pf, mode_key)
+                        rows.append({"field": field, "regime": reg.name,
+                                     "recall_at_10": m["recall_at_10"]})
+                    except Exception:
+                        pass
+        df = pd.DataFrame(rows)
+        if df.empty: return df
+        return df.groupby(["field", "regime"])["recall_at_10"].mean().reset_index()
+
+    recall_df = _recall_by_field(tuple(years), mode, impute_zeros, exclude_top_decile)
+    if not recall_df.empty:
+        fig_rec = go.Figure()
+        _reg_order = [LLMCommittee().name, HumanActual().name, HumanScore().name]
+        for reg in _reg_order:
+            sub = recall_df[recall_df["regime"] == reg]
+            if sub.empty: continue
+            fig_rec.add_trace(go.Bar(
+                x=sub["field"].str.replace("_", " "), y=sub["recall_at_10"],
+                name=reg.replace("Human (", "").rstrip(")"),
+                marker_color=color_map.get(reg, RANDOM_COLOR),
+                marker_line_width=0,
+            ))
+        fig_rec.update_layout(
+            barmode="group", height=260,
+            margin=dict(l=0, r=0, t=8, b=8),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            legend=dict(orientation="h", y=-0.25, font=dict(size=11)),
+            xaxis=dict(tickangle=-15, tickfont=dict(size=10, color=TEXT), showgrid=False),
+            yaxis=dict(title="Recall@10%", showgrid=True, gridcolor=BORDER,
+                       tickformat=".0%", tickfont=dict(size=10, color=SUBTEXT)),
+        )
+        st.plotly_chart(fig_rec, use_container_width=True)
+
+st.markdown("---")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 4 — FUZZY RDD
+# ═══════════════════════════════════════════════════════════════════════════════
+st.markdown('<p class="section-header">Section 4 — Fuzzy RDD</p>', unsafe_allow_html=True)
+st.markdown('<p class="explainer">'
+            'Does ICLR acceptance causally increase citations, or does the correlation just reflect '
+            'paper quality? Regression discontinuity: papers just above the year-specific rating cutoff '
+            '(score_centered ≥ 0) get a large boost in acceptance probability. '
+            'The fuzzy LATE estimates citations gained purely from acceptance visibility, not quality.</p>',
+            unsafe_allow_html=True)
+
+_RDD_PATH = "data/OpenAlex/openalex_rdd_arxiv_paper_level.csv"
+
+@st.cache_data
+def _load_rdd_sample():
+    if not os.path.exists(_RDD_PATH):
+        return None
+    raw = pd.read_csv(_RDD_PATH)
+    dm = raw[
+        (raw["year"] <= 2020)
+        & raw["in_year_specific_rdd_sample"].astype(bool)
+        & raw["openalex_matched"].astype(bool)
+    ].copy()
+    dm["lcites"] = np.log1p(dm["openalex_cited_by_count"].fillna(0))
+    dm["accepted"] = dm["accepted"].astype(int)
+    return dm
+
+@st.cache_data
+def _rdd_bscatter(n_bins: int = 24):
+    dm = _load_rdd_sample()
+    if dm is None: return None
+    h = dm["bandwidth"].median()
+    sub = dm[dm["score_centered"].abs() <= h].copy()
+    bins = pd.cut(sub["score_centered"], bins=n_bins)
+    return (sub.groupby(bins, observed=True)
+               .agg(score=("score_centered", "mean"),
+                    p_accept=("accepted", "mean"),
+                    lcites=("lcites", "mean"),
+                    n=("score_centered", "size"))
+               .dropna().reset_index(drop=True))
+
+@st.cache_data
+def _rdd_late():
+    dm = _load_rdd_sample()
+    if dm is None: return []
+    from fuzzy_rdd import run_specs_constant
+    return [r for h in [0.5, 0.75, 1.0] if (r := run_specs_constant(dm, h, f"±{h:.2f}"))]
+
+_rdd_dm = _load_rdd_sample()
+if _rdd_dm is None:
+    st.info("RDD data not found at `data/OpenAlex/openalex_rdd_arxiv_paper_level.csv`")
+else:
+    _bsc = _rdd_bscatter()
+    h_med = _rdd_dm["bandwidth"].median()
+
+    col4a, col4b = st.columns(2)
+
+    _left  = _bsc[_bsc["score"] < 0] if _bsc is not None else None
+    _right = _bsc[_bsc["score"] >= 0] if _bsc is not None else None
+    _COL_L = COLORS["LLM Committee (Gemma)"]
+    _COL_R = COLORS["Human (AC decisions)"]
+
+    with col4a:
+        st.markdown("#### 4a. First stage — P(accepted) vs score_centered")
+        fig_fs = go.Figure()
+        if _bsc is not None:
+            for side, col in [(_left, _COL_L), (_right, _COL_R)]:
+                fig_fs.add_trace(go.Scatter(
+                    x=side["score"], y=side["p_accept"], mode="markers",
+                    marker=dict(color=col, size=8), showlegend=False,
+                    hovertemplate="score=%{x:.2f}<br>P(accept)=%{y:.0%}<extra></extra>",
+                ))
+        fig_fs.add_vline(x=0, line_dash="dash", line_color=SUBTEXT, line_width=1.5,
+                         annotation_text="cutoff", annotation_font=dict(size=10, color=SUBTEXT))
+        fig_fs.update_layout(
+            height=280, margin=dict(l=0, r=0, t=8, b=8),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            xaxis=dict(title="score_centered", showgrid=True, gridcolor=BORDER, zeroline=False,
+                       tickfont=dict(size=10, color=SUBTEXT)),
+            yaxis=dict(title="P(accepted)", range=[0, 1.05], tickformat=".0%",
+                       showgrid=True, gridcolor=BORDER, tickfont=dict(size=10, color=SUBTEXT)),
+        )
+        st.plotly_chart(fig_fs, use_container_width=True)
+
+    with col4b:
+        st.markdown("#### 4b. Reduced form — log(1+cites) vs score_centered")
+        fig_rf = go.Figure()
+        if _bsc is not None:
+            for side, col in [(_left, _COL_L), (_right, _COL_R)]:
+                fig_rf.add_trace(go.Scatter(
+                    x=side["score"], y=side["lcites"], mode="markers",
+                    marker=dict(color=col, size=8), showlegend=False,
+                    hovertemplate="score=%{x:.2f}<br>log(1+c)=%{y:.2f}<extra></extra>",
+                ))
+        fig_rf.add_vline(x=0, line_dash="dash", line_color=SUBTEXT, line_width=1.5)
+        fig_rf.update_layout(
+            height=280, margin=dict(l=0, r=0, t=8, b=8),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            xaxis=dict(title="score_centered", showgrid=True, gridcolor=BORDER, zeroline=False,
+                       tickfont=dict(size=10, color=SUBTEXT)),
+            yaxis=dict(title="log(1 + citations)", showgrid=True, gridcolor=BORDER,
+                       tickfont=dict(size=10, color=SUBTEXT)),
+        )
+        st.plotly_chart(fig_rf, use_container_width=True)
+
+    # LATE table
+    _late_rows = _rdd_late()
+    if _late_rows:
+        st.markdown("#### 4c. Fuzzy LATE (local constant estimator, year FE, HC1 SEs)")
+        late_tbl = pd.DataFrame([{
+            "Window": r["spec"], "N": r["N"],
+            "FS jump": f"{r['FS_jump']:+.3f}",
+            "FS F": r["FS_F"],
+            "RF jump": f"{r['RF_jump']:+.3f}",
+            "LATE": r["LATE"],
+            "95% CI": r["CI_95"],
+        } for r in _late_rows])
+        st.dataframe(late_tbl, use_container_width=True, hide_index=True)
+        st.markdown(
+            '<p class="explainer">'
+            'LATE ≈ 1.0 log-citation unit ≈ 2.7× citations for complier papers near the threshold. '
+            'Local constant preferred over local linear due to rating heaping in 2020 (masspoints). '
+            'First-stage F > 100 confirms a strong instrument in all specs.</p>',
+            unsafe_allow_html=True)
+
+    st.caption(
+        f"RDD sample: {len(_rdd_dm):,} papers (ICLR 2018–2020, OpenAlex-matched, within bandwidth). "
+        f"Pooled bandwidth h = {h_med:.2f} (median of year-specific bandwidths ≈ 1.12–1.33). "
+        "⚠ 2020 scores heap at ±0.5 from cutoff — local linear specs have weak FS; local constant preferred."
+    )
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
