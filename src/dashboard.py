@@ -597,14 +597,16 @@ st.markdown('<p class="explainer">'
             unsafe_allow_html=True)
 
 _RDD_PATH = "data/OpenAlex/openalex_rdd_arxiv_paper_level.csv"
+_COV_PATH = "outputs/paper_author_covariates.csv"
+_ET_PATH  = "outputs/eval_table.csv"
 
-@st.cache_data
-def _load_hetero_full():
-    cov_path = "outputs/paper_author_covariates.csv"
-    if not os.path.exists(cov_path):
+@st.cache_data  # pure: reads from disk only, no global captures
+def _load_hetero_full(_v=1):
+    if not os.path.exists(_COV_PATH):
         return None
-    cov = pd.read_csv(cov_path)
-    df = eval_table.merge(cov, on="paper_id", how="left")
+    et  = pd.read_csv(_ET_PATH)
+    cov = pd.read_csv(_COV_PATH)
+    df  = et.merge(cov, on="paper_id", how="left")
     df["log_cites"] = np.log1p(df["openalex_citations"].fillna(0))
     return df
 
@@ -861,11 +863,12 @@ st.markdown('<p class="explainer">'
             'LATE ≈ 1.0 log-unit ≈ 2.7× more citations for papers that just cleared the cutoff.</p>',
             unsafe_allow_html=True)
 
-@st.cache_data
-def _load_rdd_sample():
-    if not os.path.exists(_RDD_PATH):
+@st.cache_data  # pure: no global captures
+def _load_rdd_sample(_v=1):
+    rdd_path = "data/OpenAlex/openalex_rdd_arxiv_paper_level.csv"
+    if not os.path.exists(rdd_path):
         return None
-    raw = pd.read_csv(_RDD_PATH)
+    raw = pd.read_csv(rdd_path)
     dm = raw[
         (raw["year"] <= 2020)
         & raw["in_year_specific_rdd_sample"].astype(bool)
