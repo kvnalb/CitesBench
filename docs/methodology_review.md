@@ -75,9 +75,18 @@ of a 2018 paper is not a blind review — it can reflect memorized hindsight abo
    (LAP=0) papers is still significant (β=0.87, p≈0) and larger than the contaminated share
    (β=0.67, p<0.001) — genuine signal survives, but contamination is real.
 
-2. **Probe validity (placebo controls).** 30 fabricated (nonexistent) titles → confident answer
-   only 3.3% of the time, vs. 21.5% on real papers. 30 real titles asked with the wrong year behave
-   like the correct year. The probe measures real memory, not acquiescence.
+2. **Probe validity (placebo controls) — scaled to power-justified N (2026-07-11).** The original
+   pilot (30 fabricated + 30 wrong-year) was a convenience sample with no power analysis; see
+   `src/leakage_power_analysis.py` / `outputs/leakage_power_analysis.md` for the sizing. Fabricated
+   titles scaled to N=150 (sized so the 95% CI on the false-positive rate clears the real commit
+   rate with >2x margin); wrong-year scaled to N≈300/offset across two offsets (+1, −1), sized via
+   TOST equivalence testing at a ±0.05 margin (a non-significant pilot result at N=30 is not itself
+   evidence of "no difference" — it needed an equivalence test, not just a null result).
+   **Result:** 150 fabricated titles → confident answer only 0.7% of the time (95% CI [0.1%, 3.7%]),
+   vs. 18.9% (95% CI [17.8%, 20.1%]) on real papers — non-overlapping CIs. Wrong-year: mean diff
+   (correct − wrong-year LAP) = −0.003 (N=328, 95% CI [−0.040, +0.034]) at +1yr and +0.020 (N=300,
+   95% CI [−0.016, +0.056]) at −1yr — both comfortably inside the ±0.05 equivalence band. The probe
+   measures real memory, not acquiescence, and doesn't reduce to sensitivity to our framing.
 
 3. **Fame recall — the sharper channel.** Decision-direction accuracy is near chance (52–58%), but
    a parallel probe ("is this paper widely cited — top 10%?") is **85% accurate** when the model
@@ -118,6 +127,12 @@ not 1.40, with the 0.22 gap reported as the measured leakage tax.**
 **Residual caveat.** LAP/FAME ≥ 0.5 is a threshold, not a hard boundary — a paper just below it
 isn't guaranteed clean, and the exclusion test can only remove memorization the probes actually
 elicit. Not fatal, but keep this caveat in any writeup.
+
+**Threshold-sensitivity check (2026-07-11, `src/leakage_threshold_sweep.py`, no new API calls).**
+Re-ran the exclusion eval at every cutoff from 0.1 to 0.9. Excluded-pool size barely moves
+(1,563–1,568 papers) because LAP/FAME scores cluster near 0 or 1, and per-regime Δ (leakage-excluded
+minus full lift) is flat across the whole range — e.g. LLM Committee stays at roughly −0.21 to −0.22
+throughout. 0.5 isn't cherry-picked; the same conclusion holds at any threshold in this band.
 
 ---
 

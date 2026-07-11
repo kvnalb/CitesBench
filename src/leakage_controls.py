@@ -8,12 +8,22 @@ Two probes against the same model + prompt as leakage_lap_v1:
      If recall is genuine memory of the venue-year outcome, commitment should
      match the correct-year probe (model recalls the paper, not our framing).
 
+N is power/precision-justified, not arbitrary — see leakage_power_analysis.py
+and outputs/leakage_power_analysis.md:
+  - fabricated (n=150): sized so the 95% CI on the false-positive rate stays
+    >2x below the real full-corpus commit rate even under a conservative
+    assumed true rate (precision target, not a hypothesis test).
+  - wrong_year (n=300/offset): sized via TOST (equivalence margin ±0.05 on the
+    LAP scale) — the claim is NO difference from correct-year, so a
+    non-significant pilot result at n=30 isn't itself evidence of that.
+
 Output: outputs/leakage_controls.csv (incremental, resumable) + printed summary.
 
-Run: python src/leakage_controls.py [--smoke] [--n-fake 30] [--n-wrongyear 30]
+Run: python src/leakage_controls.py [--smoke] [--n-fake 150] [--n-wrongyear 300] [--offsets 1,-1]
 """
 import os
 import sys
+import random
 import argparse
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -64,12 +74,48 @@ FAKE_TITLES = [
     "Reweighted Score Matching under Heavy-Tailed Noise",
 ]
 
+# Combinatorial generator for fabricated titles beyond the 30 hand-written
+# ones above — plausible ICLR-style titles, no real paper behind them.
+_ADJ = ["Adaptive", "Sparse", "Hierarchical", "Contrastive", "Modular", "Robust",
+       "Uncertainty-Aware", "Self-Supervised", "Differentiable", "Scalable",
+       "Compositional", "Bayesian", "Curriculum-Guided", "Meta-Learned",
+       "Energy-Based", "Distributionally Robust", "Low-Rank", "Amortized"]
+_METHOD = ["Attention Routing", "Policy Distillation", "Representation Alignment",
+          "Gradient Reweighting", "Manifold Regularization", "Prototype Matching",
+          "Latent Factorization", "Ensemble Calibration", "Kernel Approximation",
+          "Graph Message Passing", "Trajectory Optimization", "Feature Disentanglement"]
+_DOMAIN = ["Sequence Modeling", "Few-Shot Classification", "Reinforcement Learning",
+          "Graph Representation Learning", "Multi-Task Transfer", "Continual Learning",
+          "Generative Modeling", "Structured Prediction", "Domain Generalization",
+          "Long-Tailed Recognition", "Offline Policy Evaluation", "Semi-Supervised Learning"]
+_TEMPLATES = ["{adj} {method} for {domain}",
+             "{method} via {adj} Regularization",
+             "Towards {adj} {method} in {domain}",
+             "{adj} {domain} through {method}"]
+
+
+def generate_fake_titles(n_total, existing):
+    rng = random.Random(20260711)
+    titles = list(existing)
+    seen = {t.lower() for t in titles}
+    while len(titles) < n_total:
+        t = rng.choice(_TEMPLATES).format(
+            adj=rng.choice(_ADJ), method=rng.choice(_METHOD), domain=rng.choice(_DOMAIN))
+        if t.lower() not in seen:
+            seen.add(t.lower())
+            titles.append(t)
+    return titles[:n_total]
+
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--smoke", action="store_true", help="5 probes total")
-    parser.add_argument("--n-fake", type=int, default=30)
-    parser.add_argument("--n-wrongyear", type=int, default=30)
+    parser.add_argument("--n-fake", type=int, default=150,
+                        help="power-justified (see leakage_power_analysis.py)")
+    parser.add_argument("--n-wrongyear", type=int, default=300,
+                        help="per offset, power-justified (see leakage_power_analysis.py)")
+    parser.add_argument("--offsets", type=str, default="1",
+                        help="comma-separated year offsets, e.g. '1,-1'")
     parser.add_argument("--workers", type=int, default=10)
     args = parser.parse_args()
 
@@ -77,9 +123,12 @@ def main():
     if not key:
         sys.exit("ERROR: TOGETHER_API_KEY not set in .env")
 
+    offsets = [int(x) for x in args.offsets.split(",")]
+
     # Build probe list: (probe_type, probe_id, title, year_asked)
     probes = []
-    for i, t in enumerate(FAKE_TITLES[: args.n_fake]):
+    fake_titles = generate_fake_titles(args.n_fake, FAKE_TITLES)
+    for i, t in enumerate(fake_titles):
         probes.append(("fabricated", f"fake_{i:03d}", t, 2019))
 
     if not os.path.exists(LAP_CSV):
@@ -88,13 +137,21 @@ def main():
     lap_done = pd.read_csv(LAP_CSV)
     lap_done = lap_done[lap_done["answer"] != "ERROR"]
     titles = pd.read_csv("outputs/eval_table.csv")[["paper_id", "title"]]
-    lap_done = lap_done.merge(titles, on="paper_id")
-    for row in lap_done.head(args.n_wrongyear).itertuples():
-        probes.append(("wrong_year", row.paper_id, row.title, int(row.year) + 1))
+    lap_done = lap_done.merge(titles, on="paper_id").sample(frac=1, random_state=20260711) \
+                       .reset_index(drop=True)
+    # disjoint slices per offset so distinct-paper coverage grows with each offset
+    # rather than re-asking the same subset under every year shift
+    cursor = 0
+    for off in offsets:
+        ptype = "wrong_year" if off == 1 else f"wrong_year{off:+d}"
+        slice_ = lap_done.iloc[cursor: cursor + args.n_wrongyear]
+        cursor += args.n_wrongyear
+        for row in slice_.itertuples():
+            probes.append((ptype, row.paper_id, row.title, int(row.year) + off))
 
     if args.smoke:
         # ponytail: 3 fake + 2 wrong-year is enough to prove the plumbing
-        probes = probes[:3] + [p for p in probes if p[0] == "wrong_year"][:2]
+        probes = probes[:3] + [p for p in probes if p[0].startswith("wrong_year")][:2]
 
     done = set()
     if os.path.exists(OUT_CSV):
@@ -146,13 +203,15 @@ def main():
     if len(fab):
         print(f"fabricated  (n={len(fab)}): false-positive rate (LAP≥0.5) = "
               f"{(fab['lap'] >= 0.5).mean():.1%}, mean LAP = {fab['lap'].mean():.3f}")
-    wy = res[res["probe"] == "wrong_year"]
-    if len(wy):
-        orig = pd.read_csv(LAP_CSV)
+    orig = pd.read_csv(LAP_CSV)
+    for ptype in sorted(p for p in res["probe"].unique() if p.startswith("wrong_year")):
+        wy = res[res["probe"] == ptype]
         cmp = wy.merge(orig[["paper_id", "lap"]], left_on="probe_id",
                        right_on="paper_id", suffixes=("_wrongyr", "_correct"))
-        print(f"wrong_year  (n={len(wy)}): mean LAP wrong-year = {cmp['lap_wrongyr'].mean():.3f} "
-              f"vs correct-year = {cmp['lap_correct'].mean():.3f}")
+        diff = cmp["lap_correct"] - cmp["lap_wrongyr"]
+        print(f"{ptype}  (n={len(wy)}): mean LAP wrong-year = {cmp['lap_wrongyr'].mean():.3f} "
+              f"vs correct-year = {cmp['lap_correct'].mean():.3f}  "
+              f"(mean diff = {diff.mean():+.4f}, sd = {diff.std():.4f})")
     print(f"\nOutput: {OUT_CSV}")
 
 

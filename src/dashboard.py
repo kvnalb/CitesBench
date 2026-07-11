@@ -1078,6 +1078,17 @@ st.markdown('<p class="explainer">'
             '<code>leakage_exclusion_eval.py</code>.</p>',
             unsafe_allow_html=True)
 
+def _wilson_ci(x, n, z=1.96):
+    """Wilson score interval for a binomial proportion. Returns (p, lo, hi)."""
+    if n == 0:
+        return (np.nan, np.nan, np.nan)
+    p = x / n
+    denom = 1 + z**2 / n
+    center = (p + z**2 / (2 * n)) / denom
+    half = (z / denom) * np.sqrt(p * (1 - p) / n + z**2 / (4 * n**2))
+    return p, max(0.0, center - half), min(1.0, center + half)
+
+
 @st.cache_data
 def _load_leakage(_v=1):
     out = {}
@@ -1087,6 +1098,7 @@ def _load_leakage(_v=1):
         ("controls", "outputs/leakage_controls.csv"),
         ("masked", "outputs/leakage_masked_rereview.csv"),
         ("exclusion", "outputs/leakage_exclusion_eval.csv"),
+        ("threshold_sweep", "outputs/leakage_threshold_sweep.csv"),
     ]:
         out[key] = pd.read_csv(path) if os.path.exists(path) else None
     return out
@@ -1102,34 +1114,86 @@ else:
     # ── 5a. RECALL SUMMARY ───────────────────────────────────────────────────
     st.markdown("#### 5a. How much does the model recall?")
     _c1, _c2, _c3, _c4 = st.columns(4)
-    _c1.metric("Decision recall (LAP ≥ 0.5)", f"{(_lap['lap'] >= 0.5).mean():.1%}",
-               help="Title+year only — model confidently states accept/reject.")
+    _lap_commit_n = int((_lap["lap"] >= 0.5).sum())
+    _p, _lo, _hi = _wilson_ci(_lap_commit_n, len(_lap))
+    _c1.metric("Decision recall (LAP ≥ 0.5)", f"{_p:.1%}",
+               help=f"Title+year only — model confidently states accept/reject. "
+                    f"95% CI [{_lo:.1%}, {_hi:.1%}], N={len(_lap):,}.")
     _committed = _lap[_lap["lap"] >= 0.5].copy()
     _committed["true_accept"] = _committed["decision"].str.startswith("Accept", na=False)
     _committed["said_accept"] = _committed["ud"] > 0
-    _c2.metric("Decision-direction accuracy", f"{(_committed['true_accept'] == _committed['said_accept']).mean():.1%}",
-               help="Among committed answers: is the direction (accept vs reject) correct?")
-    _c3.metric("Fame recall (FAME ≥ 0.5)", f"{(_fame['fame'] >= 0.5).mean():.1%}",
-               help="Title+year only — model states whether the paper is widely cited (top 10%).")
+    _dir_n = int((_committed["true_accept"] == _committed["said_accept"]).sum())
+    _p, _lo, _hi = _wilson_ci(_dir_n, len(_committed))
+    _c2.metric("Decision-direction accuracy", f"{_p:.1%}",
+               help=f"Among committed answers: is the direction (accept vs reject) correct? "
+                    f"95% CI [{_lo:.1%}, {_hi:.1%}], N={len(_committed):,}.")
+    _fame_commit_n = int((_fame["fame"] >= 0.5).sum())
+    _p, _lo, _hi = _wilson_ci(_fame_commit_n, len(_fame))
+    _c3.metric("Fame recall (FAME ≥ 0.5)", f"{_p:.1%}",
+               help=f"Title+year only — model states whether the paper is widely cited (top 10%). "
+                    f"95% CI [{_lo:.1%}, {_hi:.1%}], N={len(_fame):,}.")
     _fcommitted = _fame[_fame["fame"] >= 0.5].copy()
     _fcommitted["true_top"] = _fcommitted["citation_pct_rank"] >= 0.9
     _fcommitted["said_high"] = _fcommitted["fame_ud"] > 0
-    _c4.metric("Fame-direction accuracy", f"{(_fcommitted['true_top'] == _fcommitted['said_high']).mean():.1%}",
-               help="Among committed answers: is high/low cited correctly identified?")
+    _fdir_n = int((_fcommitted["true_top"] == _fcommitted["said_high"]).sum())
+    _p, _lo, _hi = _wilson_ci(_fdir_n, len(_fcommitted))
+    _c4.metric("Fame-direction accuracy", f"{_p:.1%}",
+               help=f"Among committed answers: is high/low cited correctly identified? "
+                    f"95% CI [{_lo:.1%}, {_hi:.1%}], N={len(_fcommitted):,}.")
     st.markdown('<p class="explainer">'
                 'Decision-direction accuracy is near chance — the model doesn\'t reliably remember '
                 '<i>who</i> accepted a paper. Fame-direction accuracy is well above chance — it does '
                 'reliably remember <i>which papers became prominent</i>. That is the sharper leakage '
                 'channel for a citation-based ground truth.</p>', unsafe_allow_html=True)
+    st.caption(
+        f"N: LAP probed on {len(_lap):,} papers ({_lap['year'].min()}–{_lap['year'].max()}), "
+        f"{(_lap['decision'].str.startswith('Accept', na=False)).mean():.0%} accepts; "
+        f"FAME probed on {len(_fame):,} papers, "
+        f"{len(_committed):,} committed on LAP / {len(_fcommitted):,} committed on FAME."
+    )
 
     if _leak["controls"] is not None:
         _ctrl = _leak["controls"]
+        st.markdown("##### Probe validity (placebo controls)")
+        st.markdown('<p class="explainer">'
+                    'N is power/precision-justified, not arbitrary (see '
+                    '<code>src/leakage_power_analysis.py</code>, '
+                    '<code>outputs/leakage_power_analysis.md</code>): fabricated-title N sized so the '
+                    '95% CI on the false-positive rate clears the real commit rate with margin; '
+                    'wrong-year N sized via TOST equivalence testing (a non-significant pilot result at '
+                    'N=30 is not itself evidence of "no difference").</p>', unsafe_allow_html=True)
         _fake = _ctrl[(_ctrl["probe"] == "fabricated") & (_ctrl["answer"] != "ERROR")]
         if len(_fake):
-            st.caption(f"Probe validity: {len(_fake)} fabricated (nonexistent) titles → confident "
-                       f"answer only {(_fake['lap'] >= 0.5).mean():.1%} of the time, vs. "
-                       f"{(_lap['lap'] >= 0.5).mean():.1%} on real papers. The probe measures real "
-                       "recall, not acquiescence.")
+            _fx = int((_fake["lap"] >= 0.5).sum())
+            _fp, _flo, _fhi = _wilson_ci(_fx, len(_fake))
+            _rp, _rlo, _rhi = _wilson_ci(_lap_commit_n, len(_lap))
+            st.caption(f"Fabricated titles (N={len(_fake)}): confident answer "
+                       f"{_fp:.1%} of the time (95% CI [{_flo:.1%}, {_fhi:.1%}]), vs. {_rp:.1%} "
+                       f"(95% CI [{_rlo:.1%}, {_rhi:.1%}]) on real papers (N={len(_lap):,}). "
+                       "CIs don't overlap — the probe measures real recall, not acquiescence.")
+
+        _wy_rows = []
+        for _ptype in sorted(p for p in _ctrl["probe"].unique() if p.startswith("wrong_year")):
+            _wy = _ctrl[(_ctrl["probe"] == _ptype) & (_ctrl["answer"] != "ERROR")]
+            _cmp = _wy.merge(_lap[["paper_id", "lap"]], left_on="probe_id", right_on="paper_id",
+                             suffixes=("_wy", "_correct"))
+            if not len(_cmp):
+                continue
+            _diff = _cmp["lap_correct"] - _cmp["lap_wy"]
+            _se = _diff.std() / np.sqrt(len(_diff))
+            _offset_label = "+1yr" if _ptype == "wrong_year" else _ptype.replace("wrong_year", "")
+            _wy_rows.append({
+                "offset": _offset_label, "N": len(_diff),
+                "mean diff (correct − wrong-year)": f"{_diff.mean():+.4f}",
+                "95% CI": f"[{_diff.mean() - 1.96 * _se:+.4f}, {_diff.mean() + 1.96 * _se:+.4f}]",
+            })
+        if _wy_rows:
+            st.dataframe(pd.DataFrame(_wy_rows), use_container_width=True, hide_index=True)
+            st.caption(
+                "Equivalence check: does asking with the wrong year change recall? Both offsets' "
+                "95% CIs sit inside a ±0.05 equivalence band around zero — the probe tracks memory "
+                "of the paper, not of the year we asked about."
+            )
 
     st.markdown("---")
 
@@ -1167,6 +1231,39 @@ else:
                 "p": [f"{_p[1]:.2g}", f"{_p[2]:.2g}"],
             }), use_container_width=True, hide_index=True)
             st.caption(f"{_label} ~ log_cites + mean_rating  (N={len(_rc_d):,})")
+
+    # ── 5b (visual). Binscatter: mean confidence per log-citation decile ─────
+    st.markdown("###### Continuous view: mean recall confidence by citation decile")
+    _rc_d = _rc_d.copy()
+    _rc_d["cite_bin"] = pd.qcut(_rc_d["log_cites"], 10, labels=False, duplicates="drop")
+    fig_bs = go.Figure()
+    for _y, _label, _color in [("lap", "LAP (decision recall)", COLORS["LLM Committee (Gemma)"]),
+                               ("fame", "FAME (fame recall)", COLORS["LLM Decision Head"])]:
+        _bs = _rc_d.groupby("cite_bin").agg(
+            x=("log_cites", "mean"), y=(_y, "mean"), n=(_y, "size"), se=(_y, "sem")
+        ).reset_index()
+        fig_bs.add_trace(go.Scatter(
+            x=_bs["x"], y=_bs["y"], mode="lines+markers", name=_label,
+            marker=dict(color=_color, size=8),
+            line=dict(color=_color),
+            error_y=dict(type="data", array=1.96 * _bs["se"], visible=True),
+        ))
+    fig_bs.update_layout(
+        height=320, margin=dict(l=0, r=0, t=4, b=4),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        legend=dict(orientation="h", y=-0.2, font=dict(size=11)),
+        xaxis=dict(title="log(1+citations), decile-mean", showgrid=True, gridcolor=BORDER,
+                  tickfont=dict(size=10, color=SUBTEXT)),
+        yaxis=dict(title="Mean confidence (0–1)", showgrid=True, gridcolor=BORDER,
+                  tickfont=dict(size=10, color=SUBTEXT)),
+    )
+    st.plotly_chart(fig_bs, use_container_width=True)
+    st.caption(
+        f"Binscatter: papers grouped into 10 equal-N bins by log(1+citations), each point is the "
+        f"bin mean confidence ± 95% CI (N={len(_rc_d):,} per probe, ~{len(_rc_d) // 10:,} papers/bin). "
+        "A rising line is the continuous version of the OLS β above — visualizes that recall "
+        "confidence climbs with citation rank rather than relying on the linear coefficient alone."
+    )
 
     _top = eval_table[eval_table["citation_pct_rank"] >= 0.9].merge(_lap[["paper_id", "lap"]], on="paper_id").merge(_fame[["paper_id", "fame"]], on="paper_id", how="left")
     _bot = eval_table[eval_table["citation_pct_rank"] <= 0.1].merge(_lap[["paper_id", "lap"]], on="paper_id").merge(_fame[["paper_id", "fame"]], on="paper_id", how="left")
@@ -1208,8 +1305,10 @@ else:
             xaxis=dict(tickfont=dict(size=11, color=TEXT)),
         )
         st.plotly_chart(fig_mask, use_container_width=True)
-        st.caption(f"N={len(_mk)}. Score drop is larger for memorized papers — consistent with "
-                   "identity recall inflating the original score.")
+        st.dataframe(_mk_summary.rename(columns={"mean_delta": "mean score drop"}),
+                    use_container_width=True, hide_index=True)
+        st.caption(f"N={len(_mk)} total ({_mk_summary['N'].to_dict()}). Score drop is larger for "
+                   "memorized papers — consistent with identity recall inflating the original score.")
         st.markdown("---")
 
     # ── 5d. LEAKAGE-EXCLUDED HEADLINE ────────────────────────────────────────
@@ -1250,11 +1349,55 @@ else:
                 _disp[c] = _disp[c].map(lambda v: f"{v:+.3f}" if c == "Δ" else f"{v:.3f}")
             st.dataframe(_disp, use_container_width=True, hide_index=True)
 
+            _pool_ids = set(eval_table["paper_id"])
+            _probed_ids = (set(_lap["paper_id"]) | set(_fame["paper_id"])) & _pool_ids
+            _excluded_ids = (set(_lap.loc[_lap["lap"] >= 0.5, "paper_id"]) |
+                             set(_fame.loc[_fame["fame"] >= 0.5, "paper_id"])) & _pool_ids
             st.caption(
                 f"Δ < 0 means the regime's edge shrinks once memorized papers are removed — that gap "
-                f"is the measured leakage tax. Probe coverage and exclusion count printed by "
-                f"`leakage_exclusion_eval.py` at run time (~98.5% coverage, ~1,564 papers excluded "
-                f"in the full-corpus run). LLM regimes shrink the most; human regimes are ~flat."
+                f"is the measured leakage tax. Probe coverage: {len(_probed_ids):,}/{len(_pool_ids):,} "
+                f"papers ({len(_probed_ids) / len(_pool_ids):.1%}); {len(_excluded_ids):,} excluded as "
+                f"memorized (LAP or FAME ≥ 0.5). LLM regimes shrink the most; human regimes are ~flat."
+            )
+
+        if _leak["threshold_sweep"] is not None and len(_leak["threshold_sweep"]):
+            st.markdown("##### Is 0.5 doing special work? Threshold-sensitivity sweep")
+            st.markdown('<p class="explainer">'
+                        'The 0.5 cutoff is a necessary discretization — a paper has to be in or out of '
+                        'the re-run pool — but the specific value is arbitrary. Re-running the exclusion '
+                        'at every cutoff from 0.1 to 0.9 (no new API calls — pure recompute over already-'
+                        'collected LAP/FAME scores) checks whether the result is sensitive to that choice.</p>',
+                        unsafe_allow_html=True)
+            _sw = _leak["threshold_sweep"]
+            _sw_order = ["Human (AC decisions)", "Human (score top-N)", "Human (disagreement-adjusted, λ=+1)",
+                        "LLM Decision Head", "LLM Committee (Gemma)"]
+            fig_sw = go.Figure()
+            for _regime in [r for r in _sw_order if r in _sw["regime"].values]:
+                _rd = _sw[_sw["regime"] == _regime].sort_values("threshold")
+                if not len(_rd):
+                    continue
+                fig_sw.add_trace(go.Scatter(
+                    x=_rd["threshold"], y=_rd["delta"], mode="lines+markers", name=_regime,
+                    marker=dict(color=COLORS.get(_regime, IDEAL_COLOR), size=6),
+                    line=dict(color=COLORS.get(_regime, IDEAL_COLOR)),
+                ))
+            fig_sw.add_hline(y=0, line_dash="dot", line_color=SUBTEXT)
+            fig_sw.update_layout(
+                height=320, margin=dict(l=0, r=0, t=4, b=4),
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                legend=dict(orientation="h", y=-0.25, font=dict(size=10)),
+                xaxis=dict(title="Exclusion threshold (LAP or FAME ≥ x)", showgrid=True,
+                          gridcolor=BORDER, tickfont=dict(size=10, color=SUBTEXT)),
+                yaxis=dict(title="Δ lift (leakage-excluded − full)", showgrid=True,
+                          gridcolor=BORDER, tickfont=dict(size=10, color=SUBTEXT)),
+            )
+            st.plotly_chart(fig_sw, use_container_width=True)
+            _n_range = _sw["n_excluded"].agg(["min", "max"])
+            st.caption(
+                f"Δ is essentially flat across thresholds 0.1–0.9 for every regime (excluded-pool size "
+                f"ranges only {_n_range['min']:,}–{_n_range['max']:,} papers over that range — LAP/FAME "
+                "scores cluster near 0 or 1, so most of the range doesn't relabel any papers). The 0.5 "
+                "cutoff isn't cherry-picked — the conclusion would be the same at any threshold in this band."
             )
 
 # ── Footer ────────────────────────────────────────────────────────────────────
