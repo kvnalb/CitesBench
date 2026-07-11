@@ -217,7 +217,7 @@ for i, row in sample.iterrows():
         "citation_pct_rank": row["citation_pct_rank"],
         "predicted_citations": result["predicted_citations"],
         "rationale": result["rationale"],
-        "model_id": model_id,
+        "model_id": _model_id,
     }
 
     if args.smoke:
@@ -281,7 +281,7 @@ year_df = pd.DataFrame(year_rows)
 # ---------------------------------------------------------------------------
 verdict = "POSSIBLE LEAKAGE" if bias_factor > 1.5 and mw.pvalue < 0.05 else "NO STRONG LEAKAGE SIGNAL"
 
-report = f"""# Leakage Evaluation v1 — {model_id}
+report = f"""# Leakage Evaluation v1 — {_model_id}
 
 ## Design
 

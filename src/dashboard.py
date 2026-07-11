@@ -600,12 +600,14 @@ _RDD_PATH = "data/OpenAlex/openalex_rdd_arxiv_paper_level.csv"
 _COV_PATH = "outputs/paper_author_covariates.csv"
 _ET_PATH  = "outputs/eval_table.csv"
 
-@st.cache_data  # pure: reads from disk only, no global captures
-def _load_hetero_full(_v=1):
-    if not os.path.exists(_COV_PATH):
+@st.cache_data
+def _load_hetero_full(_v=2):
+    cov_path = "outputs/paper_author_covariates.csv"
+    et_path  = "outputs/eval_table.csv"
+    if not os.path.exists(cov_path):
         return None
-    et  = pd.read_csv(_ET_PATH)
-    cov = pd.read_csv(_COV_PATH)
+    et  = pd.read_csv(et_path)
+    cov = pd.read_csv(cov_path)
     df  = et.merge(cov, on="paper_id", how="left")
     df["log_cites"] = np.log1p(df["openalex_citations"].fillna(0))
     return df
@@ -863,8 +865,8 @@ st.markdown('<p class="explainer">'
             'LATE ≈ 1.0 log-unit ≈ 2.7× more citations for papers that just cleared the cutoff.</p>',
             unsafe_allow_html=True)
 
-@st.cache_data  # pure: no global captures
-def _load_rdd_sample(_v=1):
+@st.cache_data
+def _load_rdd_sample(_v=2):
     rdd_path = "data/OpenAlex/openalex_rdd_dashboard.csv"
     if not os.path.exists(rdd_path):
         return None
@@ -1063,6 +1065,197 @@ else:
         f"Pooled bandwidth h = {_rdd_dm['bandwidth'].median():.2f} (median). "
         "McCrary density test: no significant manipulation (β≈0.0, p>0.05)."
     )
+
+st.markdown('<p class="section-header">Section 5 — Leakage Test</p>', unsafe_allow_html=True)
+st.markdown('<p class="explainer">'
+            'The LLM committee was run in 2024–2026 on ICLR 2018–2020 papers — its training data '
+            'may already know which papers became famous. If so, "LLM beats human" could reflect '
+            'memorized hindsight, not judgment. Five tests below (full corpus, N≈4,200–4,500): '
+            'decision-recall probe (LAP), a probe-validity placebo check, a fame-recall probe, '
+            'a masked re-review ablation, and a leakage-excluded re-run of the headline comparison. '
+            'Scripts: <code>src/leakage_lap_v1.py</code>, <code>leakage_fame_v1.py</code>, '
+            '<code>leakage_controls.py</code>, <code>leakage_masked_rereview.py</code>, '
+            '<code>leakage_exclusion_eval.py</code>.</p>',
+            unsafe_allow_html=True)
+
+@st.cache_data
+def _load_leakage(_v=1):
+    out = {}
+    for key, path in [
+        ("lap", "outputs/leakage_lap_v1.csv"),
+        ("fame", "outputs/leakage_fame_v1.csv"),
+        ("controls", "outputs/leakage_controls.csv"),
+        ("masked", "outputs/leakage_masked_rereview.csv"),
+        ("exclusion", "outputs/leakage_exclusion_eval.csv"),
+    ]:
+        out[key] = pd.read_csv(path) if os.path.exists(path) else None
+    return out
+
+_leak = _load_leakage()
+
+if _leak["lap"] is None or _leak["fame"] is None:
+    st.info("Run `python src/leakage_lap_v1.py --full` and `leakage_fame_v1.py --full` to enable this section.")
+else:
+    _lap = _leak["lap"][_leak["lap"]["lap"].notna()]
+    _fame = _leak["fame"][_leak["fame"]["fame"].notna()]
+
+    # ── 5a. RECALL SUMMARY ───────────────────────────────────────────────────
+    st.markdown("#### 5a. How much does the model recall?")
+    _c1, _c2, _c3, _c4 = st.columns(4)
+    _c1.metric("Decision recall (LAP ≥ 0.5)", f"{(_lap['lap'] >= 0.5).mean():.1%}",
+               help="Title+year only — model confidently states accept/reject.")
+    _committed = _lap[_lap["lap"] >= 0.5].copy()
+    _committed["true_accept"] = _committed["decision"].str.startswith("Accept", na=False)
+    _committed["said_accept"] = _committed["ud"] > 0
+    _c2.metric("Decision-direction accuracy", f"{(_committed['true_accept'] == _committed['said_accept']).mean():.1%}",
+               help="Among committed answers: is the direction (accept vs reject) correct?")
+    _c3.metric("Fame recall (FAME ≥ 0.5)", f"{(_fame['fame'] >= 0.5).mean():.1%}",
+               help="Title+year only — model states whether the paper is widely cited (top 10%).")
+    _fcommitted = _fame[_fame["fame"] >= 0.5].copy()
+    _fcommitted["true_top"] = _fcommitted["citation_pct_rank"] >= 0.9
+    _fcommitted["said_high"] = _fcommitted["fame_ud"] > 0
+    _c4.metric("Fame-direction accuracy", f"{(_fcommitted['true_top'] == _fcommitted['said_high']).mean():.1%}",
+               help="Among committed answers: is high/low cited correctly identified?")
+    st.markdown('<p class="explainer">'
+                'Decision-direction accuracy is near chance — the model doesn\'t reliably remember '
+                '<i>who</i> accepted a paper. Fame-direction accuracy is well above chance — it does '
+                'reliably remember <i>which papers became prominent</i>. That is the sharper leakage '
+                'channel for a citation-based ground truth.</p>', unsafe_allow_html=True)
+
+    if _leak["controls"] is not None:
+        _ctrl = _leak["controls"]
+        _fake = _ctrl[(_ctrl["probe"] == "fabricated") & (_ctrl["answer"] != "ERROR")]
+        if len(_fake):
+            st.caption(f"Probe validity: {len(_fake)} fabricated (nonexistent) titles → confident "
+                       f"answer only {(_fake['lap'] >= 0.5).mean():.1%} of the time, vs. "
+                       f"{(_lap['lap'] >= 0.5).mean():.1%} on real papers. The probe measures real "
+                       "recall, not acquiescence.")
+
+    st.markdown("---")
+
+    # ── 5b. WHAT PREDICTS RECALL ─────────────────────────────────────────────
+    st.markdown("#### 5b. What predicts recall — citations, not reviewer opinion")
+    st.markdown('<p class="explainer">'
+                'Regressing recall on log(1+citations) and human mean_rating jointly: citations stay '
+                'significant, mean_rating drops out. Recall tracks citation-linked fame specifically — '
+                'not "the model likes what reviewers liked."</p>', unsafe_allow_html=True)
+
+    _rc = eval_table.merge(_lap[["paper_id", "lap"]], on="paper_id") \
+                    .merge(_fame[["paper_id", "fame"]], on="paper_id", how="left")
+    _rc["log_cites"] = np.log1p(_rc["openalex_citations"])
+    _rc_d = _rc.dropna(subset=["log_cites", "mean_rating", "lap", "fame"])
+
+    def _multi_ols(y):
+        n_ = len(_rc_d)
+        X = np.column_stack([np.ones(n_), _rc_d["log_cites"], _rc_d["mean_rating"]])
+        yv = _rc_d[y].values
+        beta, _, _, _ = np.linalg.lstsq(X, yv, rcond=None)
+        resid = yv - X @ beta
+        sigma2 = np.dot(resid, resid) / (n_ - 3)
+        se = np.sqrt(np.diag(np.linalg.inv(X.T @ X)) * sigma2)
+        from scipy.stats import t as _tdist
+        p = [2 * (1 - _tdist.cdf(abs(b / s), df=n_ - 3)) for b, s in zip(beta, se)]
+        return beta, p
+
+    _col5b1, _col5b2 = st.columns(2)
+    for _col, _y, _label in [(_col5b1, "lap", "LAP"), (_col5b2, "fame", "FAME")]:
+        with _col:
+            _beta, _p = _multi_ols(_y)
+            st.dataframe(pd.DataFrame({
+                "term": ["log(1+citations)", "human mean_rating"],
+                "β": [f"{_beta[1]:+.4f}", f"{_beta[2]:+.4f}"],
+                "p": [f"{_p[1]:.2g}", f"{_p[2]:.2g}"],
+            }), use_container_width=True, hide_index=True)
+            st.caption(f"{_label} ~ log_cites + mean_rating  (N={len(_rc_d):,})")
+
+    _top = eval_table[eval_table["citation_pct_rank"] >= 0.9].merge(_lap[["paper_id", "lap"]], on="paper_id").merge(_fame[["paper_id", "fame"]], on="paper_id", how="left")
+    _bot = eval_table[eval_table["citation_pct_rank"] <= 0.1].merge(_lap[["paper_id", "lap"]], on="paper_id").merge(_fame[["paper_id", "fame"]], on="paper_id", how="left")
+    _decile_tbl = pd.DataFrame({
+        "citation decile": ["Top 10% by citations", "Bottom 10% by citations"],
+        "LAP ≥ 0.5 rate": [f"{(_top['lap'] >= 0.5).mean():.1%}", f"{(_bot['lap'] >= 0.5).mean():.1%}"],
+        "FAME ≥ 0.5 rate": [f"{(_top['fame'] >= 0.5).mean():.1%}", f"{(_bot['fame'] >= 0.5).mean():.1%}"],
+        "N": [len(_top), len(_bot)],
+    })
+    st.dataframe(_decile_tbl, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
+    # ── 5c. MASKED RE-REVIEW ──────────────────────────────────────────────────
+    if _leak["masked"] is not None and len(_leak["masked"]):
+        st.markdown("#### 5c. Masked re-review — does the score survive identity ablation?")
+        st.markdown('<p class="explainer">'
+                    'Same committee rubric scored twice per paper: normal (title+abstract) vs. masked '
+                    '(no title, abstract paraphrased with proper nouns genericized — identity ablated, '
+                    'content preserved). If memorized papers lose more score under masking, part of '
+                    'their rating rode on recognizing the paper, not judging it.</p>',
+                    unsafe_allow_html=True)
+        _mk = _leak["masked"].copy()
+        _mk["hi_lap"] = _mk["lap"] >= 0.5
+        _mk["delta"] = _mk["score_original"] - _mk["score_masked"]
+        _mk_summary = _mk.groupby(_mk["hi_lap"].map({True: "High-LAP (memorized)", False: "Low-LAP (not memorized)"})) \
+                         .agg(N=("delta", "size"), mean_delta=("delta", "mean")).reset_index() \
+                         .rename(columns={"hi_lap": "Group"})
+        fig_mask = go.Figure(go.Bar(
+            x=_mk_summary["Group"], y=_mk_summary["mean_delta"],
+            marker_color=[COLORS["LLM Committee (Gemma)"], RANDOM_COLOR],
+            text=[f"{v:+.2f}" for v in _mk_summary["mean_delta"]], textposition="outside",
+        ))
+        fig_mask.update_layout(
+            height=260, margin=dict(l=0, r=0, t=4, b=4),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            yaxis=dict(title="Mean score drop under masking (orig − masked)",
+                      showgrid=True, gridcolor=BORDER, tickfont=dict(size=10, color=SUBTEXT)),
+            xaxis=dict(tickfont=dict(size=11, color=TEXT)),
+        )
+        st.plotly_chart(fig_mask, use_container_width=True)
+        st.caption(f"N={len(_mk)}. Score drop is larger for memorized papers — consistent with "
+                   "identity recall inflating the original score.")
+        st.markdown("---")
+
+    # ── 5d. LEAKAGE-EXCLUDED HEADLINE ────────────────────────────────────────
+    if _leak["exclusion"] is not None:
+        st.markdown("#### 5d. Headline comparison, with memorized papers excluded")
+        st.markdown('<p class="explainer">'
+                    'All regimes re-run twice: full pool, and with every paper the model recalls '
+                    '(LAP or FAME ≥ 0.5) removed and N rescaled. This is the number that should be '
+                    'quoted as the headline — the full-pool number overstates the LLM regimes\' edge.</p>',
+                    unsafe_allow_html=True)
+        _exc = _leak["exclusion"]
+        _piv = _exc.pivot_table(index="regime", columns="pool", values="lift", aggfunc="mean").reset_index()
+        if {"full", "leakage_excluded"} <= set(_piv.columns):
+            _piv["delta"] = _piv["leakage_excluded"] - _piv["full"]
+            _order = ["Human (AC decisions)", "Human (score top-N)", "Human (disagreement-adjusted, λ=+1)",
+                      "LLM Decision Head", "LLM Committee (Gemma)"]
+            _piv["regime"] = pd.Categorical(_piv["regime"], categories=[r for r in _order if r in _piv["regime"].values], ordered=True)
+            _piv = _piv.sort_values("regime")
+
+            fig_exc = go.Figure()
+            fig_exc.add_trace(go.Bar(name="Full pool", x=_piv["regime"], y=_piv["full"],
+                                     marker_color=RANDOM_COLOR))
+            fig_exc.add_trace(go.Bar(name="Leakage-excluded", x=_piv["regime"], y=_piv["leakage_excluded"],
+                                     marker_color=[COLORS.get(r, IDEAL_COLOR) for r in _piv["regime"]]))
+            fig_exc.update_layout(
+                barmode="group", height=340, margin=dict(l=0, r=0, t=4, b=4),
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                legend=dict(orientation="h", y=-0.2, font=dict(size=11)),
+                yaxis=dict(title="Mean lift over random", showgrid=True, gridcolor=BORDER,
+                          tickfont=dict(size=10, color=SUBTEXT)),
+                xaxis=dict(tickfont=dict(size=10, color=TEXT)),
+            )
+            st.plotly_chart(fig_exc, use_container_width=True)
+
+            _disp = _piv[["regime", "full", "leakage_excluded", "delta"]].copy()
+            _disp.columns = ["Regime", "Full-pool lift", "Leakage-excluded lift", "Δ"]
+            for c in ["Full-pool lift", "Leakage-excluded lift", "Δ"]:
+                _disp[c] = _disp[c].map(lambda v: f"{v:+.3f}" if c == "Δ" else f"{v:.3f}")
+            st.dataframe(_disp, use_container_width=True, hide_index=True)
+
+            st.caption(
+                f"Δ < 0 means the regime's edge shrinks once memorized papers are removed — that gap "
+                f"is the measured leakage tax. Probe coverage and exclusion count printed by "
+                f"`leakage_exclusion_eval.py` at run time (~98.5% coverage, ~1,564 papers excluded "
+                f"in the full-corpus run). LLM regimes shrink the most; human regimes are ~flat."
+            )
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")

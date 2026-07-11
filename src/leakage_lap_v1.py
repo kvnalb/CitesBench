@@ -2,20 +2,25 @@
 LAP (Lookahead Propensity) leakage test — adapted from Gao, Jiang, Yan (2026).
 
 For each paper: send a title-only recall query (no abstract) to the same Gemma
-model used in our committee. Gemma-4-31B-it is a thinking model, so we let it
-think (~1750 tokens) and then read the final one-word answer plus the logprobs
-at that answer position.
+model used in our committee. Gemma-4-31B-it is a thinking model; we let it
+think, take the final one-word answer, and read soft probabilities from the
+logprobs at the answer position (last position where a target token appears
+in the top-5 — first occurrence is unreliable, the thinking chain echoes
+'accepted'/'rejected' from the prompt).
 
 LAP = P_accept + P_reject  (probability model commits to a direction)
 U-D = P_accept - P_reject  (directional signal)
 
 Sampling: 300 papers stratified by year × citation quartile × decision.
-Full-corpus run is ~15h; 300-paper sample takes ~90 min.
 
-Two regressions after all LAPs computed:
+Regressions after all LAPs computed:
   1. Validation: log(1+citations) ~ (U-D)
   2. Detection:  log(1+citations) ~ committee_rating + LAP + LAP*committee_rating
      β₃ > 0 → memorization flows into forecast
+  3. Decomposition: residualize committee_rating on human mean_rating, then
+     log(1+citations) ~ mean_rating + resid + LAP + resid*LAP
+     resid coefficient = genuine foresight on non-memorized (LAP=0) papers;
+     resid*LAP = contaminated share.
 
 Outputs:
   outputs/leakage_lap_v1.csv    — incremental, one row per API call
@@ -24,9 +29,9 @@ Outputs:
 Run: python src/leakage_lap_v1.py [--smoke] [--full] [--report-only]
 """
 import os
-import re
 import sys
 import math
+import time
 import argparse
 import numpy as np
 import pandas as pd
@@ -41,9 +46,10 @@ OUT_REPORT = "outputs/leakage_lap_report.md"
 SAMPLE_N = 300       # default; --full uses all eligible papers
 MAX_TOKENS = 2000    # enough for thinking (~1750) + answer (1)
 
-ACCEPT_TOKENS = {"accepted", "Accepted", "ACCEPTED", "accept", "Accept"}
-REJECT_TOKENS = {"rejected", "Rejected", "REJECTED", "reject", "Reject"}
-UNKNOWN_TOKENS = {"unknown", "Unknown", "UNKNOWN"}
+ACCEPT_TOKENS = {"accepted", "accept"}
+REJECT_TOKENS = {"rejected", "reject"}
+UNKNOWN_TOKENS = {"unknown"}
+
 
 def recall_prompt(title, year):
     return (
@@ -55,43 +61,74 @@ def recall_prompt(title, year):
     )
 
 
-def parse_answer(text):
-    """Return ('accepted'|'rejected'|'unknown', p_acc, p_rej, p_unk) from model output."""
+def parse_answer(text, pos_set=ACCEPT_TOKENS, neg_set=REJECT_TOKENS,
+                 labels=("accepted", "rejected", "unknown")):
+    """Hard-parse the final one-word answer. Fallback when logprobs unavailable."""
     t = text.strip().lower().rstrip(".,!?")
-    if t in {s.lower() for s in ACCEPT_TOKENS}:
-        return "accepted", 1.0, 0.0, 0.0
-    if t in {s.lower() for s in REJECT_TOKENS}:
-        return "rejected", 0.0, 1.0, 0.0
-    return "unknown", 0.0, 0.0, 1.0
+    if t in pos_set:
+        return labels[0], 1.0, 0.0, 0.0
+    if t in neg_set:
+        return labels[1], 0.0, 1.0, 0.0
+    return labels[2], 0.0, 0.0, 1.0
 
 
-def extract_answer_logprobs(lp_content):
+def extract_answer_logprobs(lp_content, pos_set=ACCEPT_TOKENS,
+                            neg_set=REJECT_TOKENS, unk_set=UNKNOWN_TOKENS):
     """
-    Find the pre-commitment answer position in the thinking chain.
-
-    The thinking model reasons toward an answer. We find the FIRST position
-    where target tokens appear in the TOP-5 logprobs — this is where the
-    model's probability mass reflects raw recall before it commits.
-    This mirrors the Gao et al. position-0 read for non-thinking models.
+    Soft probabilities at the answer position: the LAST position where a
+    target token appears in the top-5 (the final one-word answer).
     """
     if not lp_content:
         return None
-    ALL_TARGETS = {s.lower() for s in ACCEPT_TOKENS | REJECT_TOKENS | UNKNOWN_TOKENS}
-    for entry in lp_content:
+    all_targets = pos_set | neg_set | unk_set
+    for entry in reversed(lp_content):
         top5 = [t.token.strip().lower().rstrip(".,!?") for t in entry.top_logprobs[:5]]
-        if any(t in ALL_TARGETS for t in top5):
-            p = {"accept": 0.0, "reject": 0.0, "unknown": 0.0}
+        if any(t in all_targets for t in top5):
+            p = [0.0, 0.0, 0.0]
             for top in entry.top_logprobs:
                 t = top.token.strip().lower().rstrip(".,!?")
                 prob = math.exp(top.logprob)
-                if t in {s.lower() for s in ACCEPT_TOKENS}:
-                    p["accept"] += prob
-                elif t in {s.lower() for s in REJECT_TOKENS}:
-                    p["reject"] += prob
-                elif t in {s.lower() for s in UNKNOWN_TOKENS}:
-                    p["unknown"] += prob
-            return p["accept"], p["reject"], p["unknown"]
+                if t in pos_set:
+                    p[0] += prob
+                elif t in neg_set:
+                    p[1] += prob
+                elif t in unk_set:
+                    p[2] += prob
+            return tuple(p)
     return None
+
+
+def probe_one(client, prompt, pos_set=ACCEPT_TOKENS, neg_set=REJECT_TOKENS,
+              unk_set=UNKNOWN_TOKENS, labels=("accepted", "rejected", "unknown")):
+    """
+    One recall probe against MODEL: greedy decode, logprob read at answer
+    position, text-parse fallback. Retries 3x then raises.
+    Returns (label, p_pos, p_neg, p_unk, completion_tokens).
+    """
+    resp = None
+    for attempt in range(3):
+        try:
+            resp = client.chat.completions.create(
+                model=MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=MAX_TOKENS,
+                temperature=0,
+                logprobs=True,
+                top_logprobs=20,
+            )
+            break
+        except Exception:
+            if attempt == 2:
+                raise
+            time.sleep(5)
+
+    content = (resp.choices[0].message.content or "").strip()
+    label, p_pos, p_neg, p_unk = parse_answer(content, pos_set, neg_set, labels)
+    lp = getattr(resp.choices[0], "logprobs", None)
+    probs = extract_answer_logprobs(lp.content if lp else None, pos_set, neg_set, unk_set)
+    if probs is not None:
+        p_pos, p_neg, p_unk = probs
+    return label, p_pos, p_neg, p_unk, (resp.usage.completion_tokens if resp.usage else None)
 
 
 def build_sample(df, n, seed=42):
@@ -133,8 +170,6 @@ def run_laps(df, smoke=False, workers=10):
 
     print(f"Model: {MODEL}")
     print(f"Already done: {len(done)}, to fetch: {len(todo)}, workers: {workers}")
-    est_min = len(todo) * 20 / 60 / workers
-    print(f"Estimated time: ~{est_min:.0f} min")
 
     write_header = not os.path.exists(OUT_CSV) or os.path.getsize(OUT_CSV) == 0
     lock = threading.Lock()
@@ -147,49 +182,43 @@ def run_laps(df, smoke=False, workers=10):
         def fetch_one(row):
             # ponytail: each thread gets its own client (openai client is not thread-safe)
             client = OpenAI(api_key=key, base_url="https://api.together.xyz/v1")
-            prompt = recall_prompt(row.title, row.year)
-            resp = None
-            for attempt in range(3):
-                try:
-                    resp = client.chat.completions.create(
-                        model=MODEL,
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=MAX_TOKENS,
-                        logprobs=True,
-                        top_logprobs=20,
-                    )
-                    break
-                except Exception as e:
-                    if attempt == 2:
-                        with lock:
-                            fout.write(f"{row.paper_id},{row.year},{row.decision},ERROR,,,,,\n")
-                            fout.flush()
-                        print(f"  SKIP {row.paper_id}: {e}")
-                        return
-                    import time; time.sleep(5)
-
-            if resp is None:
+            try:
+                answer, p_acc, p_rej, p_unk, ntok = probe_one(
+                    client, recall_prompt(row.title, row.year))
+            except Exception as e:
+                with lock:
+                    fout.write(f"{row.paper_id},{row.year},{row.decision},ERROR,,,,,\n")
+                    fout.flush()
+                print(f"  SKIP {row.paper_id}: {e}")
                 return
 
-            content = (resp.choices[0].message.content or "").strip()
-            answer, p_acc, p_rej, p_unk = parse_answer(content)
             lap = p_acc + p_rej
             ud = p_acc - p_rej
             dec_safe = str(row.decision).replace(",", " ")
-
             with lock:
                 fout.write(f"{row.paper_id},{row.year},{dec_safe},{answer},"
                            f"{p_acc:.6f},{p_rej:.6f},{p_unk:.6f},{lap:.6f},{ud:.6f}\n")
                 fout.flush()
                 counter[0] += 1
                 print(f"  {counter[0]}/{len(todo)}  {row.paper_id}  answer={answer}"
-                      f"  lap={lap:.3f} ud={ud:+.3f}"
-                      f"  (tokens={resp.usage.completion_tokens if resp.usage else '?'})")
+                      f"  lap={lap:.3f} ud={ud:+.3f}  (tokens={ntok})")
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = [pool.submit(fetch_one, row) for row in todo.itertuples()]
             for f in as_completed(futures):
                 f.result()  # re-raises exceptions
+
+
+def _ols(X, y):
+    """OLS with classical SEs. Returns (beta, se, p_values)."""
+    from scipy import stats
+    n, k = X.shape
+    beta, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+    resid = y - X @ beta
+    sigma2 = np.dot(resid, resid) / (n - k)
+    se = np.sqrt(np.diag(np.linalg.inv(X.T @ X)) * sigma2)
+    p = [2 * (1 - stats.t.cdf(abs(b / s), df=n - k)) for b, s in zip(beta, se)]
+    return beta, se, p
 
 
 def run_report():
@@ -212,33 +241,48 @@ def run_report():
     slope_ud, intercept_ud, r_ud, p_ud, _ = stats.linregress(x_ud, y)
 
     # ── Detection regression: log_cites ~ committee + LAP + LAP*committee ───────
-    # OLS via numpy (no scipy for multivariate)
     cr = merged["committee_rating"].values
     lap = merged["lap"].values
     X = np.column_stack([np.ones(n), cr, lap, lap * cr])
     try:
-        beta, res, rank, sv = np.linalg.lstsq(X, y, rcond=None)
-        # std errors via residuals
-        y_hat = X @ beta
-        resid = y - y_hat
-        sigma2 = np.dot(resid, resid) / (n - 4)
-        XtX_inv = np.linalg.inv(X.T @ X)
-        se = np.sqrt(np.diag(XtX_inv) * sigma2)
-        t_stats = beta / se
-        p_vals = [2 * (1 - stats.t.cdf(abs(t), df=n-4)) for t in t_stats]
+        beta, se, pv = _ols(X, y)
         beta0, beta1, beta2, beta3 = beta
         se0, se1, se2, se3 = se
-        p0, p1, p2, p3 = p_vals
-    except Exception as e:
+        p0, p1, p2, p3 = pv
+    except Exception:
         beta0 = beta1 = beta2 = beta3 = float("nan")
         se0 = se1 = se2 = se3 = float("nan")
         p0 = p1 = p2 = p3 = float("nan")
+
+    # ── Decomposition: residualized foresight, LAP-stratified ──────────────────
+    dec = merged[merged["mean_rating"].notna()].copy()
+    nd = len(dec)
+    try:
+        # residualize committee_rating on human mean_rating
+        rb = np.polyfit(dec["mean_rating"], dec["committee_rating"], 1)
+        dec["resid"] = dec["committee_rating"] - np.polyval(rb, dec["mean_rating"])
+        Xd = np.column_stack([np.ones(nd), dec["mean_rating"], dec["resid"],
+                              dec["lap"], dec["resid"] * dec["lap"]])
+        yd = dec["log_cites"].values
+        dbeta, dse, dp = _ols(Xd, yd)
+    except Exception:
+        dbeta = dse = [float("nan")] * 5
+        dp = [float("nan")] * 5
 
     # ── LAP distribution summary ────────────────────────────────────────────────
     lap_mean = merged["lap"].mean()
     lap_hi = (merged["lap"] >= 0.5).mean()
     lap_sat = (merged["lap"] >= 0.95).mean()
     recall_acc = (merged["lap"] > 0.05).mean()
+
+    # recall accuracy among committed answers
+    committed = merged[merged["lap"] >= 0.5].copy()
+    if len(committed):
+        committed["true_accept"] = committed["decision"].str.startswith("Accept")
+        committed["said_accept"] = committed["ud"] > 0
+        acc = (committed["true_accept"] == committed["said_accept"]).mean()
+    else:
+        acc = float("nan")
 
     verdict = "CONTAMINATION DETECTED" if (beta3 > 0 and p3 < 0.05) else (
         "INCONCLUSIVE" if p3 >= 0.05 else "NO CONTAMINATION SIGNAL"
@@ -248,7 +292,7 @@ def run_report():
 
 ## Design (Gao, Jiang, Yan 2026 — adapted)
 
-Date-only recall query: title + year, NO abstract. Model answers: accepted/rejected/unknown.
+Decision-only recall query: title + year, NO abstract. Model answers: accepted/rejected/unknown.
 LAP = P(accepted) + P(rejected). High LAP = model memorized the outcome.
 
 **N = {n}** papers with both committee_rating and openalex_citations.
@@ -263,6 +307,7 @@ LAP = P(accepted) + P(rejected). High LAP = model memorized the outcome.
 | Fraction LAP ≥ 0.50 | {lap_hi:.1%} |
 | Fraction LAP ≥ 0.95 (saturated) | {lap_sat:.1%} |
 | Fraction with any recall (LAP > 0.05) | {recall_acc:.1%} |
+| Recall accuracy on committed answers (LAP ≥ 0.5) | {acc:.1%} |
 
 ---
 
@@ -297,9 +342,34 @@ precisely when the model has memorized the paper's outcome.
 
 ---
 
+## Regression 3 — Decomposition (genuine foresight vs contaminated share)
+
+Residualize committee_rating on human mean_rating (what the LLM adds beyond
+reviewers), then:
+
+**Y = log(1+citations) ~ mean_rating + resid + LAP + (resid × LAP)**   (N = {nd})
+
+The `resid` coefficient is the LLM's excess predictive power on papers with
+NO decision recall (LAP=0) — the defensible "genuine foresight" estimate.
+The interaction is the share concentrated on memorized papers — contamination.
+
+| Term | β | SE | p-value |
+|---|---|---|---|
+| mean_rating | {dbeta[1]:.4f} | {dse[1]:.4f} | {dp[1]:.4g} |
+| resid (foresight at LAP=0) | {dbeta[2]:.4f} | {dse[2]:.4f} | {dp[2]:.4g} |
+| LAP | {dbeta[3]:.4f} | {dse[3]:.4f} | {dp[3]:.4g} |
+| resid × LAP (contamination) | {dbeta[4]:.4f} | {dse[4]:.4f} | {dp[4]:.4g} |
+
+---
+
 ## Verdict: **{verdict}**
 
-{"- β₃ = " + f"{beta3:.4f}" + " (p=" + f"{p3:.4g}" + ") — the interaction is positive and significant. committee_rating predicts citations better on papers the model has memorized. Genuine quality signal is contaminated." if (beta3 > 0 and p3 < 0.05) else "- β₃ = " + f"{beta3:.4f}" + " (p=" + f"{p3:.4g}" + ") — no significant amplification of forecast accuracy on high-LAP papers."}
+- β₃ = {beta3:.4f} (p={p3:.4g})
+- Foresight at LAP=0: {dbeta[2]:.4f} (p={dp[2]:.4g}); contaminated share: {dbeta[4]:.4f} (p={dp[4]:.4g})
+
+Caveat: LAP measures recall of the accept/reject *decision*, not of *fame*.
+See leakage_fame_v1 for the citation-prominence recall probe, and
+leakage_controls for probe validity (placebo) checks.
 """
 
     with open(OUT_REPORT, "w") as f:
@@ -307,16 +377,17 @@ precisely when the model has memorized the paper's outcome.
 
     print(f"\n{'='*60}")
     print(f"VERDICT: {verdict}")
-    print(f"LAP mean={lap_mean:.3f}  hi-LAP={lap_hi:.1%}  saturated={lap_sat:.1%}")
+    print(f"LAP mean={lap_mean:.3f}  hi-LAP={lap_hi:.1%}  saturated={lap_sat:.1%}  recall-acc={acc:.1%}")
     print(f"Validation slope (U-D): {slope_ud:.4f}  p={p_ud:.4g}")
     print(f"Detection β₃ (interaction): {beta3:.4f}  p={p3:.4g}")
+    print(f"Foresight at LAP=0: {dbeta[2]:.4f} p={dp[2]:.4g}   contamination: {dbeta[4]:.4f} p={dp[4]:.4g}")
     print(f"\nReport: {OUT_REPORT}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--smoke", action="store_true", help="5 papers only")
-    parser.add_argument("--full", action="store_true", help="all eligible papers (~4500, ~15h)")
+    parser.add_argument("--full", action="store_true", help="all eligible papers (~4500)")
     parser.add_argument("--report-only", action="store_true", help="skip API calls, run report")
     parser.add_argument("--n", type=int, default=SAMPLE_N, help=f"sample size (default {SAMPLE_N})")
     parser.add_argument("--workers", type=int, default=10, help="parallel API workers (default 10)")
