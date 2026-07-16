@@ -25,8 +25,13 @@ OUT_BSCATTER = "outputs/fuzzy_rdd_binscatter.csv"
 
 # ── OLS helpers ──────────────────────────────────────────────────────────────
 
-def wls_hc1(X: np.ndarray, y: np.ndarray, w: np.ndarray):
-    """Weighted OLS with HC1-style robust SEs (weights enter as diagonal W)."""
+def wls_hc1_full(X: np.ndarray, y: np.ndarray, w: np.ndarray):
+    """Weighted OLS with HC1-style robust covariance matrix (weights enter as diagonal W).
+
+    Returns (beta, cov) — use when a linear combination of coefficients needs a
+    correct SE (e.g. slope_field = beta_rating + beta_interaction_field), which
+    requires off-diagonal covariance, not just per-coefficient SEs.
+    """
     sw = np.sqrt(w)
     beta, *_ = np.linalg.lstsq(X * sw[:, None], y * sw, rcond=None)
     e = y - X @ beta
@@ -36,6 +41,12 @@ def wls_hc1(X: np.ndarray, y: np.ndarray, w: np.ndarray):
     XtWX = X.T @ (X * w[:, None])
     XtWX_inv = np.linalg.inv(XtWX)
     cov = (n / (n - k)) * XtWX_inv @ meat @ XtWX_inv
+    return beta, cov
+
+
+def wls_hc1(X: np.ndarray, y: np.ndarray, w: np.ndarray):
+    """Weighted OLS with HC1-style robust SEs (weights enter as diagonal W)."""
+    beta, cov = wls_hc1_full(X, y, w)
     return beta, np.sqrt(np.diag(cov))
 
 

@@ -794,81 +794,179 @@ else:
     _fc_df = _field_recall(tuple(years), mode, impute_zeros, exclude_top_decile)
 
     if not _fc_df.empty:
-        col3c1, col3c2 = st.columns([1.4, 1])
+        # Grouped bar: recall@10% by field, three regimes
+        _mean_fc = _fc_df.groupby(["field","regime"])["recall_at_10"].mean().reset_index()
+        fig_fc = go.Figure()
+        _reg_order = [LLMCommittee().name, HumanActual().name, HumanScore().name]
+        for reg in _reg_order:
+            sub = _mean_fc[_mean_fc["regime"] == reg]
+            if sub.empty: continue
+            fig_fc.add_trace(go.Bar(
+                x=sub["field"].str.replace("_"," "), y=sub["recall_at_10"],
+                name=reg.replace("Human (","").rstrip(")"),
+                marker_color=color_map.get(reg, RANDOM_COLOR),
+                marker_line_width=0,
+            ))
+        fig_fc.update_layout(
+            barmode="group", height=280,
+            margin=dict(l=0, r=0, t=4, b=4),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            legend=dict(orientation="h", y=-0.28, font=dict(size=11)),
+            xaxis=dict(tickangle=-15, tickfont=dict(size=10, color=TEXT), showgrid=False),
+            yaxis=dict(title="Recall@10%", showgrid=True, gridcolor=BORDER,
+                       tickformat=".0%", tickfont=dict(size=10, color=SUBTEXT)),
+        )
+        st.plotly_chart(fig_fc, use_container_width=True)
 
-        with col3c1:
-            # Grouped bar: recall@10% by field, three regimes
-            _mean_fc = _fc_df.groupby(["field","regime"])["recall_at_10"].mean().reset_index()
-            fig_fc = go.Figure()
-            _reg_order = [LLMCommittee().name, HumanActual().name, HumanScore().name]
-            for reg in _reg_order:
-                sub = _mean_fc[_mean_fc["regime"] == reg]
-                if sub.empty: continue
-                fig_fc.add_trace(go.Bar(
-                    x=sub["field"].str.replace("_"," "), y=sub["recall_at_10"],
-                    name=reg.replace("Human (","").rstrip(")"),
-                    marker_color=color_map.get(reg, RANDOM_COLOR),
-                    marker_line_width=0,
-                ))
-            fig_fc.update_layout(
-                barmode="group", height=280,
-                margin=dict(l=0, r=0, t=4, b=4),
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                legend=dict(orientation="h", y=-0.28, font=dict(size=11)),
-                xaxis=dict(tickangle=-15, tickfont=dict(size=10, color=TEXT), showgrid=False),
-                yaxis=dict(title="Recall@10%", showgrid=True, gridcolor=BORDER,
-                           tickformat=".0%", tickfont=dict(size=10, color=SUBTEXT)),
-            )
-            st.plotly_chart(fig_fc, use_container_width=True)
+        st.markdown("---")
 
-        with col3c2:
-            # Pooled field×year FE regression — replaces the old per-cell ρ scan
-            from fuzzy_rdd import cat_dummies, wls_hc1
-            from scipy.stats import t as _tdist
-            _reg_df = eval_table[eval_table["year"].isin(years)].dropna(
-                subset=["committee_rating", "citation_pct_rank", "field"]).copy()
-            if len(_reg_df) >= 30:
-                _fields = sorted(_reg_df["field"].unique())
-                _ref_field = _fields[0]
-                _n = len(_reg_df)
-                _fld_d = cat_dummies(_reg_df["field"].values)
-                _yr_d = cat_dummies(_reg_df["year"].values)
-                _x = _reg_df["committee_rating"].values
-                _y = _reg_df["citation_pct_rank"].values
+        # ── Pooled field×year FE regression (replaces the old per-cell ρ scan) ──
+        st.markdown("###### citation_pct_rank ~ committee_rating × field + year FE")
+        from fuzzy_rdd import cat_dummies, wls_hc1, wls_hc1_full
+        from scipy.stats import t as _tdist
 
-                # pooled slope (no interaction): committee_rating + field FE + year FE
-                _X0 = np.column_stack([np.ones(_n), _x, _fld_d, _yr_d])
-                _b0, _se0 = wls_hc1(_X0, _y, np.ones(_n))
-                _p0 = 2 * (1 - _tdist.cdf(abs(_b0[1] / _se0[1]), df=_n - _X0.shape[1]))
+        def _stars(p):
+            if np.isnan(p): return ""
+            if p < 0.01: return "***"
+            if p < 0.05: return "**"
+            if p < 0.10: return "*"
+            return ""
 
-                # + committee_rating:field interaction — does the slope differ by field?
-                _inter = [(_fld_d[:, j] * _x) for j in range(_fld_d.shape[1])]
-                _X1 = np.column_stack([_X0] + _inter) if _inter else _X0
-                _b1, _se1 = wls_hc1(_X1, _y, np.ones(_n))
-                _k0 = _X0.shape[1]
-                _int_rows, _p_vals = [], []
+        def _fmt_cell(beta, se, p):
+            return f"{beta:+.4f}{_stars(p)}<br><span style='color:{SUBTEXT};font-size:11px'>({se:.4f})</span>"
+
+        _reg_df = eval_table[eval_table["year"].isin(years)].dropna(
+            subset=["committee_rating", "citation_pct_rank", "field"]).copy()
+
+        if len(_reg_df) >= 30:
+            _fields = sorted(_reg_df["field"].unique())
+            _ref_field = _fields[0]
+            _n = len(_reg_df)
+            _fld_d = cat_dummies(_reg_df["field"].values)
+            _yr_d = cat_dummies(_reg_df["year"].values)
+            _x = _reg_df["committee_rating"].values
+            _y = _reg_df["citation_pct_rank"].values
+
+            def _fit(X):
+                beta, cov = wls_hc1_full(X, _y, np.ones(_n))
+                se = np.sqrt(np.diag(cov))
+                df_resid = _n - X.shape[1]
+                p = np.array([2 * (1 - _tdist.cdf(abs(b / s), df=df_resid)) if s > 0 else np.nan
+                              for b, s in zip(beta, se)])
+                yhat = X @ beta
+                r2 = 1 - np.sum((_y - yhat) ** 2) / np.sum((_y - _y.mean()) ** 2)
+                return beta, se, p, cov, r2
+
+            # Model (1): main effects only — committee_rating + field FE + year FE
+            _X0 = np.column_stack([np.ones(_n), _x, _fld_d, _yr_d])
+            _b0, _se0, _p0, _cov0, _r20 = _fit(_X0)
+
+            # Model (2): + committee_rating × field interaction
+            _inter = [(_fld_d[:, j] * _x) for j in range(_fld_d.shape[1])]
+            _X1 = np.column_stack([_X0] + _inter) if _inter else _X0
+            _b1, _se1, _p1, _cov1, _r21 = _fit(_X1)
+            _k0 = _X0.shape[1]
+
+            # ── Standard regression table (stargazer-style) ─────────────────
+            col3c_tbl, col3c_plot = st.columns([1.1, 1])
+
+            with col3c_tbl:
+                _rows_html = [
+                    ("committee_rating", _b0[1], _se0[1], _p0[1], _b1[1], _se1[1], _p1[1]),
+                ]
                 for j, f in enumerate(_fields[1:]):
-                    _beta, _se = _b1[_k0 + j], _se1[_k0 + j]
-                    _p = 2 * (1 - _tdist.cdf(abs(_beta / _se), df=_n - _X1.shape[1])) if _se > 0 else np.nan
-                    _p_vals.append(_p)
-                    _int_rows.append({"field": f.replace("_", " "),
-                                      f"Δ slope vs {_ref_field.replace('_',' ')}": f"{_beta:+.4f}",
-                                      "p": f"{_p:.2g}"})
-                st.dataframe(pd.DataFrame(_int_rows), use_container_width=True, hide_index=True)
-                _any_sig = any(p < 0.05 for p in _p_vals if not np.isnan(p))
+                    _rows_html.append((
+                        f"Field: {f.replace('_',' ')}",
+                        _b0[2 + j], _se0[2 + j], _p0[2 + j],
+                        _b1[2 + j], _se1[2 + j], _p1[2 + j],
+                    ))
+                _inter_rows = [("&nbsp;&nbsp;(reference field)", None, None, None, None, None, None)]
+                for j, f in enumerate(_fields[1:]):
+                    _inter_rows.append((
+                        f"committee_rating × {f.replace('_',' ')}",
+                        None, None, None,
+                        _b1[_k0 + j], _se1[_k0 + j], _p1[_k0 + j],
+                    ))
+
+                def _row(label, b0, s0, p0, b1, s1, p1):
+                    c0 = _fmt_cell(b0, s0, p0) if b0 is not None else ""
+                    c1 = _fmt_cell(b1, s1, p1) if b1 is not None else ""
+                    return (f"<tr><td style='padding:3px 8px;text-align:left'>{label}</td>"
+                           f"<td style='padding:3px 8px;text-align:center'>{c0}</td>"
+                           f"<td style='padding:3px 8px;text-align:center'>{c1}</td></tr>")
+
+                _html = [f"<table style='width:100%;border-collapse:collapse;font-size:12.5px;color:{TEXT}'>",
+                        f"<tr style='border-top:2px solid {TEXT};border-bottom:1px solid {BORDER}'>",
+                        "<td style='padding:3px 8px'></td>",
+                        "<td style='padding:3px 8px;text-align:center;font-weight:600'>(1)</td>",
+                        "<td style='padding:3px 8px;text-align:center;font-weight:600'>(2)</td></tr>"]
+                for r in _rows_html:
+                    _html.append(_row(*r))
+                _html.append(f"<tr><td colspan='3' style='padding:2px 8px;font-weight:600;"
+                             f"border-top:1px solid {BORDER}'>committee_rating × field</td></tr>")
+                for r in _inter_rows:
+                    _html.append(_row(*r))
+                _html.append(f"<tr style='border-top:1px solid {BORDER}'>"
+                             f"<td style='padding:3px 8px'>N</td>"
+                             f"<td style='padding:3px 8px;text-align:center'>{_n:,}</td>"
+                             f"<td style='padding:3px 8px;text-align:center'>{_n:,}</td></tr>")
+                _html.append(f"<tr><td style='padding:3px 8px'>R²</td>"
+                             f"<td style='padding:3px 8px;text-align:center'>{_r20:.3f}</td>"
+                             f"<td style='padding:3px 8px;text-align:center'>{_r21:.3f}</td></tr>")
+                _html.append(f"<tr><td style='padding:3px 8px'>Year FE</td>"
+                             f"<td style='padding:3px 8px;text-align:center'>Yes</td>"
+                             f"<td style='padding:3px 8px;text-align:center'>Yes</td></tr>")
+                _html.append(f"<tr style='border-bottom:2px solid {TEXT}'>"
+                             f"<td style='padding:3px 8px'>Field FE</td>"
+                             f"<td style='padding:3px 8px;text-align:center'>Yes</td>"
+                             f"<td style='padding:3px 8px;text-align:center'>Yes</td></tr>")
+                _html.append("</table>")
+                st.markdown("".join(_html), unsafe_allow_html=True)
                 st.caption(
-                    f"Pooled slope (committee_rating → citation_pct_rank, field+year FE): "
-                    f"{_b0[1]:+.4f} (p={_p0:.2g}, N={_n:,}). "
-                    + ("At least one field's slope differs significantly from the reference "
-                       f"({_ref_field.replace('_',' ')}) — treat the pooled ranking as field-sensitive."
-                       if _any_sig else
-                       f"No field's slope differs significantly from the reference "
-                       f"({_ref_field.replace('_',' ')}) at p<0.05 — committee_rating predicts citations "
-                       "similarly across fields, controlling for field and year levels.")
+                    f"Dependent variable: citation_pct_rank. HC1-robust SEs in parentheses. "
+                    f"*p&lt;0.10, **p&lt;0.05, ***p&lt;0.01. Reference field: {_ref_field.replace('_',' ')}. "
+                    "(1) pooled slope; (2) allows the slope to vary by field."
                 )
-            else:
-                st.caption("Not enough field-tagged papers with both committee_rating and "
-                          "citation_pct_rank to fit the pooled regression for this selection.")
+
+            # ── Coefficient plot: implied slope per field, with 95% CI ───────
+            with col3c_plot:
+                _plot_rows = []
+                for j, f in enumerate([_ref_field] + list(_fields[1:])):
+                    if f == _ref_field:
+                        slope, var = _b1[1], _cov1[1, 1]
+                    else:
+                        idx = _k0 + (j - 1)
+                        slope = _b1[1] + _b1[idx]
+                        var = _cov1[1, 1] + _cov1[idx, idx] + 2 * _cov1[1, idx]
+                    se = np.sqrt(max(var, 0))
+                    _plot_rows.append({"field": f.replace("_", " "), "slope": slope,
+                                       "lo": slope - 1.96 * se, "hi": slope + 1.96 * se})
+                _plot_df = pd.DataFrame(_plot_rows).sort_values("slope")
+                fig_coef = go.Figure()
+                fig_coef.add_trace(go.Scatter(
+                    x=_plot_df["slope"], y=_plot_df["field"], mode="markers",
+                    marker=dict(color=COLORS["LLM Committee (Gemma)"], size=9),
+                    error_x=dict(type="data", symmetric=False,
+                                array=_plot_df["hi"] - _plot_df["slope"],
+                                arrayminus=_plot_df["slope"] - _plot_df["lo"]),
+                ))
+                fig_coef.add_vline(x=0, line_dash="dot", line_color=SUBTEXT)
+                fig_coef.update_layout(
+                    title=dict(text="Implied slope by field (committee_rating → citation_pct_rank)",
+                              font=dict(size=11, color=SUBTEXT), x=0),
+                    height=280, margin=dict(l=0, r=10, t=32, b=4),
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    xaxis=dict(title="Slope (95% CI)", showgrid=True, gridcolor=BORDER,
+                              tickfont=dict(size=10, color=SUBTEXT)),
+                    yaxis=dict(tickfont=dict(size=10, color=TEXT)),
+                )
+                st.plotly_chart(fig_coef, use_container_width=True)
+                st.caption("Field-specific slope = committee_rating coefficient + that field's "
+                          "interaction term (Model 2); CI from the full HC1 covariance, not just "
+                          "each coefficient's own SE, since it's a linear combination of two.")
+        else:
+            st.caption("Not enough field-tagged papers with both committee_rating and "
+                      "citation_pct_rank to fit the pooled regression for this selection.")
 
 st.markdown("---")
 
