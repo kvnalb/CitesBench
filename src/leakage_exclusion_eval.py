@@ -14,6 +14,9 @@ coverage is printed with the results.
 Output: outputs/leakage_exclusion_eval.csv + printed comparison.
 
 Run: python src/leakage_exclusion_eval.py [--threshold 0.5] [--mode raw]
+     [--citation-source s2]   # Semantic Scholar ground truth (see
+                              # outputs/citation_source_comparison.md); writes
+                              # outputs/leakage_exclusion_eval_s2.csv
 """
 import os
 import sys
@@ -80,9 +83,23 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--threshold", type=float, default=0.5, help="LAP/FAME exclusion cutoff")
     parser.add_argument("--mode", default="raw", choices=["raw", "normalized"])
+    parser.add_argument("--citation-source", default="openalex", choices=["openalex", "s2"])
     args = parser.parse_args()
 
     eval_table = pd.read_csv("outputs/eval_table.csv")
+    if args.citation_source == "s2":
+        # same swap as the dashboard toggle: S2 counts under the original column
+        # names so regimes/metrics work unchanged
+        s2 = pd.read_csv("outputs/s2_citations_full.csv")
+        ok = s2[s2["s2_citations"].notna() &
+                ((s2["method"] == "arxiv_batch") | (s2["title_sim"].fillna(0) >= 0.9))]
+        eval_table = eval_table.merge(ok[["paper_id", "s2_citations"]].drop_duplicates("paper_id"),
+                                      on="paper_id", how="left")
+        eval_table["openalex_citations"] = eval_table["s2_citations"]
+        eval_table = eval_table.drop(columns=["s2_citations"])
+        eval_table["citation_pct_rank"] = eval_table.groupby(["field", "year"])[
+            "openalex_citations"].rank(pct=True)
+        OUT_CSV = "outputs/leakage_exclusion_eval_s2.csv"
 
     excluded = set()
     probed = set()

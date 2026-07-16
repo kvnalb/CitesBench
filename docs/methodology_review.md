@@ -51,6 +51,13 @@ margin; an assumption-laden extrapolation for clear rejects.
 within one rating point of the bar), and label everything on the full set "exploratory,
 status-quo-biased." Honest, no new modeling.
 
+**Note (2026-07-16).** The P5 ground-truth audit bears directly on P1: OpenAlex undercounts
+accepted papers ~3.5× vs ~2.0× for rejected, which biases any OA-based acceptance-effect estimate
+(including the fuzzy-RDD LATE) toward zero — the true venue premium is *larger* than OA data
+suggests (accepted/rejected median gap 22.4× under S2 vs 5.8× under OA). The dashboard's Section 4
+RDD now supports the Semantic Scholar outcome via the sidebar toggle; the RDD should be re-estimated
+on S2 counts before quoting any LATE.
+
 ---
 
 ### P2. LLM-regime hindsight leakage — TESTED (2026-07-10), quantified, not fatal
@@ -134,6 +141,47 @@ Re-ran the exclusion eval at every cutoff from 0.1 to 0.9. Excluded-pool size ba
 minus full lift) is flat across the whole range — e.g. LLM Committee stays at roughly −0.21 to −0.22
 throughout. 0.5 isn't cherry-picked; the same conclusion holds at any threshold in this band.
 
+7. **Abstract-completion extraction probe (2026-07-16, `src/leakage_abstract_completion_v1.py`).**
+   Third independent method (after logprob recall and trace forensics): given title + year + first
+   abstract sentence, the model completes the abstract (greedy decode); scored vs 5 same-field×year
+   decoys via ROUGE-L margin, with a verbatim-8-gram requirement for "extractable" (Carlini-style
+   criterion). N=297 stratified by citation decile. **Extractable rate 1.7% overall, and every
+   extractable paper is in the top two citation deciles** (10.7% / 7.1% vs 0.0% in deciles 0–7);
+   gradient ρ = +0.14 (ROUGE-L, p=.014) and +0.19 (8-grams, p=.001). ROUGE-L margin correlates
+   with FAME recall (ρ=+0.13, p=.024) but not LAP (p=.18) — converges with the fame-not-decisions
+   story at the verbatim-text level. One-sided test: instruct-tuning suppresses regurgitation, so
+   low-decile nulls don't prove absence. Report: `outputs/leakage_abstract_completion_report.md`.
+
+8. **Thinking-trace forensics (2026-07-16, `src/leakage_fame_trace_sample.py`).** Gemma's thinking
+   channel is recoverable from the logprob token stream at zero extra cost; probes now archive
+   traces (`outputs/leakage_*_traces*.jsonl`). A 30-paper fame-stratified sample shows "high"
+   answers retrieving identity facts not in the prompt (library names, author names, method
+   acronyms); even the errors are recognition-based — all 4 false positives are genuinely
+   recognized papers sitting at year-rank .81–.89, just under the .9 cutoff, and 1 FN is a
+   recognized paper the model mis-calibrated as non-seminal. "Low/unknown" traces reason from
+   absence-of-recognition plus base rates — itself a second leakage channel.
+
+**Ground-truth sensitivity of the exclusion re-run (2026-07-16).** The exclusion table above uses
+OpenAlex counts, which turn out to undercount accepted papers ~3.5× and rejected ~2.0× (see P5
+update). Re-running with Semantic Scholar ground truth
+(`python src/leakage_exclusion_eval.py --citation-source s2`,
+`outputs/leakage_exclusion_eval_s2.csv`) sharpens the conclusion considerably:
+
+   | Regime | Full (S2) | Excluded (S2) | Δ |
+   |---|---|---|---|
+   | Human AC | 1.65 | 2.06 | +0.41 |
+   | Human Score-based | 1.48 | 1.75 | +0.27 |
+   | LLM Committee (Gemma) | 2.02 | 2.09 | +0.07 |
+   | LLM Decision Head | 1.81 | 1.76 | −0.04 |
+
+   Under S2, exclusion *raises* every regime's lift (the excluded famous papers carry so much
+   citation mass that random baselines drop faster than regime performance) — but it raises humans
+   far more. **The LLM Committee's full-pool edge over Human AC (+0.37) collapses to +0.03 on the
+   leakage-excluded pool.** The OA-based verdict below ("thesis survives") therefore weakens under
+   the better ground truth: on papers the model cannot be shown to recall, the LLM committee and
+   human ACs are statistically indistinguishable. This needs bootstrap CIs (P3) before a final
+   call, and should be the headline caveat in any writeup.
+
 ---
 
 ### P3. No uncertainty quantification
@@ -182,6 +230,24 @@ Two distinct holes:
 - **~37% of papers have no OpenAlex citation match.** The "impute zeros" toggle is blunt:
   unmatched-because-title-failure (could be high-impact) vs unmatched-because-never-published
   (genuinely ~0) are opposite cases treated identically.
+
+**Update (2026-07-16) — ground-truth audit, largely FIXED via Semantic Scholar refetch.**
+Root cause found: 98.6% of our OpenAlex records carry only an arXiv DOI — OpenAlex matched papers
+to the *preprint* record and never merged the published ICLR version, so citations to the
+published version are lost. Audit (`src/compare_citation_sources.py`,
+`outputs/citation_source_comparison.md`, n=1,383 arXiv-matched): median S2/OA ratio 2.9×, 70% of
+papers undercounted >2×, and — critically — **the undercount is differential by acceptance**
+(median 3.5× accepted vs 2.0× rejected; accepted papers have a published version to lose
+citations to, rejected ones often don't). Full-corpus refetch (`src/fetch_citations_s2_full.py`,
+`outputs/s2_citations_full.csv`): S2 batch by arXiv ID + title match (sim ≥ 0.9) covers **93.0%
+of the corpus vs OpenAlex's 71.5%, and coverage is symmetric (93.1% accepts / 93.0% rejects vs
+OA's 89%/63%)** because S2 indexes OpenReview-only submissions via the MAG ingestion. Effects:
+the accepted/rejected median citation gap is 22.4× under S2 vs 5.8× under OA (mean log gap 2.65
+vs 1.49); rank order largely survives (ρ=.92, 5.9% of within-year top-decile labels flip), so
+recall-based metrics are robust while raw-citation metrics shift substantially. The dashboard has
+a sidebar citation-source toggle threaded through Sections 1–4; fame-recall accuracy rises
+85.2%→87.2% under S2 (OA-based figures were lower bounds). Remaining caveat: title-match is fuzzy
+for ~40% of matches (similarity-gated), and both sources still measure citations, not impact.
 
 **Best solution.** (a) Evaluate *all* regimes on the common covered subset (3,494) with N
 re-derived within it — never compare an LLM regime on 3,494 against a human regime on 4,567,

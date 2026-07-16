@@ -1015,12 +1015,14 @@ st.markdown('<p class="explainer">'
             'Does ICLR acceptance <i>cause</i> additional citations, or does the correlation '
             'just reflect paper quality? Running variable = score_centered (mean_rating − '
             'year-specific cutoff). Treatment is fuzzy: ACs don\'t follow ratings perfectly. '
-            'Instrument: above = 1{score_centered ≥ 0}. Outcome: log(1 + citations). '
-            'LATE ≈ 1.0 log-unit ≈ 2.7× more citations for papers that just cleared the cutoff.</p>',
+            'Instrument: above = 1{score_centered ≥ 0}. Outcome: log(1 + citations), '
+            'from the citation source selected in the sidebar. OpenAlex undercounts accepted '
+            'papers more than rejected ones (median 3.5× vs 2.0× vs S2) — biasing the OA-based '
+            'LATE toward zero — so compare both sources here.</p>',
             unsafe_allow_html=True)
 
 @st.cache_data
-def _load_rdd_sample(_v=2):
+def _load_rdd_sample(src="OpenAlex", _v=3):
     rdd_path = "data/OpenAlex/openalex_rdd_dashboard.csv"
     if not os.path.exists(rdd_path):
         return None
@@ -1030,6 +1032,15 @@ def _load_rdd_sample(_v=2):
         & raw["in_year_specific_rdd_sample"].astype(bool)
         & raw["openalex_matched"].astype(bool)
     ].copy()
+    if src == "Semantic Scholar" and os.path.exists(S2_CSV):
+        # same RDD sample, outcome swapped to S2 counts; papers without an
+        # S2 match (~7%) are dropped rather than imputed
+        s2 = pd.read_csv(S2_CSV)
+        ok = s2[s2["s2_citations"].notna() &
+                ((s2["method"] == "arxiv_batch") | (s2["title_sim"].fillna(0) >= 0.9))]
+        dm = dm.merge(ok[["paper_id", "s2_citations"]].drop_duplicates("paper_id"),
+                      on="paper_id", how="inner")
+        dm["openalex_cited_by_count"] = dm["s2_citations"]
     dm["lcites"] = np.log1p(dm["openalex_cited_by_count"].fillna(0))
     dm["accepted"] = dm["accepted"].astype(int)
     _field = pd.read_csv("outputs/eval_table.csv")[["paper_id", "field"]]
@@ -1037,8 +1048,8 @@ def _load_rdd_sample(_v=2):
     return dm
 
 @st.cache_data
-def _rdd_year_bscatter(yr, n_bins=16):
-    dm = _load_rdd_sample()
+def _rdd_year_bscatter(yr, n_bins=16, src="OpenAlex"):
+    dm = _load_rdd_sample(src)
     if dm is None: return None, None
     sub = dm[dm["year"] == yr].copy()
     bw = sub["bandwidth"].iloc[0]
@@ -1053,8 +1064,8 @@ def _rdd_year_bscatter(yr, n_bins=16):
     return bs, bw
 
 @st.cache_data
-def _rdd_all_specs():
-    dm = _load_rdd_sample()
+def _rdd_all_specs(src="OpenAlex"):
+    dm = _load_rdd_sample(src)
     if dm is None: return [], [], []
     from fuzzy_rdd import run_specs_constant, run_specs
     pooled_lc = [r for h in [0.5, 0.75, 1.0]
@@ -1069,11 +1080,11 @@ def _rdd_all_specs():
         if r: yr_lc.append({**r, "year": yr})
     return pooled_lc, yr_lc, pooled_field_lc
 
-_rdd_dm = _load_rdd_sample()
+_rdd_dm = _load_rdd_sample(citation_source)
 if _rdd_dm is None:
     st.info("RDD data not found.")
 else:
-    _pooled_specs, _yr_specs, _pooled_field_specs = _rdd_all_specs()
+    _pooled_specs, _yr_specs, _pooled_field_specs = _rdd_all_specs(citation_source)
 
     # ── 4a. SCORE DISTRIBUTION — heaping diagnostic ─────────────────────────
     st.markdown("#### 4a. Score distribution by year — masspoints diagnostic")
@@ -1121,7 +1132,7 @@ else:
 
     _yr_cols = st.columns(3)
     for i, yr in enumerate([2018, 2019, 2020]):
-        bs, bw = _rdd_year_bscatter(yr)
+        bs, bw = _rdd_year_bscatter(yr, src=citation_source)
         with _yr_cols[i]:
             st.markdown(f"**{yr}** (h={bw:.2f})")
             if bs is None or bs.empty:
@@ -1275,6 +1286,7 @@ def _load_leakage(_v=1):
         ("controls", "outputs/leakage_controls.csv"),
         ("masked", "outputs/leakage_masked_rereview.csv"),
         ("exclusion", "outputs/leakage_exclusion_eval.csv"),
+        ("exclusion_s2", "outputs/leakage_exclusion_eval_s2.csv"),
         ("threshold_sweep", "outputs/leakage_threshold_sweep.csv"),
         ("abstract", "outputs/leakage_abstract_completion_v1.csv"),
     ]:
@@ -1493,6 +1505,9 @@ else:
         st.markdown("---")
 
     # ── 5d. LEAKAGE-EXCLUDED HEADLINE ────────────────────────────────────────
+    _use_s2_excl = citation_source == "Semantic Scholar" and _leak["exclusion_s2"] is not None
+    if _use_s2_excl:
+        _leak = dict(_leak, exclusion=_leak["exclusion_s2"])
     if _leak["exclusion"] is not None:
         st.markdown("#### 5d. Headline comparison, with memorized papers excluded")
         st.markdown('<p class="explainer">'
@@ -1538,8 +1553,15 @@ else:
                 f"Δ < 0 means the regime's edge shrinks once memorized papers are removed — that gap "
                 f"is the measured leakage tax. Probe coverage: {len(_probed_ids):,}/{len(_pool_ids):,} "
                 f"papers ({len(_probed_ids) / len(_pool_ids):.1%}); {len(_excluded_ids):,} excluded as "
-                f"memorized (LAP or FAME ≥ 0.5). LLM regimes shrink the most; human regimes are ~flat. "
-                f"Precomputed with OpenAlex ground truth (not affected by the citation-source toggle)."
+                f"memorized (LAP or FAME ≥ 0.5). "
+                + ("Semantic Scholar ground truth (follows the sidebar toggle; "
+                   "src/leakage_exclusion_eval.py --citation-source s2). Under S2, exclusion "
+                   "helps every regime — famous excluded papers carry even more of the citation "
+                   "mass — but helps humans far more: the LLM Committee's full-pool edge over "
+                   "Human AC nearly vanishes on the leakage-excluded pool."
+                   if _use_s2_excl else
+                   "OpenAlex ground truth. LLM regimes shrink the most; human regimes are ~flat. "
+                   "Toggle the sidebar citation source to see the S2 version.")
             )
 
         if _leak["threshold_sweep"] is not None and len(_leak["threshold_sweep"]):
@@ -1579,7 +1601,8 @@ else:
                 f"Δ is essentially flat across thresholds 0.1–0.9 for every regime (excluded-pool size "
                 f"ranges only {_n_range['min']:,}–{_n_range['max']:,} papers over that range — LAP/FAME "
                 "scores cluster near 0 or 1, so most of the range doesn't relabel any papers). The 0.5 "
-                "cutoff isn't cherry-picked — the conclusion would be the same at any threshold in this band."
+                "cutoff isn't cherry-picked — the conclusion would be the same at any threshold in this band. "
+                "Sweep is precomputed with OpenAlex ground truth (not affected by the citation-source toggle)."
             )
 
     # ── 5e. ABSTRACT-COMPLETION EXTRACTION PROBE ─────────────────────────────
