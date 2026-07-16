@@ -1545,6 +1545,36 @@ else:
                 _disp[c] = _disp[c].map(lambda v: f"{v:+.3f}" if c == "Δ" else f"{v:.3f}")
             st.dataframe(_disp, use_container_width=True, hide_index=True)
 
+            _boot_path = ("outputs/leakage_exclusion_bootstrap_s2.csv" if _use_s2_excl
+                          else "outputs/leakage_exclusion_bootstrap_openalex.csv")
+            if os.path.exists(_boot_path):
+                st.markdown("##### Bootstrap 95% CIs — is the LLM–human gap real?")
+                _bt = pd.read_csv(_boot_path)
+                _gaps = _bt[_bt["stat"] == "gap"].copy()
+                _gaps["estimate [95% CI]"] = _gaps.apply(
+                    lambda r: f"{r['point']:+.3f}  [{r['lo']:+.3f}, {r['hi']:+.3f}]", axis=1)
+                _gaps["p (bootstrap)"] = _gaps["p_boot"].map(
+                    lambda p: "<0.001" if p == 0 else f"{p:.3f}")
+                _gt = _gaps.pivot_table(index="regime", columns="pool",
+                                        values="estimate [95% CI]", aggfunc="first")
+                _gp = _gaps.pivot_table(index="regime", columns="pool",
+                                        values="p (bootstrap)", aggfunc="first")
+                _gap_disp = pd.DataFrame({
+                    "LLM − human gap": _gt.index,
+                    "Full pool": _gt["full"].values,
+                    "p": _gp["full"].values,
+                    "Leakage-excluded": _gt["leakage_excluded"].values,
+                    "p ": _gp["leakage_excluded"].values,
+                })
+                st.dataframe(_gap_disp, use_container_width=True, hide_index=True)
+                st.caption(
+                    "Paired percentile bootstrap over papers (B=2,000), conditional on realized "
+                    "selections; same replicate draw for both regimes in each gap, so shared noise "
+                    "cancels. Random baselines computed analytically per replicate — point "
+                    "estimates differ slightly from the simulated-baseline chart above. "
+                    "Script: src/leakage_exclusion_bootstrap.py."
+                )
+
             _pool_ids = set(eval_table["paper_id"])
             _probed_ids = (set(_lap["paper_id"]) | set(_fame["paper_id"])) & _pool_ids
             _excluded_ids = (set(_lap.loc[_lap["lap"] >= 0.5, "paper_id"]) |

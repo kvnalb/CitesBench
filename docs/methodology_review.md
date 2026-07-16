@@ -179,12 +179,13 @@ update). Re-running with Semantic Scholar ground truth
    far more. **The LLM Committee's full-pool edge over Human AC (+0.37) collapses to +0.03 on the
    leakage-excluded pool.** The OA-based verdict below ("thesis survives") therefore weakens under
    the better ground truth: on papers the model cannot be shown to recall, the LLM committee and
-   human ACs are statistically indistinguishable. This needs bootstrap CIs (P3) before a final
-   call, and should be the headline caveat in any writeup.
+   human ACs are statistically indistinguishable — now CI-backed (see P3 update: S2 excluded gap
+   +0.03 [−0.24, +0.31], p=.83, paired bootstrap B=2,000). This is the headline caveat for any
+   writeup.
 
 ---
 
-### P3. No uncertainty quantification
+### P3. No uncertainty quantification — PARTIALLY DONE (2026-07-16) for the headline comparison
 
 Every regime is a point estimate (overlap 0.62, etc.). With ~500 papers/year and heavy-tailed
 citations, the gap between 0.62 and 0.60 may be noise. The random baseline is averaged over 1000
@@ -194,6 +195,25 @@ variance. A ranking without error bars invites over-reading.
 **Best solution.** Paired bootstrap over papers: resample the pool (same resample across all
 regimes), recompute every metric, repeat 1000×. Report CIs on each bar *and* on every
 regime-minus-regime difference. Only call a difference real if its CI clears zero.
+
+**Update (2026-07-16, `src/leakage_exclusion_bootstrap.py`).** Paired percentile bootstrap
+(B=2,000, resample papers within year, same draw across regimes, conditional on realized
+selections, analytic random baselines) on the exclusion-eval headline (mean lift over random,
+5 metrics × 3 years). Outputs: `outputs/leakage_exclusion_bootstrap_{openalex,s2}.csv`; shown in
+dashboard 5d. LLM Committee − Human AC gap:
+
+| Ground truth | Full pool | Leakage-excluded pool |
+|---|---|---|
+| OpenAlex | +0.45 [+0.30, +0.58], p<.001 | **+0.29 [+0.08, +0.56], p=.007** |
+| Semantic Scholar | +0.37 [+0.21, +0.51], p<.001 | **+0.03 [−0.24, +0.31], p=.83** |
+
+So the S2 result from P2 is now CI-backed: under the corrected ground truth, the LLM Committee is
+statistically indistinguishable from human AC decisions on non-memorized papers. Secondary gaps
+under S2/excluded: Committee still beats score-top-N (+0.34 [+0.08, +0.61], p=.011); the Decision
+Head is significantly *worse* than AC (−0.30 [−0.58, −0.04], p=.017). Under OA the committee's
+excluded-pool edge remains significant — the ground-truth choice, not the exclusion, is what
+flips the headline. Still open: CIs on the Section-1 bars for every regime×metric (this covers
+only the exclusion headline).
 
 **Cheap good-enough.** Bootstrap CIs on the headline metric only; show them as error bars on the
 Section-1 bars.
