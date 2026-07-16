@@ -760,16 +760,18 @@ else:
 
     st.markdown("---")
 
-    # ── 3c. CONTROLLED RECALL — field×year stratified ────────────────────────
+    # ── 3c. CONTROLLED RECALL — field×year FE regression ─────────────────────
     st.markdown("#### 3c. Does controlling for field affect regime rankings?")
     st.markdown('<p class="explainer">'
                 'Within-field recall@10% for each regime, averaged across years. '
                 'If ranking is stable across fields, covariate control does not change the conclusion. '
-                'Spearman ρ (committee_rating vs citation_pct_rank) measures predictive accuracy '
-                'per field×year cell.</p>', unsafe_allow_html=True)
+                'Right: a single pooled regression — citation_pct_rank ~ committee_rating × field + year FE '
+                '— replaces a per-field×year Spearman-ρ scan (which silently dropped any cell with &lt;5 '
+                'papers) with one model and a proper significance test of whether the rating→citation '
+                'slope actually differs by field.</p>', unsafe_allow_html=True)
 
     @st.cache_data
-    def _field_recall_and_rho(years_tuple, mode_key, impute, excl):
+    def _field_recall(years_tuple, mode_key, impute, excl):
         rows = []
         _regs = [LLMCommittee(), HumanActual(), HumanScore()]
         et_sub = eval_table.copy()
@@ -779,21 +781,17 @@ else:
                 pf = pf[pf["field"] == field].copy()
                 n_acc = int(pf["decision"].str.startswith("Accept", na=False).sum())
                 if n_acc < 3: continue
-                # Spearman ρ within this cell
-                sub_rho = pf.dropna(subset=["committee_rating","citation_pct_rank"])
-                rho_val, _ = spearmanr(sub_rho["committee_rating"], sub_rho["citation_pct_rank"]) if len(sub_rho) >= 5 else (np.nan, np.nan)
                 for reg in _regs:
                     try:
                         sel = reg.select(pf, n_acc)
                         m = compute_metrics(sel, pf, mode_key)
                         rows.append({"field": field, "year": yr, "regime": reg.name,
-                                     "recall_at_10": m["recall_at_10"], "rho": rho_val,
-                                     "n": len(pf)})
+                                     "recall_at_10": m["recall_at_10"], "n": len(pf)})
                     except Exception:
                         pass
         return pd.DataFrame(rows)
 
-    _fc_df = _field_recall_and_rho(tuple(years), mode, impute_zeros, exclude_top_decile)
+    _fc_df = _field_recall(tuple(years), mode, impute_zeros, exclude_top_decile)
 
     if not _fc_df.empty:
         col3c1, col3c2 = st.columns([1.4, 1])
@@ -824,32 +822,53 @@ else:
             st.plotly_chart(fig_fc, use_container_width=True)
 
         with col3c2:
-            # ρ heatmap (field × year)
-            _rho_df = _fc_df[_fc_df["regime"] == LLMCommittee().name].drop_duplicates(["field","year"])
-            if not _rho_df.empty:
-                _rho_piv = _rho_df.pivot(index="year", columns="field", values="rho")
-                fig_rho = go.Figure(go.Heatmap(
-                    z=_rho_piv.values,
-                    x=[c.replace("_"," ") for c in _rho_piv.columns],
-                    y=_rho_piv.index.tolist(),
-                    colorscale="Blues", zmin=0.35, zmax=0.75,
-                    text=[[f"{v:.2f}" if not (isinstance(v,float) and np.isnan(v)) else ""
-                           for v in row] for row in _rho_piv.values],
-                    texttemplate="%{text}",
-                    hovertemplate="Field: %{x}<br>Year: %{y}<br>ρ = %{z:.3f}<extra></extra>",
-                ))
-                fig_rho.update_layout(
-                    title=dict(text="Spearman ρ (committee_rating vs citation_pct_rank)",
-                               font=dict(size=11, color=SUBTEXT), x=0),
-                    height=240, margin=dict(l=0, r=0, t=32, b=4),
-                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                    xaxis=dict(tickangle=-20, tickfont=dict(size=9, color=TEXT)),
-                    yaxis=dict(tickfont=dict(size=10, color=TEXT)),
-                    coloraxis_showscale=False,
+            # Pooled field×year FE regression — replaces the old per-cell ρ scan
+            from fuzzy_rdd import cat_dummies, wls_hc1
+            from scipy.stats import t as _tdist
+            _reg_df = eval_table[eval_table["year"].isin(years)].dropna(
+                subset=["committee_rating", "citation_pct_rank", "field"]).copy()
+            if len(_reg_df) >= 30:
+                _fields = sorted(_reg_df["field"].unique())
+                _ref_field = _fields[0]
+                _n = len(_reg_df)
+                _fld_d = cat_dummies(_reg_df["field"].values)
+                _yr_d = cat_dummies(_reg_df["year"].values)
+                _x = _reg_df["committee_rating"].values
+                _y = _reg_df["citation_pct_rank"].values
+
+                # pooled slope (no interaction): committee_rating + field FE + year FE
+                _X0 = np.column_stack([np.ones(_n), _x, _fld_d, _yr_d])
+                _b0, _se0 = wls_hc1(_X0, _y, np.ones(_n))
+                _p0 = 2 * (1 - _tdist.cdf(abs(_b0[1] / _se0[1]), df=_n - _X0.shape[1]))
+
+                # + committee_rating:field interaction — does the slope differ by field?
+                _inter = [(_fld_d[:, j] * _x) for j in range(_fld_d.shape[1])]
+                _X1 = np.column_stack([_X0] + _inter) if _inter else _X0
+                _b1, _se1 = wls_hc1(_X1, _y, np.ones(_n))
+                _k0 = _X0.shape[1]
+                _int_rows, _p_vals = [], []
+                for j, f in enumerate(_fields[1:]):
+                    _beta, _se = _b1[_k0 + j], _se1[_k0 + j]
+                    _p = 2 * (1 - _tdist.cdf(abs(_beta / _se), df=_n - _X1.shape[1])) if _se > 0 else np.nan
+                    _p_vals.append(_p)
+                    _int_rows.append({"field": f.replace("_", " "),
+                                      f"Δ slope vs {_ref_field.replace('_',' ')}": f"{_beta:+.4f}",
+                                      "p": f"{_p:.2g}"})
+                st.dataframe(pd.DataFrame(_int_rows), use_container_width=True, hide_index=True)
+                _any_sig = any(p < 0.05 for p in _p_vals if not np.isnan(p))
+                st.caption(
+                    f"Pooled slope (committee_rating → citation_pct_rank, field+year FE): "
+                    f"{_b0[1]:+.4f} (p={_p0:.2g}, N={_n:,}). "
+                    + ("At least one field's slope differs significantly from the reference "
+                       f"({_ref_field.replace('_',' ')}) — treat the pooled ranking as field-sensitive."
+                       if _any_sig else
+                       f"No field's slope differs significantly from the reference "
+                       f"({_ref_field.replace('_',' ')}) at p<0.05 — committee_rating predicts citations "
+                       "similarly across fields, controlling for field and year levels.")
                 )
-                st.plotly_chart(fig_rho, use_container_width=True)
-                st.caption("ρ ≈ 0.5–0.7 consistently; no field shows ρ < 0.4, "
-                           "so committee_rating is predictive in every subgroup.")
+            else:
+                st.caption("Not enough field-tagged papers with both committee_rating and "
+                          "citation_pct_rank to fit the pooled regression for this selection.")
 
 st.markdown("---")
 
@@ -878,6 +897,8 @@ def _load_rdd_sample(_v=2):
     ].copy()
     dm["lcites"] = np.log1p(dm["openalex_cited_by_count"].fillna(0))
     dm["accepted"] = dm["accepted"].astype(int)
+    _field = pd.read_csv("outputs/eval_table.csv")[["paper_id", "field"]]
+    dm = dm.merge(_field, on="paper_id", how="left")
     return dm
 
 @st.cache_data
@@ -899,23 +920,25 @@ def _rdd_year_bscatter(yr, n_bins=16):
 @st.cache_data
 def _rdd_all_specs():
     dm = _load_rdd_sample()
-    if dm is None: return [], []
+    if dm is None: return [], [], []
     from fuzzy_rdd import run_specs_constant, run_specs
     pooled_lc = [r for h in [0.5, 0.75, 1.0]
                  if (r := run_specs_constant(dm, h, f"Pooled ±{h:.2f}"))]
+    pooled_field_lc = [r for h in [0.5, 0.75, 1.0]
+                       if (r := run_specs_constant(dm, h, f"Pooled ±{h:.2f} (+field FE)", field_col="field"))]
     yr_lc = []
     for yr in [2018, 2019, 2020]:
         sub = dm[dm["year"] == yr]
         bw = sub["bandwidth"].iloc[0]
         r = run_specs_constant(sub, bw, f"{yr}  h={bw:.2f}")
         if r: yr_lc.append({**r, "year": yr})
-    return pooled_lc, yr_lc
+    return pooled_lc, yr_lc, pooled_field_lc
 
 _rdd_dm = _load_rdd_sample()
 if _rdd_dm is None:
     st.info("RDD data not found.")
 else:
-    _pooled_specs, _yr_specs = _rdd_all_specs()
+    _pooled_specs, _yr_specs, _pooled_field_specs = _rdd_all_specs()
 
     # ── 4a. SCORE DISTRIBUTION — heaping diagnostic ─────────────────────────
     st.markdown("#### 4a. Score distribution by year — masspoints diagnostic")
@@ -1047,6 +1070,24 @@ else:
                 "95% CI": r["CI_95"],
             } for r in _pooled_specs])
             st.dataframe(_pool_tbl, use_container_width=True, hide_index=True)
+
+    if _pooled_field_specs:
+        st.markdown("**Robustness: pooled + field FE** (additive covariate, not a per-field LATE)")
+        st.markdown('<p class="explainer">'
+                    'Field fixed effects added as an additive covariate to soak up citation-level '
+                    'variance unrelated to treatment (same logic as covariate adjustment in an RCT) — '
+                    'not a per-field treatment interaction, which the near-cutoff sample is too thin to '
+                    'support reliably. Rows with no field tag are dropped, so N is smaller than the '
+                    'no-field spec above; compare LATE and CI width directly.</p>', unsafe_allow_html=True)
+        _pf_tbl = pd.DataFrame([{
+            "Window": r["spec"], "N": r["N"],
+            "FS Δ": f"{r['FS_jump']:+.3f}",
+            "FS F": r["FS_F"],
+            "RF Δ": f"{r['RF_jump']:+.3f}",
+            "LATE": r["LATE"],
+            "95% CI": r["CI_95"],
+        } for r in _pooled_field_specs])
+        st.dataframe(_pf_tbl, use_container_width=True, hide_index=True)
 
     st.markdown(
         '<p class="explainer">'

@@ -43,15 +43,18 @@ def tri_kernel(score, h):
     return np.maximum(0.0, 1.0 - np.abs(score) / h)
 
 
-def year_dummies(years):
-    """Return (n × k) design matrix of year dummies (drop first year)."""
-    unique = sorted(set(years))
+def cat_dummies(values):
+    """Return (n × k) design matrix of dummies for any categorical array (drop first level)."""
+    unique = sorted(set(values))
     if len(unique) <= 1:
-        return np.zeros((len(years), 0))
+        return np.zeros((len(values), 0))
     cols = []
-    for yr in unique[1:]:
-        cols.append((years == yr).astype(float))
+    for v in unique[1:]:
+        cols.append((values == v).astype(float))
     return np.column_stack(cols)
+
+
+year_dummies = cat_dummies  # kept as a name for existing call sites
 
 
 # ── Wald / 2SLS for fuzzy RDD ────────────────────────────────────────────────
@@ -71,16 +74,32 @@ def fuzzy_late(FS_beta, FS_se, RF_beta, RF_se, idx_above=1):
     return late, se_late
 
 
-def run_specs_constant(dm: pd.DataFrame, h: float, label: str) -> dict:
-    """Local constant (step) RDD — just compares means within ±h. No slope extrapolation."""
+def run_specs_constant(dm: pd.DataFrame, h: float, label: str, field_col: str = None) -> dict:
+    """Local constant (step) RDD — just compares means within ±h. No slope extrapolation.
+
+    field_col: if given, adds field dummies as an additive covariate (precision
+    control, not a per-field treatment interaction — see leakage_power_analysis-
+    style reasoning in methodology_review.md P-section on field FE). Rows with
+    missing field are dropped, so N shrinks; report alongside the no-field spec,
+    never in place of it.
+    """
     d = dm[dm["score_centered"].abs() <= h].copy()
+    if field_col:
+        d = d[d[field_col].notna()].copy()
     n = len(d)
     if n < 20:
         return {}
     above = (d["score_centered"] >= 0).astype(float).values
     yr_d = year_dummies(d["year"].values)
-    # No slope controls — just above + year FE
-    X = np.column_stack([np.ones(n), above, yr_d]) if yr_d.shape[1] > 0 else np.column_stack([np.ones(n), above])
+    cols = [np.ones(n), above]
+    if yr_d.shape[1] > 0:
+        cols.append(yr_d)
+    if field_col:
+        fld_d = cat_dummies(d[field_col].values)
+        if fld_d.shape[1] > 0:
+            cols.append(fld_d)
+    # No slope controls — just above + year FE (+ field FE if requested)
+    X = np.column_stack(cols)
     w = np.ones(n)  # unweighted within window
     fs_b, fs_s = wls_hc1(X, d["accepted"].astype(float).values, w)
     rf_b, rf_s = wls_hc1(X, d["lcites"].values, w)
