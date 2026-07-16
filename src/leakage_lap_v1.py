@@ -30,6 +30,7 @@ Run: python src/leakage_lap_v1.py [--smoke] [--full] [--report-only]
 """
 import os
 import sys
+import json
 import math
 import time
 import argparse
@@ -103,7 +104,10 @@ def probe_one(client, prompt, pos_set=ACCEPT_TOKENS, neg_set=REJECT_TOKENS,
     """
     One recall probe against MODEL: greedy decode, logprob read at answer
     position, text-parse fallback. Retries 3x then raises.
-    Returns (label, p_pos, p_neg, p_unk, completion_tokens).
+    Returns (label, p_pos, p_neg, p_unk, completion_tokens, trace).
+    trace = full completion reconstructed from logprob tokens (includes the
+    thinking channel, which Together strips from message.content) — callers
+    persist it to a JSONL sidecar for forensic audit of recall vs judgment.
     """
     resp = None
     for attempt in range(3):
@@ -128,7 +132,8 @@ def probe_one(client, prompt, pos_set=ACCEPT_TOKENS, neg_set=REJECT_TOKENS,
     probs = extract_answer_logprobs(lp.content if lp else None, pos_set, neg_set, unk_set)
     if probs is not None:
         p_pos, p_neg, p_unk = probs
-    return label, p_pos, p_neg, p_unk, (resp.usage.completion_tokens if resp.usage else None)
+    trace = "".join(e.token for e in lp.content) if (lp and lp.content) else None
+    return label, p_pos, p_neg, p_unk, (resp.usage.completion_tokens if resp.usage else None), trace
 
 
 def build_sample(df, n, seed=42):
@@ -175,7 +180,7 @@ def run_laps(df, smoke=False, workers=10):
     lock = threading.Lock()
     counter = [0]
 
-    with open(OUT_CSV, "a") as fout:
+    with open(OUT_CSV, "a") as fout, open("outputs/leakage_lap_traces.jsonl", "a") as ftrace:
         if write_header:
             fout.write("paper_id,year,decision,answer,p_accept,p_reject,p_unknown,lap,ud\n")
 
@@ -183,7 +188,7 @@ def run_laps(df, smoke=False, workers=10):
             # ponytail: each thread gets its own client (openai client is not thread-safe)
             client = OpenAI(api_key=key, base_url="https://api.together.xyz/v1")
             try:
-                answer, p_acc, p_rej, p_unk, ntok = probe_one(
+                answer, p_acc, p_rej, p_unk, ntok, trace = probe_one(
                     client, recall_prompt(row.title, row.year))
             except Exception as e:
                 with lock:
@@ -199,6 +204,10 @@ def run_laps(df, smoke=False, workers=10):
                 fout.write(f"{row.paper_id},{row.year},{dec_safe},{answer},"
                            f"{p_acc:.6f},{p_rej:.6f},{p_unk:.6f},{lap:.6f},{ud:.6f}\n")
                 fout.flush()
+                if trace:
+                    ftrace.write(json.dumps({"paper_id": row.paper_id, "probe": "lap",
+                                             "answer": answer, "trace": trace}) + "\n")
+                    ftrace.flush()
                 counter[0] += 1
                 print(f"  {counter[0]}/{len(todo)}  {row.paper_id}  answer={answer}"
                       f"  lap={lap:.3f} ud={ud:+.3f}  (tokens={ntok})")

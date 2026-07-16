@@ -23,6 +23,7 @@ Run: python src/leakage_controls.py [--smoke] [--n-fake 150] [--n-wrongyear 300]
 """
 import os
 import sys
+import json
 import random
 import argparse
 import threading
@@ -166,7 +167,7 @@ def main():
     lock = threading.Lock()
     counter = [0]
 
-    with open(OUT_CSV, "a") as fout:
+    with open(OUT_CSV, "a") as fout, open("outputs/leakage_controls_traces.jsonl", "a") as ftrace:
         if write_header:
             fout.write("probe,probe_id,year_asked,answer,p_accept,p_reject,p_unknown,lap,ud\n")
 
@@ -174,7 +175,7 @@ def main():
             ptype, pid, title, year = probe
             client = OpenAI(api_key=key, base_url="https://api.together.xyz/v1")
             try:
-                answer, p_acc, p_rej, p_unk, _ = probe_one(client, recall_prompt(title, year))
+                answer, p_acc, p_rej, p_unk, _, trace = probe_one(client, recall_prompt(title, year))
             except Exception as e:
                 with lock:
                     fout.write(f"{ptype},{pid},{year},ERROR,,,,,\n")
@@ -187,6 +188,10 @@ def main():
                 fout.write(f"{ptype},{pid},{year},{answer},"
                            f"{p_acc:.6f},{p_rej:.6f},{p_unk:.6f},{lap:.6f},{ud:.6f}\n")
                 fout.flush()
+                if trace:
+                    ftrace.write(json.dumps({"probe_id": pid, "probe": ptype,
+                                             "answer": answer, "trace": trace}) + "\n")
+                    ftrace.flush()
                 counter[0] += 1
                 print(f"  {counter[0]}/{len(todo)}  [{ptype}] {pid}  answer={answer}  lap={lap:.3f}")
 

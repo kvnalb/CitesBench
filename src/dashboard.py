@@ -64,8 +64,10 @@ st.markdown(f"""
 @st.cache_data
 def load_results(): return pd.read_csv("outputs/eval_results.csv")
 
+S2_CSV = "outputs/s2_citations_full.csv"
+
 @st.cache_data
-def load_eval_table(_v=2):  # bump _v to bust cache on redeploy
+def load_eval_table(source="OpenAlex", sz=0, _v=3):  # sz = S2 file size, busts cache as fetch grows
     et = pd.read_csv("outputs/eval_table.csv")
     rej_path = "outputs/outlier_reviews.csv"
     if os.path.exists(rej_path):
@@ -73,11 +75,38 @@ def load_eval_table(_v=2):  # bump _v to bust cache on redeploy
         et = et.merge(rej, on="title", how="left")
     else:
         et["rejection_tags"] = pd.NA
+    if source == "Semantic Scholar" and os.path.exists(S2_CSV):
+        s2 = pd.read_csv(S2_CSV)
+        # arXiv-ID matches are exact; title matches need the similarity gate
+        ok = s2[s2["s2_citations"].notna() &
+                ((s2["method"] == "arxiv_batch") | (s2["title_sim"].fillna(0) >= 0.9))]
+        et = et.merge(ok[["paper_id", "s2_citations"]].drop_duplicates("paper_id"),
+                      on="paper_id", how="left")
+        # keep the original column name so every downstream consumer works unchanged
+        et["openalex_citations"] = et["s2_citations"]
+        et = et.drop(columns=["s2_citations"])
+        et["citation_pct_rank"] = et.groupby(["field", "year"])["openalex_citations"] \
+                                    .rank(pct=True)
     return et
+
+def _et(src):
+    sz = os.path.getsize(S2_CSV) if (src == "Semantic Scholar" and os.path.exists(S2_CSV)) else 0
+    return load_eval_table(src, sz)
+
+st.sidebar.markdown("## Controls")
+_s2_ready = os.path.exists(S2_CSV)
+citation_source = st.sidebar.radio(
+    "Citation source (ground truth)",
+    ["OpenAlex", "Semantic Scholar"] if _s2_ready else ["OpenAlex"],
+    help="OpenAlex matched ~99% of the corpus to arXiv-preprint records and misses citations "
+         "to the published versions — median 2.9× undercount, and differential by acceptance "
+         "(3.5× accepted vs 2.0× rejected). Semantic Scholar merges preprint + published "
+         "versions and also indexes OpenReview-only submissions. "
+         "See outputs/citation_source_comparison.md.")
 
 try:
     df_static = load_results()
-    eval_table = load_eval_table()
+    eval_table = _et(citation_source)
 except FileNotFoundError:
     st.error("Run `python src/run_eval.py` first.")
     st.stop()
@@ -85,8 +114,9 @@ except FileNotFoundError:
 BASELINE_CACHE = "outputs/baselines_cache.csv"
 
 @st.cache_data
-def prepare_pool(year, mode, impute_zeros, exclude_top_decile=False):
-    pool = eval_table[eval_table["year"] == year].copy()
+def prepare_pool(year, mode, impute_zeros, exclude_top_decile=False, src="OpenAlex"):
+    et = _et(src)
+    pool = et[et["year"] == year].copy()
     if impute_zeros:
         pool["openalex_citations"] = pool["openalex_citations"].fillna(0)
         for field, grp in pool.groupby("field"):
@@ -100,8 +130,10 @@ def prepare_pool(year, mode, impute_zeros, exclude_top_decile=False):
     return pool
 
 @st.cache_data
-def get_baselines(year, mode, impute_zeros, exclude_top_decile=False):
+def get_baselines(year, mode, impute_zeros, exclude_top_decile=False, src="OpenAlex"):
     key = f"{year}_{mode}_{int(impute_zeros)}_{int(exclude_top_decile)}"
+    if src != "OpenAlex":
+        key += "_s2"
     if os.path.exists(BASELINE_CACHE):
         cached = pd.read_csv(BASELINE_CACHE)
         hit = cached[cached["key"] == key]
@@ -110,7 +142,7 @@ def get_baselines(year, mode, impute_zeros, exclude_top_decile=False):
             ideal = dict(zip(hit[hit["which"]=="ideal"]["metric"],  hit[hit["which"]=="ideal"]["value"]))
             n     = int(hit["n"].values[0])
             return rand, ideal, n
-    pool = prepare_pool(year, mode, impute_zeros, exclude_top_decile)
+    pool = prepare_pool(year, mode, impute_zeros, exclude_top_decile, src)
     n = pool[pool["decision"].str.startswith("Accept", na=False)].shape[0]
     rand  = random_baseline(pool, n, mode)
     ideal = ideal_baseline(pool, n, mode)
@@ -126,9 +158,9 @@ def get_baselines(year, mode, impute_zeros, exclude_top_decile=False):
     new_df.to_csv(BASELINE_CACHE, index=False)
     return rand, ideal, n
 
-def compute_live(regime, year, mode, impute_zeros, exclude_top_decile=False):
-    pool = prepare_pool(year, mode, impute_zeros, exclude_top_decile)
-    rand, ideal_vals, n = get_baselines(year, mode, impute_zeros, exclude_top_decile)
+def compute_live(regime, year, mode, impute_zeros, exclude_top_decile=False, src="OpenAlex"):
+    pool = prepare_pool(year, mode, impute_zeros, exclude_top_decile, src)
+    rand, ideal_vals, n = get_baselines(year, mode, impute_zeros, exclude_top_decile, src)
     selected = regime.select(pool, n)
     metrics = compute_metrics(selected, pool, mode)
     rows = []
@@ -140,9 +172,7 @@ def compute_live(regime, year, mode, impute_zeros, exclude_top_decile=False):
                      "drawdown": (iv - value) / abs(iv) if iv and iv != 0 else np.nan})
     return rows
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-st.sidebar.markdown("## Controls")
-
+# ── Sidebar (continued — Controls header + citation source live above, pre-load) ─
 mode = "raw"
 year_opts = ["All years"] + sorted(eval_table["year"].dropna().unique().astype(int).tolist())
 selected_year = st.sidebar.selectbox("Year", year_opts)
@@ -160,8 +190,16 @@ exclude_top_decile = st.sidebar.checkbox("Exclude top-10% by citations (leakage-
          "the signal survives without memorisation of high-impact work.")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("⚠️ Median/mean citations computed over OpenAlex-matched papers only "
-                   "(accepts ~89%, rejects ~63%). Recall metrics unaffected.")
+if citation_source == "OpenAlex":
+    st.sidebar.caption("⚠️ Median/mean citations computed over OpenAlex-matched papers only "
+                       "(accepts ~89%, rejects ~63%). Recall metrics unaffected. "
+                       "Note: OpenAlex undercounts (median 2.9× vs S2) and undercounts accepted "
+                       "papers more — see the citation-source toggle above.")
+else:
+    _s2n = int(eval_table["openalex_citations"].notna().sum())
+    st.sidebar.caption(f"⚠️ Semantic Scholar counts active: {_s2n:,}/{len(eval_table):,} papers "
+                       f"matched ({_s2n/len(eval_table):.0%}). Counts merge preprint + published "
+                       "versions. Field-normalized percentile ranks recomputed from S2 counts.")
 st.sidebar.markdown("---")
 st.sidebar.caption(
     "ℹ️ **LLM regimes** use a two-stage pipeline: Gemma-4-31B committee (4 reviewer "
@@ -182,7 +220,7 @@ live_rows = []
 for year in years:
     for regime in all_regimes:
         try:
-            live_rows.extend(compute_live(regime, year, mode, impute_zeros, exclude_top_decile))
+            live_rows.extend(compute_live(regime, year, mode, impute_zeros, exclude_top_decile, citation_source))
         except Exception:
             pass
 
@@ -305,12 +343,12 @@ def get_regime(name):
 dive_regime = get_regime(dive_regime_name)
 
 @st.cache_data
-def compute_quadrants(regime_name, lam, years_tuple, mode, impute_zeros, exclude_top_decile=False):
+def compute_quadrants(regime_name, lam, years_tuple, mode, impute_zeros, exclude_top_decile=False, src="OpenAlex"):
     """Returns pool_df with 'quadrant' column and sets of IDs."""
     pools, regime_ids, ideal_ids, ac_ids = [], set(), set(), set()
     for year in years_tuple:
-        pool = prepare_pool(year, mode, impute_zeros, exclude_top_decile)
-        _, _, n = get_baselines(year, mode, impute_zeros, exclude_top_decile)
+        pool = prepare_pool(year, mode, impute_zeros, exclude_top_decile, src)
+        _, _, n = get_baselines(year, mode, impute_zeros, exclude_top_decile, src)
         regime = get_regime(regime_name)
         try:
             sel = set(regime.select(pool, n))
@@ -341,7 +379,7 @@ def compute_quadrants(regime_name, lam, years_tuple, mode, impute_zeros, exclude
 
 with st.spinner("Computing quadrants..."):
     pool_df, regime_ids, ideal_ids, ac_ids = compute_quadrants(
-        dive_regime_name, lam, tuple(dive_years), mode, impute_zeros, exclude_top_decile)
+        dive_regime_name, lam, tuple(dive_years), mode, impute_zeros, exclude_top_decile, citation_source)
 
 quad_order = ["regime ∩ ideal", "ideal only", "regime only", "neither"]
 
@@ -601,18 +639,17 @@ _COV_PATH = "outputs/paper_author_covariates.csv"
 _ET_PATH  = "outputs/eval_table.csv"
 
 @st.cache_data
-def _load_hetero_full(_v=2):
+def _load_hetero_full(src="OpenAlex", _v=3):
     cov_path = "outputs/paper_author_covariates.csv"
-    et_path  = "outputs/eval_table.csv"
     if not os.path.exists(cov_path):
         return None
-    et  = pd.read_csv(et_path)
+    et  = _et(src)
     cov = pd.read_csv(cov_path)
     df  = et.merge(cov, on="paper_id", how="left")
     df["log_cites"] = np.log1p(df["openalex_citations"].fillna(0))
     return df
 
-_het_df = _load_hetero_full()
+_het_df = _load_hetero_full(citation_source)
 
 if _het_df is None:
     st.info("Run `python src/build_author_covariates.py` to enable this section.")
@@ -662,11 +699,11 @@ else:
                 'driven by that covariate.</p>', unsafe_allow_html=True)
 
     @st.cache_data
-    def _recall_by_subgroup(years_tuple, mode_key, impute, excl):
+    def _recall_by_subgroup(years_tuple, mode_key, impute, excl, src="OpenAlex"):
         llm = LLMCommittee(); ac = HumanActual()
         rows = []
         base_df = pd.concat([
-            prepare_pool(yr, mode_key, impute, excl) for yr in years_tuple
+            prepare_pool(yr, mode_key, impute, excl, src) for yr in years_tuple
         ], ignore_index=True)
         cov = pd.read_csv("outputs/paper_author_covariates.csv")
         base_df = base_df.merge(cov, on="paper_id", how="left")
@@ -698,7 +735,7 @@ else:
                 })
         return pd.DataFrame(rows)
 
-    _sub_df = _recall_by_subgroup(tuple(years), mode, impute_zeros, exclude_top_decile)
+    _sub_df = _recall_by_subgroup(tuple(years), mode, impute_zeros, exclude_top_decile, citation_source)
 
     if not _sub_df.empty:
         # Plot field separately (categorical, not binary)
@@ -771,13 +808,13 @@ else:
                 'slope actually differs by field.</p>', unsafe_allow_html=True)
 
     @st.cache_data
-    def _field_recall(years_tuple, mode_key, impute, excl):
+    def _field_recall(years_tuple, mode_key, impute, excl, src="OpenAlex"):
         rows = []
         _regs = [LLMCommittee(), HumanActual(), HumanScore()]
-        et_sub = eval_table.copy()
+        et_sub = _et(src)
         for field in et_sub["field"].dropna().unique():
             for yr in years_tuple:
-                pf = prepare_pool(yr, mode_key, impute, excl)
+                pf = prepare_pool(yr, mode_key, impute, excl, src)
                 pf = pf[pf["field"] == field].copy()
                 n_acc = int(pf["decision"].str.startswith("Accept", na=False).sum())
                 if n_acc < 3: continue
@@ -791,7 +828,7 @@ else:
                         pass
         return pd.DataFrame(rows)
 
-    _fc_df = _field_recall(tuple(years), mode, impute_zeros, exclude_top_decile)
+    _fc_df = _field_recall(tuple(years), mode, impute_zeros, exclude_top_decile, citation_source)
 
     if not _fc_df.empty:
         # Grouped bar: recall@10% by field, three regimes
@@ -1209,12 +1246,13 @@ st.markdown('<p class="section-header">Section 5 — Leakage Test</p>', unsafe_a
 st.markdown('<p class="explainer">'
             'The LLM committee was run in 2024–2026 on ICLR 2018–2020 papers — its training data '
             'may already know which papers became famous. If so, "LLM beats human" could reflect '
-            'memorized hindsight, not judgment. Five tests below (full corpus, N≈4,200–4,500): '
+            'memorized hindsight, not judgment. Six tests below: '
             'decision-recall probe (LAP), a probe-validity placebo check, a fame-recall probe, '
-            'a masked re-review ablation, and a leakage-excluded re-run of the headline comparison. '
+            'a masked re-review ablation, a leakage-excluded re-run of the headline comparison, '
+            'and an abstract-completion extraction probe. '
             'Scripts: <code>src/leakage_lap_v1.py</code>, <code>leakage_fame_v1.py</code>, '
             '<code>leakage_controls.py</code>, <code>leakage_masked_rereview.py</code>, '
-            '<code>leakage_exclusion_eval.py</code>.</p>',
+            '<code>leakage_exclusion_eval.py</code>, <code>leakage_abstract_completion_v1.py</code>.</p>',
             unsafe_allow_html=True)
 
 def _wilson_ci(x, n, z=1.96):
@@ -1238,11 +1276,12 @@ def _load_leakage(_v=1):
         ("masked", "outputs/leakage_masked_rereview.csv"),
         ("exclusion", "outputs/leakage_exclusion_eval.csv"),
         ("threshold_sweep", "outputs/leakage_threshold_sweep.csv"),
+        ("abstract", "outputs/leakage_abstract_completion_v1.csv"),
     ]:
         out[key] = pd.read_csv(path) if os.path.exists(path) else None
     return out
 
-_leak = _load_leakage()
+_leak = _load_leakage(_v=2)
 
 if _leak["lap"] is None or _leak["fame"] is None:
     st.info("Run `python src/leakage_lap_v1.py --full` and `leakage_fame_v1.py --full` to enable this section.")
@@ -1288,7 +1327,10 @@ else:
         f"N: LAP probed on {len(_lap):,} papers ({_lap['year'].min()}–{_lap['year'].max()}), "
         f"{(_lap['decision'].str.startswith('Accept', na=False)).mean():.0%} accepts; "
         f"FAME probed on {len(_fame):,} papers, "
-        f"{len(_committed):,} committed on LAP / {len(_fcommitted):,} committed on FAME."
+        f"{len(_committed):,} committed on LAP / {len(_fcommitted):,} committed on FAME. "
+        "Probe accuracy columns use OpenAlex ground truth fixed at probe time (unaffected by the "
+        "sidebar citation-source toggle). OpenAlex undercounts (median 2.9× vs S2, worse for "
+        "accepted papers), so fame-direction accuracy is a lower bound."
     )
 
     if _leak["controls"] is not None:
@@ -1496,7 +1538,8 @@ else:
                 f"Δ < 0 means the regime's edge shrinks once memorized papers are removed — that gap "
                 f"is the measured leakage tax. Probe coverage: {len(_probed_ids):,}/{len(_pool_ids):,} "
                 f"papers ({len(_probed_ids) / len(_pool_ids):.1%}); {len(_excluded_ids):,} excluded as "
-                f"memorized (LAP or FAME ≥ 0.5). LLM regimes shrink the most; human regimes are ~flat."
+                f"memorized (LAP or FAME ≥ 0.5). LLM regimes shrink the most; human regimes are ~flat. "
+                f"Precomputed with OpenAlex ground truth (not affected by the citation-source toggle)."
             )
 
         if _leak["threshold_sweep"] is not None and len(_leak["threshold_sweep"]):
@@ -1538,6 +1581,80 @@ else:
                 "scores cluster near 0 or 1, so most of the range doesn't relabel any papers). The 0.5 "
                 "cutoff isn't cherry-picked — the conclusion would be the same at any threshold in this band."
             )
+
+    # ── 5e. ABSTRACT-COMPLETION EXTRACTION PROBE ─────────────────────────────
+    if _leak["abstract"] is not None and len(_leak["abstract"]):
+        st.markdown("---")
+        st.markdown("#### 5e. Abstract completion — is the paper's *text* in the weights?")
+        st.markdown('<p class="explainer">'
+                    'Given only title, year, and the first abstract sentence, the model writes the '
+                    'rest (greedy decode). The continuation is scored against the true abstract vs '
+                    '5 same-field×year decoy abstracts: ROUGE-L margin (target − best decoy) is the '
+                    'soft signal, verbatim 8-gram hits are the hard signal. "Extractable" = beats '
+                    'all decoys AND ≥1 verbatim 8-gram — the Carlini-style training-data-extraction '
+                    'criterion. Stratified sample of ~300 papers by citation decile.</p>',
+                    unsafe_allow_html=True)
+        _ab = _leak["abstract"]
+        _ab = _ab[_ab["rougeL_target"].notna()].copy()
+
+        _e1, _e2, _e3, _e4 = st.columns(4)
+        _ex_n = int(_ab["extractable"].sum())
+        _p, _lo, _hi = _wilson_ci(_ex_n, len(_ab))
+        _e1.metric("Extractable papers", f"{_p:.1%}",
+                   help=f"{_ex_n}/{len(_ab)} papers. 95% CI [{_lo:.1%}, {_hi:.1%}].")
+        from scipy import stats as _sps
+        _sp_m = _sps.spearmanr(_ab["citation_pct_rank"], _ab["rougeL_margin"])
+        _e2.metric("Gradient: ROUGE-L margin", f"ρ=+{_sp_m.statistic:.3f}",
+                   help=f"Spearman vs citation rank, p={_sp_m.pvalue:.3g}. Positive = famous "
+                        "papers' text is preferentially memorized.")
+        _sp_8 = _sps.spearmanr(_ab["citation_pct_rank"], _ab["eight_target"])
+        _e3.metric("Gradient: verbatim 8-grams", f"ρ=+{_sp_8.statistic:.3f}",
+                   help=f"Spearman vs citation rank, p={_sp_8.pvalue:.3g}.")
+        _top2 = _ab[_ab["decile"] >= 8]
+        _e4.metric("Extractable in top 2 deciles", f"{_top2['extractable'].mean():.1%}",
+                   help=f"vs {_ab[_ab['decile'] < 8]['extractable'].mean():.1%} in deciles 0–7 "
+                        f"(N={len(_top2)} / {len(_ab) - len(_top2)}).")
+
+        _by_dec = _ab.groupby("decile").agg(
+            n=("extractable", "size"), pct_extractable=("extractable", "mean"),
+            margin=("rougeL_margin", "mean")).reset_index()
+        fig_ab = go.Figure()
+        fig_ab.add_trace(go.Bar(
+            x=_by_dec["decile"], y=_by_dec["pct_extractable"] * 100,
+            marker_color=[COLORS["LLM Committee (Gemma)"] if d >= 8 else RANDOM_COLOR
+                          for d in _by_dec["decile"]],
+            text=[f"{v:.0%}" if v else "" for v in _by_dec["pct_extractable"]],
+            textposition="outside",
+        ))
+        fig_ab.update_layout(
+            height=280, margin=dict(l=0, r=0, t=4, b=4),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", showlegend=False,
+            xaxis=dict(title="Citation decile (0 = least cited)", dtick=1,
+                       tickfont=dict(size=10, color=SUBTEXT)),
+            yaxis=dict(title="% extractable", showgrid=True, gridcolor=BORDER,
+                       tickfont=dict(size=10, color=SUBTEXT)),
+        )
+        st.plotly_chart(fig_ab, use_container_width=True)
+        st.caption(
+            "Every extractable paper sits in the top two citation deciles — verbatim-level "
+            "confirmation of the fame-recall finding. ROUGE-L margin correlates with FAME "
+            "recall but not LAP decision recall: what's in the weights is the paper and its "
+            "prominence, not its accept/reject outcome. One-sided test: the model is "
+            "instruction-tuned, which suppresses regurgitation — a null does NOT prove the "
+            "text is absent from the weights."
+        )
+        _exhibit = _ab[_ab["extractable"] == 1].nlargest(5, "eight_target").merge(
+            eval_table[["paper_id", "title", "openalex_citations"]], on="paper_id", how="left")
+        if len(_exhibit):
+            _exhibit_disp = _exhibit[["title", "openalex_citations", "rougeL_margin", "eight_target"]].copy()
+            _exhibit_disp.columns = ["Title", "Citations", "ROUGE-L margin", "8-gram hit rate"]
+            _exhibit_disp["Citations"] = _exhibit_disp["Citations"].map(
+                lambda v: f"{v:,.0f}" if pd.notna(v) else "—")
+            _exhibit_disp["ROUGE-L margin"] = _exhibit_disp["ROUGE-L margin"].map("{:+.3f}".format)
+            _exhibit_disp["8-gram hit rate"] = _exhibit_disp["8-gram hit rate"].map("{:.1%}".format)
+            st.dataframe(_exhibit_disp, use_container_width=True, hide_index=True)
+            st.caption("Most-extractable papers. Generated/reference texts archived in "
+                       "outputs/leakage_abstract_completion_texts.jsonl.")
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")

@@ -16,6 +16,7 @@ Run: python src/leakage_fame_v1.py [--smoke] [--n 300] [--report-only]
 """
 import os
 import sys
+import json
 import argparse
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -69,14 +70,14 @@ def run_probes(df, smoke=False, workers=10):
     lock = threading.Lock()
     counter = [0]
 
-    with open(OUT_CSV, "a") as fout:
+    with open(OUT_CSV, "a") as fout, open("outputs/leakage_fame_traces.jsonl", "a") as ftrace:
         if write_header:
             fout.write("paper_id,year,citation_pct_rank,answer,p_high,p_low,p_unknown,fame,fame_ud\n")
 
         def fetch_one(row):
             client = OpenAI(api_key=key, base_url="https://api.together.xyz/v1")
             try:
-                answer, p_hi, p_lo, p_unk, ntok = probe_one(
+                answer, p_hi, p_lo, p_unk, ntok, trace = probe_one(
                     client, fame_prompt(row.title, row.year),
                     pos_set=HIGH_TOKENS, neg_set=LOW_TOKENS, unk_set=UNKNOWN_TOKENS,
                     labels=("high", "low", "unknown"))
@@ -92,6 +93,10 @@ def run_probes(df, smoke=False, workers=10):
                 fout.write(f"{row.paper_id},{row.year},{row.citation_pct_rank},{answer},"
                            f"{p_hi:.6f},{p_lo:.6f},{p_unk:.6f},{fame:.6f},{fud:.6f}\n")
                 fout.flush()
+                if trace:
+                    ftrace.write(json.dumps({"paper_id": row.paper_id, "probe": "fame",
+                                             "answer": answer, "trace": trace}) + "\n")
+                    ftrace.flush()
                 counter[0] += 1
                 print(f"  {counter[0]}/{len(todo)}  {row.paper_id}  answer={answer}"
                       f"  fame={fame:.3f} ud={fud:+.3f}  (tokens={ntok})")
