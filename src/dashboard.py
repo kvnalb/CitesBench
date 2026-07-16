@@ -1524,11 +1524,31 @@ else:
             _piv["regime"] = pd.Categorical(_piv["regime"], categories=[r for r in _order if r in _piv["regime"].values], ordered=True)
             _piv = _piv.sort_values("regime")
 
+            _boot_path = ("outputs/leakage_exclusion_bootstrap_s2.csv" if _use_s2_excl
+                          else "outputs/leakage_exclusion_bootstrap_openalex.csv")
+            _boot = pd.read_csv(_boot_path) if os.path.exists(_boot_path) else None
+            if _boot is not None:
+                # bootstrap points as bar heights so bars and CIs share one convention
+                _bl = _boot[_boot["stat"] == "lift"].set_index(["regime", "pool"])
+                for _pool_col in ("full", "leakage_excluded"):
+                    _piv[_pool_col] = [_bl.loc[(r, _pool_col), "point"] if (r, _pool_col) in _bl.index
+                                       else v for r, v in zip(_piv["regime"], _piv[_pool_col])]
+                _err = {p: dict(
+                    array=[_bl.loc[(r, p), "hi"] - _bl.loc[(r, p), "point"] if (r, p) in _bl.index else 0
+                           for r in _piv["regime"]],
+                    arrayminus=[_bl.loc[(r, p), "point"] - _bl.loc[(r, p), "lo"] if (r, p) in _bl.index else 0
+                                for r in _piv["regime"]],
+                    type="data", visible=True, color=SUBTEXT, thickness=1.2, width=4,
+                ) for p in ("full", "leakage_excluded")}
+                _piv["delta"] = _piv["leakage_excluded"] - _piv["full"]
+            else:
+                _err = {"full": None, "leakage_excluded": None}
             fig_exc = go.Figure()
             fig_exc.add_trace(go.Bar(name="Full pool", x=_piv["regime"], y=_piv["full"],
-                                     marker_color=RANDOM_COLOR))
+                                     marker_color=RANDOM_COLOR, error_y=_err["full"]))
             fig_exc.add_trace(go.Bar(name="Leakage-excluded", x=_piv["regime"], y=_piv["leakage_excluded"],
-                                     marker_color=[COLORS.get(r, IDEAL_COLOR) for r in _piv["regime"]]))
+                                     marker_color=[COLORS.get(r, IDEAL_COLOR) for r in _piv["regime"]],
+                                     error_y=_err["leakage_excluded"]))
             fig_exc.update_layout(
                 barmode="group", height=340, margin=dict(l=0, r=0, t=4, b=4),
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
@@ -1545,12 +1565,9 @@ else:
                 _disp[c] = _disp[c].map(lambda v: f"{v:+.3f}" if c == "Δ" else f"{v:.3f}")
             st.dataframe(_disp, use_container_width=True, hide_index=True)
 
-            _boot_path = ("outputs/leakage_exclusion_bootstrap_s2.csv" if _use_s2_excl
-                          else "outputs/leakage_exclusion_bootstrap_openalex.csv")
-            if os.path.exists(_boot_path):
+            if _boot is not None:
                 st.markdown("##### Bootstrap 95% CIs — is the LLM–human gap real?")
-                _bt = pd.read_csv(_boot_path)
-                _gaps = _bt[_bt["stat"] == "gap"].copy()
+                _gaps = _boot[_boot["stat"] == "gap"].copy()
                 _gaps["estimate [95% CI]"] = _gaps.apply(
                     lambda r: f"{r['point']:+.3f}  [{r['lo']:+.3f}, {r['hi']:+.3f}]", axis=1)
                 _gaps["p (bootstrap)"] = _gaps["p_boot"].map(
@@ -1570,8 +1587,9 @@ else:
                 st.caption(
                     "Paired percentile bootstrap over papers (B=2,000), conditional on realized "
                     "selections; same replicate draw for both regimes in each gap, so shared noise "
-                    "cancels. Random baselines computed analytically per replicate — point "
-                    "estimates differ slightly from the simulated-baseline chart above. "
+                    "cancels. When bootstrap results exist, the bars and error bars above use the "
+                    "bootstrap point estimates and 95% CIs (analytic per-replicate random "
+                    "baselines), so chart, table, and CIs share one convention. "
                     "Script: src/leakage_exclusion_bootstrap.py."
                 )
 
