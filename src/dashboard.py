@@ -688,6 +688,22 @@ else:
     ]
     st.dataframe(pd.DataFrame(cov_rows), use_container_width=True, hide_index=True)
 
+    st.markdown("###### Field × year cell sizes (N papers)")
+    _cells = pd.crosstab(eval_table["field"].fillna("(no field label)"),
+                         eval_table["year"].astype(int), margins=True, margins_name="Total")
+    _cells.columns = _cells.columns.astype(str)
+    st.dataframe(_cells, use_container_width=True)
+    st.caption(
+        "Read this before trusting any field×year estimate. (1) 83% of 2020 papers have no field "
+        "label, so every field-FE or field-normalized specification effectively drops most of "
+        "2020 — 'field FE' results are largely 2018–2019 results, a sample-composition change as "
+        "much as a control. (2) Cells are extremely unbalanced: computer_vision has 15–37 papers "
+        "per year and is the alphabetical reference category in the 3c interaction model, so "
+        "per-field slope contrasts against it are fragile. (3) citation_pct_rank (the normalized "
+        "ground truth) is undefined for unlabeled papers — the field-normalized toggle silently "
+        "restricts to this 43% subsample."
+    )
+
     st.markdown("---")
 
     # ── 3b. RECALL ADVANTAGE BY SUBGROUP ─────────────────────────────────────
