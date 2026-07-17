@@ -45,7 +45,7 @@ TOP_K = [1, 5, 10]
 os.makedirs("outputs", exist_ok=True)
 
 
-def load_eval_table(source):
+def load_eval_table(source, venue_premium=0.0):
     et = pd.read_csv("outputs/eval_table.csv")
     if source == "s2":
         s2 = pd.read_csv("outputs/s2_citations_full.csv")
@@ -55,6 +55,11 @@ def load_eval_table(source):
                       on="paper_id", how="left")
         et["openalex_citations"] = et["s2_citations"]
         et = et.drop(columns=["s2_citations"])
+    if venue_premium:
+        # P1 add-back: log(1+c_cf) = log(1+c) + LATE for rejected papers
+        rej = ~et["decision"].str.startswith("Accept", na=False)
+        c = et.loc[rej, "openalex_citations"]
+        et.loc[rej, "openalex_citations"] = (1 + c) * np.exp(venue_premium) - 1
     return et
 
 
@@ -94,9 +99,11 @@ def main():
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--B", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=20260716)
+    parser.add_argument("--venue-premium", type=float, default=0.0,
+                        help="RDD LATE (log 1+cites units) added back to rejected papers")
     args = parser.parse_args()
 
-    et = load_eval_table(args.citation_source)
+    et = load_eval_table(args.citation_source, args.venue_premium)
 
     lap = pd.read_csv("outputs/leakage_lap_v1.csv")
     fame = pd.read_csv("outputs/leakage_fame_v1.csv")
@@ -160,7 +167,8 @@ def main():
                              "hi": np.nanpercentile(boot, 97.5), "p_boot": min(p, 1.0)})
 
     out = pd.DataFrame(rows)
-    out_path = f"outputs/leakage_exclusion_bootstrap_{args.citation_source}.csv"
+    _vp = "_vp" if args.venue_premium else ""
+    out_path = f"outputs/leakage_exclusion_bootstrap_{args.citation_source}{_vp}.csv"
     out.to_csv(out_path, index=False)
 
     print(f"\n=== {args.citation_source.upper()} — mean lift over random "

@@ -84,6 +84,11 @@ if __name__ == "__main__":
     parser.add_argument("--threshold", type=float, default=0.5, help="LAP/FAME exclusion cutoff")
     parser.add_argument("--mode", default="raw", choices=["raw", "normalized"])
     parser.add_argument("--citation-source", default="openalex", choices=["openalex", "s2"])
+    parser.add_argument("--venue-premium", type=float, default=0.0,
+                        help="RDD LATE in log(1+cites) units, added back to REJECTED papers' "
+                             "citations before eval (P1 counterfactual: what rejected papers "
+                             "would have earned with the venue). Extrapolates a margin-identified "
+                             "effect to all rejected papers — label results accordingly.")
     args = parser.parse_args()
 
     eval_table = pd.read_csv("outputs/eval_table.csv")
@@ -100,6 +105,17 @@ if __name__ == "__main__":
         eval_table["citation_pct_rank"] = eval_table.groupby(["field", "year"])[
             "openalex_citations"].rank(pct=True)
         OUT_CSV = "outputs/leakage_exclusion_eval_s2.csv"
+
+    if args.venue_premium:
+        # log(1+c_cf) = log(1+c) + LATE for rejected papers
+        rej = ~eval_table["decision"].str.startswith("Accept", na=False)
+        c = eval_table.loc[rej, "openalex_citations"]
+        eval_table.loc[rej, "openalex_citations"] = (1 + c) * np.exp(args.venue_premium) - 1
+        eval_table["citation_pct_rank"] = eval_table.groupby(["field", "year"])[
+            "openalex_citations"].rank(pct=True)
+        OUT_CSV = OUT_CSV.replace(".csv", "_vp.csv")
+        print(f"Venue premium: rejected papers' citations scaled by e^{args.venue_premium:.3f} "
+              f"= {np.exp(args.venue_premium):.2f}x (in 1+c space)")
 
     excluded = set()
     probed = set()

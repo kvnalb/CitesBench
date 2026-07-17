@@ -58,6 +58,20 @@ suggests (accepted/rejected median gap 22.4× under S2 vs 5.8× under OA). The d
 RDD now supports the Semantic Scholar outcome via the sidebar toggle; the RDD should be re-estimated
 on S2 counts before quoting any LATE.
 
+**Update (2026-07-16) — venue-premium add-back TESTED, and it reverses the S2 exclusion result.**
+`leakage_exclusion_bootstrap.py --venue-premium <LATE>` scales rejected papers' citations by
+e^LATE (log(1+c) add-back) before evaluation, then re-runs the paired bootstrap (B=2,000). With
+the S2 LATE (1.285 at h=0.75): on the leakage-excluded pool, Human AC's lift collapses to +0.25
+(its mechanical advantage — selecting exactly the papers that received the causal venue boost —
+is what the adjustment removes) while the LLM Committee holds at +0.90, so the Committee−AC gap
+goes from +0.03 (p=.83, unadjusted) to **+0.65 [+0.42, +0.89], p<.001**. Robust to setting the
+premium at either end of the LATE's 95% CI (gap +0.49 to +0.75, p<.001). Same direction under OA.
+Caveat: this extrapolates a margin-identified LATE to all 3,041 rejected papers uniformly,
+including clear rejects — the assumption-laden version flagged above. The three headline numbers
+(unadjusted OA +0.29, unadjusted S2 +0.03, premium-adjusted S2 +0.65) should be reported together:
+the answer to "does the LLM beat human ACs on clean papers?" depends entirely on whether the
+ground truth credits ACs for the citations their own decisions caused.
+
 ---
 
 ### P2. LLM-regime hindsight leakage — TESTED (2026-07-10), quantified, not fatal
