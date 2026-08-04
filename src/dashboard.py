@@ -1743,6 +1743,13 @@ else:
             st.caption("Most-extractable papers. Generated/reference texts archived in "
                        "outputs/leakage_abstract_completion_texts.jsonl.")
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 6 — DATA PROVENANCE
+# ═══════════════════════════════════════════════════════════════════════════════
+st.markdown("---")
+import provenance_tab
+provenance_tab.render()
+
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
 st.caption("Human reviews are from ICLR 2018–2020 via OpenReview. "

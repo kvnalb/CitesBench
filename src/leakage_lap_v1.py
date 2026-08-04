@@ -41,9 +41,15 @@ from dotenv import load_dotenv
 load_dotenv()
 os.makedirs("outputs", exist_ok=True)
 
-MODEL = "google/gemma-4-31B-it"
+MODEL = "google/gemma-4-31B-it"        # overridden by --model
+EVAL_TABLE = "outputs/eval_table.csv"  # overridden by --eval-table
 OUT_CSV = "outputs/leakage_lap_v1.csv"
 OUT_REPORT = "outputs/leakage_lap_report.md"
+OUT_TRACES = "outputs/leakage_lap_traces.jsonl"
+
+
+def _slug(m):
+    return m.split("/")[-1].replace(".", "-")
 SAMPLE_N = 300       # default; --full uses all eligible papers
 MAX_TOKENS = 2000    # enough for thinking (~1750) + answer (1)
 
@@ -139,9 +145,10 @@ def probe_one(client, prompt, pos_set=ACCEPT_TOKENS, neg_set=REJECT_TOKENS,
 def build_sample(df, n, seed=42):
     """Stratified sample: year × citation_quartile (4 bins) × decision (accept/reject)."""
     rng = np.random.default_rng(seed)
-    sub = df[df["openalex_citations"].notna() & df["citation_pct_rank"].notna()].copy()
+    cite_col = "openalex_citations" if "openalex_citations" in df else "citations"
+    sub = df[df[cite_col].notna() & df["citation_pct_rank"].notna()].copy()
     sub["cit_q"] = pd.qcut(sub["citation_pct_rank"], q=4, labels=False)
-    sub["is_accept"] = sub["decision"].str.startswith("Accept").astype(int)
+    sub["is_accept"] = sub["decision"].fillna("").str.startswith("Accept").astype(int)
     cells = sub.groupby(["year", "cit_q", "is_accept"])
     per_cell = max(1, n // len(cells))
     rows = []
@@ -180,7 +187,7 @@ def run_laps(df, smoke=False, workers=10):
     lock = threading.Lock()
     counter = [0]
 
-    with open(OUT_CSV, "a") as fout, open("outputs/leakage_lap_traces.jsonl", "a") as ftrace:
+    with open(OUT_CSV, "a") as fout, open(OUT_TRACES, "a") as ftrace:
         if write_header:
             fout.write("paper_id,year,decision,answer,p_accept,p_reject,p_unknown,lap,ud\n")
 
@@ -396,15 +403,31 @@ leakage_controls for probe validity (placebo) checks.
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--smoke", action="store_true", help="5 papers only")
+    parser.add_argument("--model", default=MODEL,
+                        help="Together model id. Use a pre-cutoff model for the "
+                             "out-of-sample arm, e.g. meta-llama/Meta-Llama-3-70B-Instruct-Turbo "
+                             "(knowledge cutoff Dec 2023)")
+    parser.add_argument("--eval-table", default=EVAL_TABLE,
+                        help="eval table to probe, e.g. outputs/eval_table_2025.csv")
+    parser.add_argument("--tag", default="", help="suffix for the output files")
     parser.add_argument("--full", action="store_true", help="all eligible papers (~4500)")
     parser.add_argument("--report-only", action="store_true", help="skip API calls, run report")
     parser.add_argument("--n", type=int, default=SAMPLE_N, help=f"sample size (default {SAMPLE_N})")
     parser.add_argument("--workers", type=int, default=10, help="parallel API workers (default 10)")
     args = parser.parse_args()
 
-    df = pd.read_csv("outputs/eval_table.csv")
-    df = df[df["committee_rating"].notna() & df["title"].notna()].reset_index(drop=True)
-    print(f"Eligible papers: {len(df)}")
+    MODEL = args.model
+    if args.tag:
+        OUT_CSV = f"outputs/leakage_lap_{args.tag}.csv"
+        OUT_REPORT = f"outputs/leakage_lap_report_{args.tag}.md"
+        OUT_TRACES = f"outputs/leakage_lap_traces_{args.tag}.jsonl"
+
+    df = pd.read_csv(args.eval_table, low_memory=False)
+    # The out-of-sample tables have no committee scores yet; only require them when present.
+    if "committee_rating" in df:
+        df = df[df["committee_rating"].notna()]
+    df = df[df["title"].notna()].reset_index(drop=True)
+    print(f"Eligible papers: {len(df)}  ({args.eval_table})")
 
     if args.full:
         sample = df
