@@ -38,6 +38,9 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from prompts import load
+
 load_dotenv()
 os.makedirs("outputs", exist_ok=True)
 
@@ -59,13 +62,7 @@ UNKNOWN_TOKENS = {"unknown"}
 
 
 def recall_prompt(title, year):
-    return (
-        f'Title: "{title}"\n'
-        f"Year: ICLR {year}\n\n"
-        f"Based only on your recall — not on your assessment of quality — "
-        f"was this paper accepted or rejected at ICLR {year}? "
-        f"Respond with exactly one word: accepted, rejected, or unknown."
-    )
+    return load("recall/lap_oneword", title=title, year=year)
 
 
 def parse_answer(text, pos_set=ACCEPT_TOKENS, neg_set=REJECT_TOKENS,

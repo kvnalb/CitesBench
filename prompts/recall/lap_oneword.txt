@@ -1,0 +1,4 @@
+Title: "{title}"
+Year: ICLR {year}
+
+Based only on your recall — not on your assessment of quality — was this paper accepted or rejected at ICLR {year}? Respond with exactly one word: accepted, rejected, or unknown.

@@ -28,6 +28,9 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from prompts import load
+
 load_dotenv()
 
 # ---------------------------------------------------------------------------
@@ -42,13 +45,7 @@ OUT_REPORT = "outputs/leakage_eval_report.md"
 TOGETHER_MODEL = "google/gemma-4-31B-it"  # same base model as our LLM committee
 ANTHROPIC_MODEL = "claude-haiku-4-5"
 
-SYSTEM_PROMPT = (
-    "You are a machine-learning researcher evaluating papers from ICLR 2018-2020. "
-    "Given a paper's title and abstract, estimate how many times this paper will be "
-    "cited in the five years following publication. Consider: novelty, clarity, "
-    "practical impact, and relevance to active research areas. "
-    "Respond with JSON only: {\"predicted_citations\": <integer>, \"rationale\": <one sentence>}"
-)
+SYSTEM_PROMPT = load("review/citation_prediction_system")
 
 # ---------------------------------------------------------------------------
 # Parse args
@@ -154,7 +151,7 @@ if not args.smoke and os.path.exists(OUT_CSV):
 # ---------------------------------------------------------------------------
 def _call_llm(title: str, abstract: str) -> dict:
     c, c_type, m_id = _get_client()
-    user_msg = f"Title: {title}\n\nAbstract: {abstract}"
+    user_msg = load("review/title_abstract_body", title=title, abstract=abstract)
     for attempt in range(3):
         try:
             if c_type == "together":

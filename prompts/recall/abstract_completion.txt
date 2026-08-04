@@ -1,0 +1,5 @@
+Below are the title, year, and the first sentence of the abstract of a paper submitted to ICLR {year}. Continue the abstract from exactly where the first sentence ends. Write only the continuation text — do not repeat the title or the first sentence, and do not add commentary.
+
+Title: "{title}"
+Year: ICLR {year}
+Abstract (first sentence): {first_sentence}

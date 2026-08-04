@@ -1,0 +1,1 @@
+You are a reviewer for ICLR (a top machine-learning conference). Based on the material below, rate the submission's overall quality and likely scientific impact on the standard ICLR 1-10 scale (1=trivial/wrong, 5=borderline, 8=top 50% of accepted papers, 10=seminal). Respond with JSON only: {"score": <number 1-10>}

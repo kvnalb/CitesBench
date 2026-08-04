@@ -13,11 +13,21 @@ masking, it was identity recall.
 
 Sample: stratified by LAP from outputs/leakage_lap_v1.csv (run that first).
 
-Outputs:
-  outputs/leakage_masked_rereview.csv    — one row per paper, incremental
-  outputs/leakage_masked_report.md       — paired analysis (skipped in smoke)
+Rubric (--rubric, prompts live in prompts/review/):
+  calibrated (default)  5 float dimensions on 0-5, anti-bias warnings, 5 few-shot
+                        examples calibrated to normalized ICLR ground truth;
+                        `rating` is the overall score that gets stored
+  simple                the original single overall score on ICLR 1-10
 
-Run: python src/leakage_masked_rereview.py [--smoke] [--n 120]
+Outputs (suffixed per rubric so the two scales never share a file):
+  outputs/leakage_masked_rereview[_calibrated].csv  — one row per paper, every rubric
+                        dimension for both arms, incremental
+  outputs/leakage_masked_traces[_calibrated].jsonl  — one line per API call: system and
+                        user prompt verbatim + sha1, params, raw completion, parsed JSON
+                        (including `rationale`). Written for failed papers too.
+  outputs/leakage_masked_report[_calibrated].md     — paired analysis (skipped in smoke)
+
+Run: python src/leakage_masked_rereview.py [--smoke] [--n 120] [--rubric simple]
 """
 import os
 import re
@@ -25,39 +35,65 @@ import sys
 import json
 import time
 import sqlite3
+import hashlib
 import argparse
 import threading
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from prompts import load
+
 load_dotenv()
 os.makedirs("outputs", exist_ok=True)
 
 SCORE_MODEL = "google/gemma-4-31B-it"                      # same as committee
 PARAPHRASE_MODEL = "meta-llama/Llama-3.3-70B-Instruct-Turbo"  # different family — won't share Gemma's recall triggers
-OUT_CSV = "outputs/leakage_masked_rereview.csv"
-OUT_REPORT = "outputs/leakage_masked_report.md"
 LAP_CSV = "outputs/leakage_lap_v1.csv"
 
-SCORE_SYSTEM = (
-    "You are a reviewer for ICLR (a top machine-learning conference). "
-    "Based on the material below, rate the submission's overall quality and "
-    "likely scientific impact on the standard ICLR 1-10 scale "
-    "(1=trivial/wrong, 5=borderline, 8=top 50% of accepted papers, 10=seminal). "
-    'Respond with JSON only: {"score": <number 1-10>}'
-)
+# Two rubrics with incompatible scales, so each writes its own CSV — resuming into a
+# file scored on the other scale would silently mix 1-10 and 0-5 values.
+RUBRICS = {
+    # original: single overall score, ICLR 1-10, no few-shot examples
+    "simple": ("review/score_system", "score", "", ["score"]),
+    # calibrated: 5 float dimensions on 0-5 with anti-bias warnings and 5 few-shot
+    # examples fitted to normalized ICLR ground truth; `rating` is the overall score
+    "calibrated": ("review/iclr_review_calibrated", "rating", "_calibrated",
+                   ["rating", "confidence", "correctness",
+                    "technical_novelty_and_significance",
+                    "empirical_novelty_and_significance"]),
+}
+RUBRIC = "calibrated"                     # set by --rubric
+OUT_CSV = OUT_REPORT = OUT_TRACES = None  # set by set_rubric()
 
-PARAPHRASE_PROMPT = (
-    "Rewrite the following machine-learning paper abstract entirely in your own words. "
-    "Preserve every technical claim, method detail, and result, but change all phrasing "
-    "and sentence structure. Replace any proper names of proposed methods, model names, "
-    "or dataset names with generic descriptors (e.g. 'the proposed architecture', "
-    "'a large image-classification benchmark'). Output ONLY the rewritten abstract, "
-    "nothing else.\n\nAbstract:\n{abstract}"
-)
+
+def set_rubric(name):
+    global RUBRIC, OUT_CSV, OUT_REPORT, OUT_TRACES
+    RUBRIC = name
+    suffix = RUBRICS[name][2]
+    OUT_CSV = f"outputs/leakage_masked_rereview{suffix}.csv"
+    OUT_REPORT = f"outputs/leakage_masked_report{suffix}.md"
+    OUT_TRACES = f"outputs/leakage_masked_traces{suffix}.jsonl"
+
+
+def csv_header():
+    """paper metadata, then every rubric field for each arm, then the paraphrase size."""
+    fields = RUBRICS[RUBRIC][3]
+    cols = ["paper_id", "year", "lap", "openalex_citations",
+            "score_original", "score_masked"]           # primary score, kept for the report
+    cols += [f"{arm}_{f}" for arm in ("orig", "mask") for f in fields]
+    return ",".join(cols + ["masked_abstract_chars"]) + "\n"
+
+
+set_rubric(RUBRIC)
+
+
+def _sha(s):
+    return hashlib.sha1(str(s).encode()).hexdigest()[:12]
 
 
 def _chat(client, model, messages, max_tokens=512, retries=3):
@@ -72,16 +108,31 @@ def _chat(client, model, messages, max_tokens=512, retries=3):
             time.sleep(5)
 
 
-def _score(client, body):
+def _score(client, body, year):
+    """Score one body. Returns (parsed_json, trace) — the trace holds everything sent
+    and everything returned, so no field the model produced is discarded."""
+    prompt_name, key, _, fields = RUBRICS[RUBRIC]
+    system = load(prompt_name, year=year)
     # Gemma-4-31B-it is a thinking model: budget for ~1750 thinking tokens + JSON
     raw = _chat(client, SCORE_MODEL,
-                [{"role": "system", "content": SCORE_SYSTEM},
+                [{"role": "system", "content": system},
                  {"role": "user", "content": body}],
                 max_tokens=3000)
-    m = re.search(r"\{.*\}", raw, re.DOTALL)
+    # the calibrated rubric's few-shot examples contain JSON objects, so match the LAST
+    # brace-delimited block rather than the first
+    m = re.findall(r"\{[^{}]*\}", raw or "", re.DOTALL)
+    parsed = json.loads(m[-1]) if m else {}
+    trace = {"model": SCORE_MODEL, "rubric": RUBRIC, "prompt_name": prompt_name,
+             "system_prompt": system, "system_prompt_sha1": _sha(system),
+             "user_prompt": body, "user_prompt_sha1": _sha(body),
+             "max_tokens": 3000, "temperature": 0,
+             "completion": raw, "completion_chars": len(raw or ""),
+             "parsed": parsed, "json_blocks_found": len(m)}
     if not m:
-        raise ValueError(f"no JSON in score response: {raw[:200]!r}")
-    return float(json.loads(m.group())["score"])
+        raise ValueError(f"no JSON in score response: {(raw or '')[:200]!r}")
+    if key not in parsed:
+        raise ValueError(f"score response missing {key!r}: {parsed}")
+    return parsed, trace
 
 
 def build_lap_sample(n, smoke=False):
@@ -117,31 +168,66 @@ def run(sample, workers=10):
           f"(3 API calls per paper)")
 
     from openai import OpenAI
+    primary, fields = RUBRICS[RUBRIC][1], RUBRICS[RUBRIC][3]
     write_header = not os.path.exists(OUT_CSV) or os.path.getsize(OUT_CSV) == 0
     lock = threading.Lock()
     counter = [0]
 
-    with open(OUT_CSV, "a") as fout:
+    with open(OUT_CSV, "a") as fout, open(OUT_TRACES, "a") as ftrace:
         if write_header:
-            fout.write("paper_id,year,lap,openalex_citations,score_original,score_masked,masked_abstract_chars\n")
+            fout.write(csv_header())
+
+        def emit(paper_id, arm, trace):
+            """One JSONL line per API call — every prompt and every completion kept
+            whole. The CSV is the numeric summary; this file is the evidence."""
+            ftrace.write(json.dumps(
+                {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                 "paper_id": paper_id, "arm": arm, **trace}, ensure_ascii=False) + "\n")
+            ftrace.flush()
 
         def run_one(row):
             client = OpenAI(api_key=key, base_url="https://api.together.xyz/v1")
+            traces = []
             try:
+                para_prompt = load("review/paraphrase_abstract", abstract=row.abstract)
                 masked_abs = _chat(client, PARAPHRASE_MODEL,
-                                   [{"role": "user",
-                                     "content": PARAPHRASE_PROMPT.format(abstract=row.abstract)}],
+                                   [{"role": "user", "content": para_prompt}],
                                    max_tokens=1024)
+                traces.append(("paraphrase", {
+                    "model": PARAPHRASE_MODEL, "rubric": RUBRIC,
+                    "prompt_name": "review/paraphrase_abstract",
+                    "system_prompt": None, "system_prompt_sha1": None,
+                    "user_prompt": para_prompt, "user_prompt_sha1": _sha(para_prompt),
+                    "max_tokens": 1024, "temperature": 0,
+                    "completion": masked_abs, "completion_chars": len(masked_abs or ""),
+                    "parsed": {}, "json_blocks_found": 0,
+                    "title": row.title, "original_abstract": row.abstract}))
                 if len(masked_abs) < 200:
                     raise ValueError(f"paraphrase suspiciously short ({len(masked_abs)} chars)")
-                s_orig = _score(client, f"Title: {row.title}\n\nAbstract: {row.abstract}")
-                s_mask = _score(client, f"Abstract: {masked_abs}")
+                p_orig, t_orig = _score(client, load("review/title_abstract_body",
+                                                    title=row.title,
+                                                    abstract=row.abstract), row.year)
+                traces.append(("original", t_orig))
+                p_mask, t_mask = _score(client, load("review/abstract_only_body",
+                                                    abstract=masked_abs), row.year)
+                traces.append(("masked", t_mask))
             except Exception as e:
+                # a failed paper still gets its traces written — a refusal or an
+                # unparseable reply is data, not noise
+                with lock:
+                    for arm, t in traces:
+                        emit(row.paper_id, arm, t)
+                    emit(row.paper_id, "error", {"error": f"{type(e).__name__}: {e}"})
                 print(f"  SKIP {row.paper_id}: {e}")
                 return
+            s_orig, s_mask = float(p_orig[primary]), float(p_mask[primary])
+            vals = [str(p.get(f, "")) for p in (p_orig, p_mask) for f in fields]
             with lock:
+                for arm, t in traces:
+                    emit(row.paper_id, arm, t)
                 fout.write(f"{row.paper_id},{row.year},{row.lap:.6f},"
-                           f"{row.openalex_citations},{s_orig},{s_mask},{len(masked_abs)}\n")
+                           f"{row.openalex_citations},{s_orig},{s_mask},"
+                           + ",".join(vals) + f",{len(masked_abs)}\n")
                 fout.flush()
                 counter[0] += 1
                 print(f"  {counter[0]}/{len(todo)}  {row.paper_id}  lap={row.lap:.2f}  "
@@ -188,7 +274,8 @@ def run_report():
 
     report = f"""# Masked Re-Review — identity ablation ({SCORE_MODEL})
 
-Within-paper design, N = {n}. Each paper scored twice on the same 1-10 rubric:
+Within-paper design, N = {n}. Rubric: `{RUBRIC}` (`prompts/{RUBRICS[RUBRIC][0]}.txt`).
+Each paper scored twice on that same rubric:
 **original** (title + verbatim abstract) vs **masked** (no title, abstract
 paraphrased by {PARAPHRASE_MODEL} with proper names genericized).
 
@@ -225,7 +312,13 @@ if __name__ == "__main__":
     parser.add_argument("--n", type=int, default=120, help="total papers (half high-LAP, half low)")
     parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--report-only", action="store_true")
+    parser.add_argument("--rubric", choices=sorted(RUBRICS), default="calibrated",
+                        help="calibrated = 5-dimension 0-5 few-shot ICLR rubric (default); "
+                             "simple = original single 1-10 score")
     args = parser.parse_args()
+    set_rubric(args.rubric)
+    print(f"Rubric: {args.rubric} ({RUBRICS[args.rubric][0]})\n"
+          f"  scores -> {OUT_CSV}\n  traces -> {OUT_TRACES}")
 
     if not os.path.exists(LAP_CSV):
         sys.exit(f"ERROR: {LAP_CSV} not found — run leakage_lap_v1.py first.")
@@ -237,6 +330,6 @@ if __name__ == "__main__":
         run(sample, workers=args.workers)
 
     if args.smoke:
-        print("\nSmoke done — inspect outputs/leakage_masked_rereview.csv")
+        print(f"\nSmoke done — inspect {OUT_CSV}")
     elif os.path.exists(OUT_CSV):
         run_report()

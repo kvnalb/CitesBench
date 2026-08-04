@@ -50,6 +50,9 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from prompts import load
+
 load_dotenv()
 os.makedirs("outputs", exist_ok=True)
 
@@ -61,15 +64,7 @@ MAX_TOKENS = 6000                 # writing tasks trigger long thinking; retry e
 N_DECOYS = 5
 MIN_REMAINDER_CHARS = 200         # skip papers whose abstract remainder is too short to score
 
-PROMPT = (
-    "Below are the title, year, and the first sentence of the abstract of a paper "
-    "submitted to ICLR {year}. Continue the abstract from exactly where the first "
-    "sentence ends. Write only the continuation text — do not repeat the title or "
-    "the first sentence, and do not add commentary.\n\n"
-    'Title: "{title}"\n'
-    "Year: ICLR {year}\n"
-    "Abstract (first sentence): {first_sentence}"
-)
+PROMPT_NAME = "recall/abstract_completion"
 
 
 # ── Text utilities ────────────────────────────────────────────────────────────
@@ -208,8 +203,8 @@ def run_probes(df, sample, smoke=False, workers=10):
 
         def fetch_one(row):
             client = OpenAI(api_key=key, base_url="https://api.together.xyz/v1")
-            prompt = PROMPT.format(title=row.title, year=row.year,
-                                   first_sentence=row.first_sentence)
+            prompt = load(PROMPT_NAME, title=row.title, year=row.year,
+                          first_sentence=row.first_sentence)
             gen = None
             # empty content with finish_reason=length means thinking ate the whole
             # budget — escalate max_tokens rather than retrying the same call

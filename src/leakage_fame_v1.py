@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(__file__))
 from leakage_lap_v1 import probe_one, build_sample, MODEL
+from prompts import load
 
 load_dotenv()
 os.makedirs("outputs", exist_ok=True)
@@ -40,14 +41,7 @@ UNKNOWN_TOKENS = {"unknown"}
 
 
 def fame_prompt(title, year):
-    return (
-        f'Title: "{title}"\n'
-        f"Year: submitted to ICLR {year}\n\n"
-        f"Based only on your recall of this specific paper — not on your "
-        f"assessment of its quality — is this paper widely cited "
-        f"(roughly top 10% for machine-learning papers of its year) or not? "
-        f"Respond with exactly one word: high, low, or unknown."
-    )
+    return load("recall/fame_oneword", title=title, year=year)
 
 
 def run_probes(df, smoke=False, workers=10):

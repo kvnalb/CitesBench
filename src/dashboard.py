@@ -1743,12 +1743,7 @@ else:
             st.caption("Most-extractable papers. Generated/reference texts archived in "
                        "outputs/leakage_abstract_completion_texts.jsonl.")
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 6 — DATA PROVENANCE
-# ═══════════════════════════════════════════════════════════════════════════════
-st.markdown("---")
-import provenance_tab
-provenance_tab.render()
+# Section 6 (data provenance) now lives on its own page: src/pages/1_Provenance.py
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")

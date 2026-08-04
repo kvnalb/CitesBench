@@ -1,0 +1,6 @@
+Paper title: "{title}"
+Venue: ICLR {year}
+
+Do you recall this specific paper, and whether it went on to be widely cited? This is a question about your recall, not your assessment of its quality.
+
+In two sentences, say whether you have seen this paper before and what you recall about it. Then on a new line write ANSWER: followed by exactly one word — high if you recall it being widely cited, low if you recall it being little cited, unknown if you do not recall the paper.

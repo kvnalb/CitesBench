@@ -1,0 +1,4 @@
+Rewrite the following machine-learning paper abstract entirely in your own words. Preserve every technical claim, method detail, and result, but change all phrasing and sentence structure. Replace any proper names of proposed methods, model names, or dataset names with generic descriptors (e.g. 'the proposed architecture', 'a large image-classification benchmark'). Output ONLY the rewritten abstract, nothing else.
+
+Abstract:
+{abstract}

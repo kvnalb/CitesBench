@@ -1,0 +1,4 @@
+Title: "{title}"
+Year: submitted to ICLR {year}
+
+Based only on your recall of this specific paper — not on your assessment of its quality — is this paper widely cited (roughly top 10% for machine-learning papers of its year) or not? Respond with exactly one word: high, low, or unknown.
