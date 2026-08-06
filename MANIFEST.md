@@ -144,16 +144,16 @@ _shared modules imported by the above_
 | `data/OpenAlex/openalex_rdd_miss_title_search_diagnostics.csv` | **ORPHAN — read but never written here** | `src/app/provenance_tab.py` |
 | `data/README.md` | **ORPHAN — read but never written here** | `src/audit/data_audit.py` |
 | `data/ReviewArena/README_REVIEWARENA.MD` | **ORPHAN — no script names this path** | — |
-| `data/all_paper_results.csv` | **ORPHAN — read but never written here** | `src/app/provenance_tab.py`, `src/audit/data_audit.py`, `src/build/build_consistent_decision_head.py` |
-| `data/all_paper_results.jsonl` | **ORPHAN — read but never written here** | `src/app/provenance_tab.py` |
+| `data/archive/all_paper_results.csv` | **ORPHAN — read but never written here** | `src/app/provenance_tab.py`, `src/audit/data_audit.py`, `src/build/build_consistent_decision_head.py` |
+| `data/archive/all_paper_results.jsonl` | **ORPHAN — read but never written here** | `src/app/provenance_tab.py` |
+| `data/archive/old_rdd_decision_head_comparison.csv` | **ORPHAN — no script names this path** | — |
+| `data/archive/old_rdd_decision_head_comparison.jsonl` | **ORPHAN — no script names this path** | — |
 | `data/fresh_dropbox_download/README.md` | **ORPHAN — no script names this path** | — |
 | `data/fresh_dropbox_download/all_paper_results.csv` | **ORPHAN — no script names this path** | — |
 | `data/fresh_dropbox_download/all_paper_results.jsonl` | **ORPHAN — no script names this path** | — |
 | `data/fresh_dropbox_download/metadata/missing_llm_review_breakdown_2018_2020.csv` | **ORPHAN — no script names this path** | — |
 | `data/fresh_dropbox_download/metadata/old_rdd_gptoss20b_decision_head_summary.json` | **ORPHAN — no script names this path** | — |
 | `data/fresh_dropbox_download/metadata/paper_manifest.csv` | **ORPHAN — no script names this path** | — |
-| `data/fresh_dropbox_download/old_rdd_decision_head_comparison.csv` | **ORPHAN — no script names this path** | — |
-| `data/fresh_dropbox_download/old_rdd_decision_head_comparison.jsonl` | **ORPHAN — no script names this path** | — |
 | `data/fresh_dropbox_download/old_rdd_gptoss20b_decision_head_results.csv` | **ORPHAN — read but never written here** | `src/build/build_consistent_decision_head.py` |
 | `data/fresh_dropbox_download/old_rdd_gptoss20b_decision_head_results.jsonl` | **ORPHAN — no script names this path** | — |
 | `data/fresh_dropbox_download/source_run_summaries/full_2018_2020_remaining_gemma4_deepseek/failures.jsonl` | **ORPHAN — no script names this path** | — |
@@ -186,7 +186,7 @@ _shared modules imported by the above_
 | `data/iclr-2026-highest-cited.json` | `src/fetch/fetch_iclr2026_top_cited.py` | `src/probes/qualitative_check.py` |
 | `data/paper_manifest.csv` | **ORPHAN — read but never written here** | `src/app/provenance_tab.py` |
 | `data/summary.json` | **ORPHAN — read but never written here** | `src/app/provenance_tab.py` |
-| `outputs/all_paper_results_consistent_gptoss20b.csv` | `src/build/build_consistent_decision_head.py` | — |
+| `outputs/all_paper_results_consistent_gptoss20b.csv` | `src/build/build_consistent_decision_head.py` | `src/build/build_eval_table.py` |
 | `outputs/arxiv_dump_download.log` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/arxiv_fuzzy.log` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/arxiv_fuzzy_candidates.csv` | `src/fetch/resolve_arxiv_fuzzy.py` | `src/app/provenance_tab.py`, `src/fetch/fetch_citations_s2_v2.py` |
@@ -255,8 +255,8 @@ _shared modules imported by the above_
 | `outputs/leakage_threshold_sweep.csv` | `src/analysis/leakage_threshold_sweep.py` | `src/app/dashboard.py`, `src/app/provenance_tab.py`, `src/audit/data_audit.py` |
 | `outputs/oa_title_match_venues.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py`, `src/fetch/fetch_rejected_venues_s2_title.py` |
 | `outputs/oos_probe_report.md` | `src/probes/run_oos_probes.py` | `src/app/provenance_tab.py` |
-| `outputs/oos_probes_Llama-3-3-70B-Instruct-Turbo.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/oos_probes_{slug(model)}.csv`) | `src/app/provenance_tab.py` |
-| `outputs/oos_probes_gemma-4-31B-it.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/oos_probes_{slug(model)}.csv`) | `src/app/provenance_tab.py` |
+| `outputs/oos_probes_Llama-3-3-70B-Instruct-Turbo.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
+| `outputs/oos_probes_gemma-4-31B-it.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/oos_probes_run.log` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/oos_probes_run2.log` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/oos_traces_Llama-3-3-70B-Instruct-Turbo.jsonl` | `src/build/build_leakage_ledger.py` (via pattern `outputs/oos_traces_{slug}.jsonl`) | `src/app/provenance_tab.py` |
@@ -326,8 +326,8 @@ _External inputs, read by 17 paths:_
 - `data/OpenAlex/openalex_rdd_miss_title_search_candidates.csv` — read by `src/app/provenance_tab.py`
 - `data/OpenAlex/openalex_rdd_miss_title_search_diagnostics.csv` — read by `src/app/provenance_tab.py`
 - `data/README.md` — read by `src/audit/data_audit.py`
-- `data/all_paper_results.csv` — read by `src/app/provenance_tab.py`, `src/audit/data_audit.py`, `src/build/build_consistent_decision_head.py`
-- `data/all_paper_results.jsonl` — read by `src/app/provenance_tab.py`
+- `data/archive/all_paper_results.csv` — read by `src/app/provenance_tab.py`, `src/audit/data_audit.py`, `src/build/build_consistent_decision_head.py`
+- `data/archive/all_paper_results.jsonl` — read by `src/app/provenance_tab.py`
 - `data/fresh_dropbox_download/old_rdd_gptoss20b_decision_head_results.csv` — read by `src/build/build_consistent_decision_head.py`
 - `data/gen_review.db` — read by `src/analysis/cite_hist.py`, `src/analysis/outlier_analysis.py`, `src/analysis/table1_summary_stats.py`
 - `data/paper_manifest.csv` — read by `src/app/provenance_tab.py`
@@ -338,14 +338,14 @@ _External inputs, read by 17 paths:_
 _No producer and no consumer (35) — dead files, or provenance lost:_
 
 - `data/ReviewArena/README_REVIEWARENA.MD`
+- `data/archive/old_rdd_decision_head_comparison.csv`
+- `data/archive/old_rdd_decision_head_comparison.jsonl`
 - `data/fresh_dropbox_download/README.md`
 - `data/fresh_dropbox_download/all_paper_results.csv`
 - `data/fresh_dropbox_download/all_paper_results.jsonl`
 - `data/fresh_dropbox_download/metadata/missing_llm_review_breakdown_2018_2020.csv`
 - `data/fresh_dropbox_download/metadata/old_rdd_gptoss20b_decision_head_summary.json`
 - `data/fresh_dropbox_download/metadata/paper_manifest.csv`
-- `data/fresh_dropbox_download/old_rdd_decision_head_comparison.csv`
-- `data/fresh_dropbox_download/old_rdd_decision_head_comparison.jsonl`
 - `data/fresh_dropbox_download/old_rdd_gptoss20b_decision_head_results.jsonl`
 - `data/fresh_dropbox_download/source_run_summaries/full_2018_2020_remaining_gemma4_deepseek/failures.jsonl`
 - `data/fresh_dropbox_download/source_run_summaries/full_2018_2020_remaining_gemma4_deepseek/paper_results.jsonl`

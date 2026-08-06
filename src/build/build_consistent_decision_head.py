@@ -5,7 +5,7 @@ decision head, on the same cached committee reviews.
 import csv
 import os
 
-BASE_CSV = "data/all_paper_results.csv"
+BASE_CSV = "data/archive/all_paper_results.csv"
 RERUN_CSV = "data/fresh_dropbox_download/old_rdd_gptoss20b_decision_head_results.csv"
 OUT_CSV = "outputs/all_paper_results_consistent_gptoss20b.csv"
 

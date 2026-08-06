@@ -2,6 +2,7 @@
 Build the single flat evaluation table used by all downstream eval scripts.
 
 Joins: SUBMISSION + REVIEW (aggregated) + citations + paper_fields
+       + committee/decision-head LLM run (consistent gpt-oss-20b decision head)
 Computes: field×year citation percentile rank, N accepts per year
 
 Output: outputs/eval_table.csv
@@ -16,6 +17,7 @@ load_dotenv()
 os.makedirs("outputs", exist_ok=True)
 DB = "data/gen_review.db"
 OUT = "outputs/eval_table.csv"
+DECISION_HEAD_CSV = "outputs/all_paper_results_consistent_gptoss20b.csv"
 
 con = sqlite3.connect(DB)
 
@@ -61,12 +63,25 @@ else:
     fields = pd.DataFrame(columns=["paper_id", "field"])
     print("Warning: paper_fields.csv not found — field column will be empty")
 
+if os.path.exists(DECISION_HEAD_CSV):
+    decision_head = pd.read_csv(DECISION_HEAD_CSV)[
+        ["paper_id", "committee_rating", "deepseek_p_accept", "decision_head_model"]
+    ]
+else:
+    decision_head = pd.DataFrame(
+        columns=["paper_id", "committee_rating", "deepseek_p_accept", "decision_head_model"]
+    )
+    print(f"Warning: {DECISION_HEAD_CSV} not found — run "
+          "src/build/build_consistent_decision_head.py first. "
+          "committee_rating/deepseek_p_accept will be empty.")
+
 df = (
     papers
     .merge(reviews, on="paper_id", how="left")
     .merge(citations, on="paper_id", how="left")
     .merge(fields, on="paper_id", how="left")
     .merge(llm_scores, on="paper_id", how="left")
+    .merge(decision_head, on="paper_id", how="left")
 )
 
 # Only use citations where OpenAlex found the paper

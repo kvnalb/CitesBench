@@ -13,7 +13,7 @@ Walks every stage of the CitesBench data flow and flags issues:
 Writes outputs/data_audit.md and outputs/data_audit.html. Every finding carries
 the file(s) to open and a command to reproduce it.
 
-Run: python src/data_audit.py [--no-html]
+Run: python src/audit/data_audit.py [--no-html]
 
 # ponytail: checks are flat functions appending to one list; no plugin registry
 # until someone needs to run a subset.
@@ -38,29 +38,29 @@ YEARS = (2018, 2019, 2020)
 # Every path the pipeline touches, with the script that produces it.
 # Used for the staleness DAG in stage 5.
 PRODUCERS = {
-    "output/citations_2018_2020.csv": ("src/fetch_citations_openalex.py", [DB]),
-    "outputs/paper_fields.csv": ("src/tag_fields.py", [DB]),
-    "outputs/eval_table.csv": ("src/build_eval_table.py",
+    "output/citations_2018_2020.csv": ("src/fetch/fetch_citations_openalex.py", [DB]),
+    "outputs/paper_fields.csv": ("src/build/tag_fields.py", [DB]),
+    "outputs/eval_table.csv": ("src/build/build_eval_table.py",
                                [DB, "output/citations_2018_2020.csv", "outputs/paper_fields.csv"]),
-    "outputs/s2_citations_full.csv": ("src/fetch_citations_s2_full.py",
+    "outputs/s2_citations_full.csv": ("src/fetch/fetch_citations_s2_full.py",
                                       ["outputs/eval_table.csv",
                                        "data/OpenAlex/openalex_rdd_arxiv_paper_level.csv"]),
-    "outputs/eval_results.csv": ("src/run_eval.py", ["outputs/eval_table.csv"]),
-    "outputs/leakage_lap_v1.csv": ("src/leakage_lap_v1.py", ["outputs/eval_table.csv"]),
-    "outputs/leakage_fame_v1.csv": ("src/leakage_fame_v1.py", ["outputs/eval_table.csv"]),
-    "outputs/leakage_exclusion_eval.csv": ("src/leakage_exclusion_eval.py",
+    "outputs/eval_results.csv": ("src/analysis/run_eval.py", ["outputs/eval_table.csv"]),
+    "outputs/leakage_lap_v1.csv": ("src/probes/leakage_lap_v1.py", ["outputs/eval_table.csv"]),
+    "outputs/leakage_fame_v1.csv": ("src/probes/leakage_fame_v1.py", ["outputs/eval_table.csv"]),
+    "outputs/leakage_exclusion_eval.csv": ("src/analysis/leakage_exclusion_eval.py",
                                            ["outputs/eval_table.csv", "outputs/leakage_lap_v1.csv",
                                             "outputs/leakage_fame_v1.csv"]),
-    "outputs/leakage_exclusion_eval_s2.csv": ("src/leakage_exclusion_eval.py",
+    "outputs/leakage_exclusion_eval_s2.csv": ("src/analysis/leakage_exclusion_eval.py",
                                               ["outputs/s2_citations_full.csv",
                                                "outputs/leakage_lap_v1.csv"]),
-    "outputs/paper_author_covariates.csv": ("src/build_author_covariates.py",
+    "outputs/paper_author_covariates.csv": ("src/build/build_author_covariates.py",
                                             ["outputs/author_stats.csv", "outputs/paper_author_ids.csv"]),
-    "outputs/hetero_analysis.md": ("src/hetero_analysis.py",
+    "outputs/hetero_analysis.md": ("src/analysis/hetero_analysis.py",
                                    ["outputs/eval_table.csv", "outputs/paper_author_covariates.csv"]),
     # NB: table1_summary_stats.py only prints to stdout — the .tex was written by hand
     # or by redirection, so it has no producer edge and is excluded from the staleness DAG.
-    "outputs/leakage_threshold_sweep.csv": ("src/leakage_threshold_sweep.py",
+    "outputs/leakage_threshold_sweep.csv": ("src/analysis/leakage_threshold_sweep.py",
                                             ["outputs/eval_table.csv", "outputs/leakage_lap_v1.csv"]),
 }
 
@@ -122,7 +122,7 @@ def audit_source():
              f"{YEARS[0]}-{YEARS[-1]}. Every pipeline script filters on "
              "`when_submitted IN (2018,2019,2020)`; anything that forgets the filter "
              "silently mixes in other years/venues.",
-             ["src/build_eval_table.py#L22-L26", "src/leakage_abstract_completion_v1.py#L144"],
+             ["src/build/build_eval_table.py#L22-L26", "src/probes/leakage_abstract_completion_v1.py#L144"],
              "sqlite3 data/gen_review.db 'select when_submitted, count(*) from SUBMISSION group by 1'")
 
     # --- orphan reviews
@@ -133,7 +133,7 @@ def audit_source():
              f"{len(orphan):,} review rows ({pct(len(orphan), len(rev))}) have a paper_id "
              "absent from SUBMISSION. The declared foreign key points at a table named "
              "`PAPER` that does not exist, so SQLite never enforced it.",
-             ["data/gen_review.db", "src/build_eval_table.py#L28-L31"],
+             ["data/gen_review.db", "src/build/build_eval_table.py#L28-L31"],
              "sqlite3 data/gen_review.db 'select count(*) from REVIEW r left join SUBMISSION s "
              "on r.paper_id=s.id where s.id is null'")
 
@@ -156,8 +156,8 @@ def audit_source():
              "`.agg(n_reviews='count')` counts non-NaN parsed ratings, while anything that counts "
              "REVIEW rows directly (Table 1's reviews-per-paper, the outlier analysis' "
              "confidence_mean) is inflated by one row per paper.",
-             ["src/build_eval_table.py#L36-L41", "src/table1_summary_stats.py#L31",
-              "src/outlier_analysis.py#L18"],
+             ["src/build/build_eval_table.py#L36-L41", "src/analysis/table1_summary_stats.py#L31",
+              "src/analysis/outlier_analysis.py#L18"],
              "sqlite3 data/gen_review.db \"select rating, count(*) from REVIEW where "
              "rating not glob '[0-9]*' group by 1 order by 2 desc limit 10\"")
 
@@ -168,7 +168,7 @@ def audit_source():
             flag(S, "major", "Reviewer rating outside the 1-10 scale",
                  f"Parsed ratings span {lo}-{hi}. ICLR 2018-2020 used 1-10; out-of-range values "
                  "mean the string prefix is not the score for some rows.",
-                 "src/build_eval_table.py#L36")
+                 "src/build/build_eval_table.py#L36")
 
     # --- review count per paper
     counts = rw.groupby("paper_id").size()
@@ -189,7 +189,7 @@ def audit_source():
              "there and build_eval_table fills it with 0, i.e. 'perfect reviewer agreement'. "
              "The disagreement regimes (mean ± λ·std) therefore treat a single review as maximum "
              "consensus, which biases them toward those papers.",
-             ["src/build_eval_table.py#L43", "src/regimes/human_disagree.py"])
+             ["src/build/build_eval_table.py#L43", "src/regimes/human_disagree.py"])
 
     # --- decision labels
     dec = in_window["decision"].value_counts(dropna=False)
@@ -203,7 +203,7 @@ def audit_source():
              "'Invite to Workshop Track' (a partial accept) and 'Desk Reject' (never reviewed). "
              "Desk rejects have no reviews and no real quality signal but still sit in the pool "
              "that random/ideal baselines are drawn from.",
-             ["src/build_eval_table.py#L85", "src/run_eval.py#L23-L25",
+             ["src/build/build_eval_table.py#L85", "src/analysis/run_eval.py#L23-L25",
               "src/regimes/human_actual.py#L8"],
              "sqlite3 data/gen_review.db 'select decision, count(*) from SUBMISSION where "
              "when_submitted in (2018,2019,2020) group by 1 order by 2 desc'")
@@ -225,7 +225,7 @@ def audit_source():
              "The abstract-completion probe splits on the first sentence and ROUGE-scores the rest; "
              "an empty or one-line abstract produces a degenerate score rather than an error, and "
              "masked re-review has nothing to mask.",
-             ["src/leakage_abstract_completion_v1.py#L144", "src/leakage_masked_rereview.py#L93"],
+             ["src/probes/leakage_abstract_completion_v1.py#L144", "src/probes/leakage_masked_rereview.py#L93"],
              "sqlite3 data/gen_review.db \"select count(*) from SUBMISSION where "
              "when_submitted in (2018,2019,2020) and trim(abstract)=''\"")
 
@@ -239,7 +239,7 @@ def audit_source():
              f"({dup_titles['t'].nunique():,} distinct titles). Both the OpenAlex and S2 fetchers "
              "match by title for unmatched papers, so duplicates can be assigned the same external "
              "record and double-count its citations.",
-             ["src/fetch_citations_s2_full.py#L107-L145", "src/fetch_rejected_venues_s2_title.py"],
+             ["src/fetch/fetch_citations_s2_full.py#L107-L145", "src/fetch/fetch_rejected_venues_s2_title.py"],
              "sqlite3 data/gen_review.db \"select lower(trim(title)) t, count(*) c from SUBMISSION "
              "where when_submitted in (2018,2019,2020) group by t having c>1\"")
 
@@ -256,14 +256,14 @@ def audit_source():
                  f"{incomplete:,} papers have fewer than 3 persona rows. "
                  "build_eval_table averages whichever personas exist into llm_mean_rating, so those "
                  "papers' means come from a different persona mix than the rest.",
-                 "src/build_eval_table.py#L45-L51")
+                 "src/build/build_eval_table.py#L45-L51")
         gbad = gen_win.assign(num=parse_rating(gen_win["rating"]))
         gbad = gbad[gbad["num"].isna()]
         if len(gbad):
             flag(S, "major", "GENAI_REVIEW ratings that do not parse",
                  f"{len(gbad):,} of {len(gen_win):,} in-window generated ratings fail the numeric "
                  "extraction — LLM output that drifted from the expected 'N: label' format.",
-                 "src/build_eval_table.py#L44")
+                 "src/build/build_eval_table.py#L44")
         orphan_gen = gen[~gen["paper_id"].isin(set(sub["paper_id"]))]
         if len(orphan_gen):
             flag(S, "minor", "GENAI_REVIEW rows with no matching submission",
@@ -283,7 +283,7 @@ def audit_external(sub):
     if oa is None:
         flag(S, "blocker", "OpenAlex citation file missing",
              "output/citations_2018_2020.csv is the citation input to build_eval_table.py.",
-             "src/build_eval_table.py#L53")
+             "src/build/build_eval_table.py#L53")
     else:
         note(S, "OpenAlex rows", f"{len(oa):,}")
         note(S, "OpenAlex status", oa["status"].value_counts().to_dict())
@@ -294,7 +294,7 @@ def audit_external(sub):
                  f"{int(oa['paper_id'].duplicated().sum()):,} duplicate rows. The fetcher appends "
                  "incrementally for resumability; a resumed run that mis-computes the done-set "
                  "re-appends. Duplicates fan out rows on the merge in build_eval_table.",
-                 ["src/fetch_citations_openalex.py", "src/build_eval_table.py#L67"],
+                 ["src/fetch/fetch_citations_openalex.py", "src/build/build_eval_table.py#L67"],
                  "python -c \"import pandas as pd;d=pd.read_csv('output/citations_2018_2020.csv');"
                  "print(d[d.paper_id.duplicated(keep=False)].sort_values('paper_id'))\"")
         if (oa["openalex_citations"].fillna(0) < 0).any():
@@ -315,15 +315,15 @@ def audit_external(sub):
                      "openalex_citations = NaN and are dropped from every metric, so the accept and "
                      "reject pools are not the same population. Any accept-vs-reject citation "
                      "comparison on the OpenAlex source inherits that selection.",
-                     ["src/build_eval_table.py#L73", "src/metrics.py#L20-L24",
+                     ["src/build/build_eval_table.py#L73", "src/metrics.py#L20-L24",
                       "outputs/citation_source_comparison.md"],
-                     "python src/compare_citation_sources.py")
+                     "python src/analysis/compare_citation_sources.py")
 
     if s2 is None:
         flag(S, "major", "Semantic Scholar citation file missing",
              "outputs/s2_citations_full.csv is the corrected ground truth used by the "
              "dashboard's source toggle and every bootstrap.",
-             "src/fetch_citations_s2_full.py")
+             "src/fetch/fetch_citations_s2_full.py")
     else:
         note(S, "S2 rows", f"{len(s2):,}")
         note(S, "S2 methods", s2["method"].value_counts(dropna=False).to_dict())
@@ -332,7 +332,7 @@ def audit_external(sub):
         if s2["paper_id"].duplicated().any():
             flag(S, "major", "Duplicate paper_id in the S2 citation file",
                  f"{int(s2['paper_id'].duplicated().sum()):,} duplicates from incremental appends.",
-                 "src/fetch_citations_s2_full.py#L74")
+                 "src/fetch/fetch_citations_s2_full.py#L74")
 
         # title-match quality: the main wrong-paper risk
         tm = s2[s2["title_sim"].notna()]
@@ -347,8 +347,8 @@ def audit_external(sub):
                      f"(min {tm['title_sim'].min():.3f}). The fetcher records title_sim but never "
                      "filters on it, and no downstream consumer filters either — those citation "
                      "counts may belong to a different paper.",
-                     ["src/fetch_citations_s2_full.py#L107-L145",
-                      "src/leakage_exclusion_eval.py#L98", "src/table1_summary_stats.py#L46"],
+                     ["src/fetch/fetch_citations_s2_full.py#L107-L145",
+                      "src/analysis/leakage_exclusion_eval.py#L98", "src/analysis/table1_summary_stats.py#L46"],
                      "python -c \"import pandas as pd;d=pd.read_csv('outputs/s2_citations_full.csv');"
                      "print(d[d.title_sim<0.9].sort_values('title_sim').head(30)"
                      "[['paper_id','title_sim','s2_title','s2_citations']])\"")
@@ -365,7 +365,7 @@ def audit_external(sub):
                      f"{len(wrong):,} papers matched to an S2 record dated more than a year before "
                      "or four years after submission. Combined with an unfiltered title match this "
                      "is the signature of a wrong-paper join.",
-                     "src/fetch_citations_s2_full.py",
+                     "src/fetch/fetch_citations_s2_full.py",
                      "python -c \"import pandas as pd;s=pd.read_csv('outputs/s2_citations_full.csv');"
                      "e=pd.read_csv('outputs/eval_table.csv')[['paper_id','year','title']];"
                      "j=s.merge(e,on='paper_id');print(j[(j.s2_year-j.year>4)|(j.s2_year-j.year<-1)]"
@@ -389,8 +389,8 @@ def audit_external(sub):
                          "Both files are live in the codebase and the dashboard toggles between them, "
                          "so the headline effect size depends on which one a reader picks. Results "
                          "must always be reported with the source named.",
-                         ["outputs/citation_source_comparison.md", "src/compare_citation_sources.py",
-                          "src/dashboard.py#L70-L80", "docs/PROJECT_OVERVIEW.md"],
+                         ["outputs/citation_source_comparison.md", "src/analysis/compare_citation_sources.py",
+                          "src/app/dashboard.py#L70-L80", "docs/PROJECT_OVERVIEW.md"],
                          "open outputs/citation_source_comparison.md")
 
     # snapshot dating
@@ -419,7 +419,7 @@ def audit_external(sub):
             flag(S, "major", f"Duplicate {key} in {os.path.basename(path)}",
                  f"{int(df[key].duplicated().sum()):,} duplicate keys in an append-mode fetch output. "
                  "Merging on this key fans out rows downstream.",
-                 [path, "src/build_author_covariates.py#L88-L89"])
+                 [path, "src/build/build_author_covariates.py#L88-L89"])
 
     cov = read("outputs/paper_author_covariates.csv")
     if cov is not None and ev is not None:
@@ -432,7 +432,7 @@ def audit_external(sub):
                  "chain runs through an arXiv/OpenAlex match. Papers never posted to arXiv drop out, "
                  "and that is correlated with the decision being studied — the heterogeneity section "
                  "is estimated on a selected subsample.",
-                 ["src/build_author_covariates.py", "src/hetero_analysis.py#L141",
+                 ["src/build/build_author_covariates.py", "src/analysis/hetero_analysis.py#L141",
                   "docs/PROJECT_OVERVIEW.md"])
 
 
@@ -447,7 +447,7 @@ def audit_annotations(sub):
     f = read("outputs/paper_fields.csv")
     if f is None:
         flag(S, "major", "Field tags missing", "outputs/paper_fields.csv not found.",
-             "src/tag_fields.py")
+             "src/build/tag_fields.py")
     else:
         note(S, "field-tagged papers", f"{len(f):,}")
         note(S, "field distribution", f["field"].value_counts().to_dict())
@@ -459,20 +459,20 @@ def audit_annotations(sub):
                      "tag_fields.py stopped early rather than finishing. citation_pct_rank is "
                      "computed inside field×year groups, so every untagged paper has a NaN "
                      "normalized outcome and is dropped from the entire 'normalized' mode.",
-                     ["src/tag_fields.py", "src/build_eval_table.py#L77-L80",
-                      "src/run_eval.py#L34-L40"],
-                     "python src/tag_fields.py   # resumes from outputs/paper_fields.csv")
+                     ["src/build/tag_fields.py", "src/build/build_eval_table.py#L77-L80",
+                      "src/analysis/run_eval.py#L34-L40"],
+                     "python src/build/tag_fields.py   # resumes from outputs/paper_fields.csv")
         stray = set(f["field"].dropna().unique()) - FIELD_TAXONOMY
         if stray:
             flag(S, "major", "Field labels outside the declared taxonomy",
                  f"Unexpected labels: {sorted(stray)}. The prompt's docstring in tag_fields.py "
                  "lists a 10-field taxonomy while FIELDS defines 5 — the two disagree, so labels "
                  "from an older run can survive in the append-mode output file.",
-                 ["src/tag_fields.py#L1-L10", "src/tag_fields.py#L20"])
+                 ["src/build/tag_fields.py#L1-L10", "src/build/tag_fields.py#L20"])
         if f["id"].duplicated().any():
             flag(S, "major", "Duplicate paper in the field-tag file",
                  f"{int(f['id'].duplicated().sum()):,} papers tagged more than once (append-mode "
-                 "output re-run without a clean done-set).", "src/tag_fields.py#L117")
+                 "output re-run without a clean done-set).", "src/build/tag_fields.py#L117")
         top = f["field"].value_counts(normalize=True).iloc[0]
         if top > 0.5:
             flag(S, "major", "One field bucket dominates the taxonomy",
@@ -480,12 +480,12 @@ def audit_annotations(sub):
                  "defined in the prompt as 'everything else', so field fixed effects and "
                  "field-stratified results contrast one large heterogeneous bucket against four "
                  "small specific ones.",
-                 ["src/tag_fields.py#L20-L32", "src/hetero_analysis.py"])
+                 ["src/build/tag_fields.py#L20-L32", "src/analysis/hetero_analysis.py"])
         flag(S, "major", "Field labels have never been validated",
              "No hand-labeled sample, no accuracy number, and no cross-check against the "
              "arxiv_categories column already present in the OpenAlex paper-level file. Every "
              "field-stratified result rests on an unmeasured classifier.",
-             ["src/tag_fields.py",
+             ["src/build/tag_fields.py",
               "data/OpenAlex/openalex_rdd_arxiv_paper_level.csv"],
              "python -c \"import pandas as pd;d=pd.read_csv("
              "'data/OpenAlex/openalex_rdd_arxiv_paper_level.csv',low_memory=False);"
@@ -502,15 +502,15 @@ def audit_annotations(sub):
                      f"Coverage by year: {byyear}. A year that is mostly untagged cannot support "
                      "field×year normalization at all — the 'normalized' mode for that year is "
                      "computed on a small, non-random remainder.",
-                     ["src/build_eval_table.py#L77-L80", "src/dashboard.py"],
+                     ["src/build/build_eval_table.py#L77-L80", "src/app/dashboard.py"],
                      "python -c \"import pandas as pd;d=pd.read_csv('outputs/eval_table.csv');"
                      "print(pd.crosstab(d.year,d.field.notna()))\"")
 
     # --- committee / decision-head scores
-    apr = read("data/all_paper_results.csv")
+    apr = read("data/archive/all_paper_results.csv")
     if apr is None:
         flag(S, "major", "LLM pipeline result table missing",
-             "data/all_paper_results.csv carries committee_rating and deepseek_p_accept.",
+             "data/archive/all_paper_results.csv carries committee_rating and deepseek_p_accept.",
              "data/README.md")
     else:
         note(S, "LLM pipeline papers", f"{len(apr):,}")
@@ -530,7 +530,7 @@ def audit_annotations(sub):
             if len(bad):
                 flag(S, "blocker", "deepseek_p_accept outside [0,1]",
                      f"{len(bad):,} rows carry an out-of-range probability.",
-                     "data/all_paper_results.csv")
+                     "data/archive/all_paper_results.csv")
             ties = p.value_counts()
             if len(ties) and ties.iloc[0] / len(p) > 0.1:
                 flag(S, "major", "deepseek_p_accept is heavily tied",
@@ -540,7 +540,7 @@ def audit_annotations(sub):
                      "arbitrary and is not reproducible across a re-sort.",
                      ["src/regimes/llm_deepseek.py", "src/metrics.py#L33-L39"],
                      "python -c \"import pandas as pd;print(pd.read_csv("
-                     "'data/all_paper_results.csv').deepseek_p_accept.value_counts().head())\"")
+                     "'data/archive/all_paper_results.csv').deepseek_p_accept.value_counts().head())\"")
         if "committee_rating" in apr:
             c = apr["committee_rating"]
             note(S, "committee_rating range", f"{c.min()} – {c.max()}")
@@ -553,7 +553,7 @@ def audit_annotations(sub):
                     flag(S, "major", "Decision-head calls that failed with an HTTP error",
                          f"{n:,} papers recorded a transport error. Their p_accept is missing or "
                          "partial and the regime silently ranks without them.",
-                         "data/all_paper_results.csv")
+                         "data/archive/all_paper_results.csv")
         # Model identity. Dedicated-endpoint suffixes are noise; a different base model is not.
         def base_model(s):
             s = str(s).split("/")[-1]
@@ -571,7 +571,7 @@ def audit_annotations(sub):
                      f"model(s) {list(bases.index)} — the rest are per-endpoint hashes. Harmless for "
                      "the model identity, but it means the run was spread over many dedicated "
                      "endpoints, so any endpoint-level config drift is untracked.",
-                     "data/all_paper_results.csv")
+                     "data/archive/all_paper_results.csv")
             if len(bases) > 1:
                 flag(S, "blocker", f"Two different {label} models are pooled into one regime",
                      f"`{col}` resolves to {bases.to_dict()}. The regime is presented as a single "
@@ -579,10 +579,10 @@ def audit_annotations(sub):
                      "corpus. Any per-year or per-field comparison is partly a comparison between "
                      "models, and the single-model-family caveat in the project notes understates "
                      "the problem — the split is inside the headline number.",
-                     ["data/all_paper_results.csv", "src/regimes/llm_deepseek.py",
+                     ["data/archive/all_paper_results.csv", "src/regimes/llm_deepseek.py",
                       "docs/PROJECT_OVERVIEW.md"],
                      "python -c \"import pandas as pd;print(pd.read_csv("
-                     f"'data/all_paper_results.csv').groupby('{col}').size())\"")
+                     f"'data/archive/all_paper_results.csv').groupby('{col}').size())\"")
 
     # --- leakage probes
     ev = read("outputs/eval_table.csv")
@@ -594,7 +594,7 @@ def audit_annotations(sub):
         if d is None:
             flag(S, "minor", f"{os.path.basename(path)} missing",
                  "A leakage probe output is absent; the exclusion eval silently skips it.",
-                 "src/leakage_exclusion_eval.py#L125-L135")
+                 "src/analysis/leakage_exclusion_eval.py#L125-L135")
             continue
         note(S, f"{os.path.basename(path)} rows", f"{len(d):,}")
         if ev is not None:
@@ -605,8 +605,8 @@ def audit_annotations(sub):
                      f"{d['paper_id'].nunique():,} of {len(ev):,} papers probed ({covg:.1%}). "
                      "leakage_exclusion_eval.py prints a warning that results are directional "
                      "below 90% coverage, and that warning currently applies.",
-                     [path, "src/leakage_exclusion_eval.py"],
-                     f"python {PRODUCERS.get(path, ('src/leakage_lap_v1.py', []))[0]} --full")
+                     [path, "src/analysis/leakage_exclusion_eval.py"],
+                     f"python {PRODUCERS.get(path, ('src/probes/leakage_lap_v1.py', []))[0]} --full")
         have = [c for c in cols if c in d]
         if len(have) == 3:
             tot = d[have].sum(axis=1)
@@ -621,7 +621,7 @@ def audit_annotations(sub):
                      "leaking to other tokens means the renormalization did not fire for those rows, "
                      f"so their {pcol} is on a different scale from the rest — and {pcol} is compared "
                      "against a hard 0.5 exclusion cutoff.",
-                     [path, "src/leakage_lap_v1.py", "src/leakage_threshold_sweep.py"],
+                     [path, "src/probes/leakage_lap_v1.py", "src/analysis/leakage_threshold_sweep.py"],
                      f"python -c \"import pandas as pd;d=pd.read_csv('{path}');"
                      f"print((d[{have}].sum(axis=1)).describe())\"")
         if pcol in d and d[pcol].notna().any():
@@ -641,7 +641,7 @@ def audit_annotations(sub):
         if len(empty):
             flag(S, "minor", "Abstract-completion calls that returned no text",
                  f"{len(empty):,} of {len(ac):,} rows have gen_chars <= 0 and were scored anyway.",
-                 "src/leakage_abstract_completion_v1.py#L244")
+                 "src/probes/leakage_abstract_completion_v1.py#L244")
         if len(ac) < 300:
             flag(S, "minor", "Abstract-completion probe is short of its sampled N",
                  f"{len(ac):,} rows against a 300-paper sample. The {300 - len(ac)} missing papers "
@@ -657,7 +657,7 @@ def audit_annotations(sub):
                  "confidence bounds — especially since the exclusion eval uses the LAP/FAME probes' "
                  "0.5 cutoff, which this probe does not validate.",
                  ["outputs/leakage_abstract_completion_report.md",
-                  "src/leakage_abstract_completion_v1.py"])
+                  "src/probes/leakage_abstract_completion_v1.py"])
 
 
 # ------------------------------------------------------------ stage 3: the join table
@@ -668,7 +668,7 @@ def audit_join(sub, rev):
     if ev is None:
         flag(S, "blocker", "eval_table.csv missing",
              "Every downstream script reads outputs/eval_table.csv.",
-             "src/build_eval_table.py")
+             "src/build/build_eval_table.py")
         return
     note(S, "rows", f"{len(ev):,}")
     note(S, "columns", len(ev.columns))
@@ -678,23 +678,23 @@ def audit_join(sub, rev):
     if ev["paper_id"].duplicated().any():
         flag(S, "blocker", "Duplicate paper_id in eval_table",
              f"{int(ev['paper_id'].duplicated().sum()):,} duplicates — a many-to-one merge fanned out.",
-             "src/build_eval_table.py#L64-L70")
+             "src/build/build_eval_table.py#L64-L70")
 
     # --- the big one: columns on disk that the builder does not produce
-    src = open("src/build_eval_table.py").read()
+    src = open("src/build/build_eval_table.py").read()
     declared = set(re.findall(r'"([a-z_0-9]+)"', src)) | set(re.findall(r"'([a-z_0-9]+)'", src))
     orphan_cols = [c for c in ev.columns if c not in declared]
     if orphan_cols:
         flag(S, "blocker", "eval_table.csv holds columns build_eval_table.py cannot produce",
              f"Columns present on disk but never written by the builder: {orphan_cols}. "
              "They were merged in by hand or by a script that no longer exists in src/ "
-             "(the values match data/all_paper_results.csv). Re-running "
-             "`python src/build_eval_table.py` regenerates the file without them and silently "
+             "(the values match data/archive/all_paper_results.csv). Re-running "
+             "`python src/build/build_eval_table.py` regenerates the file without them and silently "
              "breaks every LLM regime, the heterogeneity section and the exclusion eval. "
              "The build step is not reproducible.",
-             ["src/build_eval_table.py", "outputs/eval_table.csv",
-              "data/all_paper_results.csv", "src/regimes/llm_committee.py",
-              "src/hetero_analysis.py#L31"],
+             ["src/build/build_eval_table.py", "outputs/eval_table.csv",
+              "data/archive/all_paper_results.csv", "src/regimes/llm_committee.py",
+              "src/analysis/hetero_analysis.py#L31"],
              "python -c \"import pandas as pd;print([c for c in "
              "pd.read_csv('outputs/eval_table.csv').columns])\"")
 
@@ -708,7 +708,7 @@ def audit_join(sub, rev):
             flag(S, "major", "eval_table paper set does not match the source window",
                  f"{len(missing):,} DB papers absent from eval_table, {len(extra):,} eval_table "
                  "papers absent from the DB window. The table is a stale snapshot of the source.",
-                 ["src/build_eval_table.py#L22-L26", "outputs/eval_table.csv"])
+                 ["src/build/build_eval_table.py#L22-L26", "outputs/eval_table.csv"])
 
         rw = rev[rev["paper_id"].isin(set(base["paper_id"]))].copy()
         rw["num"] = parse_rating(rw["rating"])
@@ -723,8 +723,8 @@ def audit_join(sub, rev):
                  f"{len(drift):,} of {len(chk):,} papers differ. The committed table was built from "
                  "a different DB state than the one on disk, so every human-score regime, the RDD "
                  "cutoff and Table 1 are computed on numbers that no longer reproduce.",
-                 ["src/build_eval_table.py#L36-L43", "outputs/eval_table.csv"],
-                 "python src/build_eval_table.py   # then diff against the committed file")
+                 ["src/build/build_eval_table.py#L36-L43", "outputs/eval_table.csv"],
+                 "python src/build/build_eval_table.py   # then diff against the committed file")
 
     # --- citation column integrity
     if "openalex_citations" in ev:
@@ -737,7 +737,7 @@ def audit_join(sub, rev):
                  "`quality.dropna()`, so recall@k is measured against the matched subset while "
                  "regimes select from the full pool. Coverage differences between regimes therefore "
                  "move recall without any change in selection quality.",
-                 ["src/metrics.py#L20-L39", "src/build_eval_table.py#L73"])
+                 ["src/metrics.py#L20-L39", "src/build/build_eval_table.py#L73"])
 
     # --- normalized outcome
     if "citation_pct_rank" in ev:
@@ -748,7 +748,7 @@ def audit_join(sub, rev):
             if n < len(both):
                 flag(S, "minor", "citation_pct_rank missing for papers that have the inputs",
                      f"{len(both) - n:,} papers have both a field and a citation count but no "
-                     "percentile rank.", "src/build_eval_table.py#L77-L80")
+                     "percentile rank.", "src/build/build_eval_table.py#L77-L80")
             tiny = (both.groupby(["field", "year"]).size().pipe(lambda s: s[s < 30]))
             if len(tiny):
                 flag(S, "major", "Percentile ranks computed inside very small field×year cells",
@@ -756,7 +756,7 @@ def audit_join(sub, rev):
                      f"(smallest {int(tiny.min())}). A percentile rank inside a 5-paper cell takes "
                      "only 5 distinct values, so the normalized outcome is coarse and unstable "
                      "exactly where field stratification is used.",
-                     ["src/build_eval_table.py#L77-L80", "src/dashboard.py"],
+                     ["src/build/build_eval_table.py#L77-L80", "src/app/dashboard.py"],
                      "python -c \"import pandas as pd;d=pd.read_csv('outputs/eval_table.csv');"
                      "print(pd.crosstab(d.field,d.year))\"")
 
@@ -774,7 +774,7 @@ def audit_join(sub, rev):
                      f"Year → scored papers, where scored < N accepts: {short} vs N {acc.to_dict()}. "
                      "A regime ranking on this column cannot return n ids and will either assert or "
                      "pad with unscored papers.",
-                     ["src/run_eval.py#L23-L25", f"src/regimes/"])
+                     ["src/analysis/run_eval.py#L23-L25", f"src/regimes/"])
 
 
 # -------------------------------------------------------------- stage 4: result artifacts
@@ -794,7 +794,7 @@ def audit_results():
     note(S, "regime modules on disk", on_disk)
     note(S, "regimes in ALL_REGIMES", active)
     # dashboard.py keeps its own hardcoded regime list instead of using ALL_REGIMES
-    dash = open("src/dashboard.py").read() if os.path.exists("src/dashboard.py") else ""
+    dash = open("src/app/dashboard.py").read() if os.path.exists("src/app/dashboard.py") else ""
     dash_regimes = sorted(set(re.findall(r"from regimes\.\w+ import (\w+)", dash)))
     note(S, "regimes the dashboard imports directly", dash_regimes)
 
@@ -808,14 +808,14 @@ def audit_results():
              "only batch/CLI path, still evaluates the three superseded persona regimes and cannot "
              "reproduce a single number the dashboard displays. Whichever list a reader trusts "
              "changes the answer.",
-             ["src/regimes/__init__.py#L13-L28", "src/run_eval.py#L14",
-              "src/dashboard.py#L17-L21", "src/dashboard.py#L213-L214"],
+             ["src/regimes/__init__.py#L13-L28", "src/analysis/run_eval.py#L14",
+              "src/app/dashboard.py#L17-L21", "src/app/dashboard.py#L213-L214"],
              "python -c \"import sys;sys.path.insert(0,'src');from regimes import ALL_REGIMES;"
              "print([r.name for r in ALL_REGIMES])\"")
 
     if res is None:
         flag(S, "minor", "eval_results.csv missing", "run_eval.py has not been run.",
-             "src/run_eval.py")
+             "src/analysis/run_eval.py")
     else:
         note(S, "eval_results rows", f"{len(res):,}")
         note(S, "regimes in eval_results", sorted(res["regime"].unique().tolist()))
@@ -826,7 +826,7 @@ def audit_results():
                  f"{counts.to_dict()}. Regimes with half the rows were only evaluated in one of the "
                  "two modes (raw / normalized) — a skip path fired mid-run and nothing recorded why. "
                  "Any table built by pivoting this file compares regimes on different metric sets.",
-                 ["outputs/eval_results.csv", "src/run_eval.py#L29-L45"],
+                 ["outputs/eval_results.csv", "src/analysis/run_eval.py#L29-L45"],
                  "python -c \"import pandas as pd;d=pd.read_csv('outputs/eval_results.csv');"
                  "print(d.pivot_table(index='regime',columns='mode',values='value',aggfunc='count'))\"")
         stale_names = [r for r in res["regime"].unique()
@@ -841,8 +841,8 @@ def audit_results():
                  "current. The stale file matters for anyone reading the CSV directly, quoting it "
                  "into a paper table, or diffing runs.",
                  ["outputs/eval_results.csv", "src/regimes/__init__.py",
-                  "src/dashboard.py#L160-L170", "docs/PROJECT_OVERVIEW.md"],
-                 "python src/run_eval.py   # after fixing ALL_REGIMES")
+                  "src/app/dashboard.py#L160-L170", "docs/PROJECT_OVERVIEW.md"],
+                 "python src/analysis/run_eval.py   # after fixing ALL_REGIMES")
 
         # ...and the dashboard requires the file to exist while never using its contents
         if "df_static = load_results()" in dash and "df_static" not in dash.replace(
@@ -850,10 +850,10 @@ def audit_results():
             flag(S, "minor", "The dashboard loads eval_results.csv and never uses it",
                  "`df_static = load_results()` at dashboard.py:108 is assigned once and referenced "
                  "nowhere else, but its FileNotFoundError is what triggers the "
-                 "'Run python src/run_eval.py first' hard stop. So the app refuses to start without "
+                 "'Run python src/analysis/run_eval.py first' hard stop. So the app refuses to start without "
                  "a file whose contents it ignores — which is also why nobody noticed the file went "
                  "stale.",
-                 ["src/dashboard.py#L106-L112", "src/dashboard.py#L64-L65"])
+                 ["src/app/dashboard.py#L106-L112", "src/app/dashboard.py#L64-L65"])
 
     # bootstrap artifacts: same shape, and no accidental sensitivity run in the headline slot
     boots = {p: read(f"outputs/{p}") for p in os.listdir("outputs")
@@ -868,7 +868,7 @@ def audit_results():
                 flag(S, "major", f"Point estimate outside its own CI in {name}",
                      f"{len(bad):,} rows. The point estimate and the bootstrap percentiles were "
                      "not produced by the same run.",
-                     [f"outputs/{name}", "src/leakage_exclusion_bootstrap.py"])
+                     [f"outputs/{name}", "src/analysis/leakage_exclusion_bootstrap.py"])
     shapes = {n: len(d) for n, d in boots.items() if d is not None}
     if len(set(shapes.values())) > 1:
         flag(S, "minor", "Bootstrap output files disagree in shape",
@@ -925,8 +925,8 @@ def audit_plumbing():
              f"{files} — and `output/citations_2018_2020.csv` is a required *input* to "
              "build_eval_table.py, so the OpenAlex ground truth is the one artifact stored off-path. "
              "Easy to miss in a backup, easy to shadow with a typo.",
-             ["CLAUDE.md", "src/build_eval_table.py#L53", "src/outlier_analysis.py#L27",
-              "src/cite_hist.py#L9"],
+             ["CLAUDE.md", "src/build/build_eval_table.py#L53", "src/analysis/outlier_analysis.py#L27",
+              "src/analysis/cite_hist.py#L9"],
              "ls -l output/")
 
     # scripts that write into data/ (declared read-only)
@@ -945,7 +945,7 @@ def audit_plumbing():
 
     # provenance of the critical inputs
     untracked = []
-    for p in [DB, "data/all_paper_results.csv", "output/citations_2018_2020.csv",
+    for p in [DB, "data/archive/all_paper_results.csv", "output/citations_2018_2020.csv",
               "outputs/eval_table.csv", "outputs/s2_citations_full.csv",
               "outputs/paper_fields.csv"]:
         if not os.path.exists(p):
@@ -999,7 +999,7 @@ def audit_plumbing():
 PIPELINE_MAP = [
     ("Sources (nothing in the repo produces these)",
      ["data/gen_review.db — OpenReview scrape: SUBMISSION / REVIEW / GENAI_REVIEW",
-      "data/all_paper_results.csv + data/paper_manifest.csv — committee & decision-head LLM run",
+      "data/archive/all_paper_results.csv + data/paper_manifest.csv — committee & decision-head LLM run",
       "data/OpenAlex/ — arXiv↔OpenAlex match, batch cache, RDD paper-level file",
       "OpenAlex API, Semantic Scholar API, Together AI, Anthropic (live fetches)"]),
     ("Fetch / enrich",
@@ -1044,7 +1044,7 @@ def write_markdown(path):
     L = [f"# Data audit — CitesBench",
          "",
          f"Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} by "
-         "`python src/data_audit.py`.",
+         "`python src/audit/data_audit.py`.",
          "",
          f"**{counts['blocker']} blockers · {counts['major']} major · "
          f"{counts['minor']} minor · {counts['info']} info**",
@@ -1147,7 +1147,7 @@ def write_html(path):
          "<div class=wrap>",
          "<h1>Data audit — CitesBench</h1>",
          f"<p class=sub>Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} "
-         "by <code>python src/data_audit.py</code>. Click a pill to filter.</p>",
+         "by <code>python src/audit/data_audit.py</code>. Click a pill to filter.</p>",
          "<div class=tally>"]
     for s in SEV_ORDER:
         P.append(f"<span class=pill data-filter={s}><b>{counts[s]}</b> {SEV_LABEL[s].lower()}</span>")

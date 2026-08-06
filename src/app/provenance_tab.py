@@ -32,7 +32,7 @@ import streamlit.components.v1 as components
 
 import import_graph
 
-# Palette copied from src/dashboard.py:29-43 so the two stay visually identical.
+# Palette copied from src/app/dashboard.py:29-43 so the two stay visually identical.
 # Not imported, because importing dashboard.py would re-execute the whole app.
 BORDER, TEXT, SUBTEXT = "#E2E8F0", "#0F172A", "#64748B"
 SEV_COLOR = {
@@ -247,10 +247,10 @@ ART = [
     # path, stage, producer, inputs, note
     (DB_PATH, "0 source", None, [],
      "OpenReview scrape. No script in the repo creates or refreshes it."),
-    ("data/all_paper_results.csv", "0 source", None, [],
+    ("data/archive/all_paper_results.csv", "0 source", None, [],
      "Committee + decision-head LLM run, imported from an external share folder "
      "(`data/README.md`, `data/summary.json`)."),
-    ("data/all_paper_results.jsonl", "0 source", None, [],
+    ("data/archive/all_paper_results.jsonl", "0 source", None, [],
      "Per-paper JSON records for the same run."),
     ("data/paper_manifest.csv", "0 source", None, [], "Manifest for the same share folder."),
     ("data/summary.json", "0 source", None, [],
@@ -273,9 +273,9 @@ ART = [
     ("data/OpenAlex/openalex_rdd_miss_title_search_diagnostics.csv", "1 citations",
      "Archive/CompletePipeline/design/diagnose_openalex_arxiv_misses.py#L14", [], ""),
     ("data/OpenAlex/openalex_rdd_dashboard.csv", "1 citations", None,
-     [], "Slim RDD file read at `src/dashboard.py#L1042`. No writer anywhere in the repo."),
+     [], "Slim RDD file read at `src/app/dashboard.py#L1042`. No writer anywhere in the repo."),
     ("output/citations_2018_2020.csv", "1 citations",
-     "src/fetch_citations_openalex.py#L27-L29,L85-L89", [DB_PATH],
+     "src/fetch/fetch_citations_openalex.py#L27-L29,L85-L89", [DB_PATH],
      "OpenAlex ground truth. Path is `output/` (singular) — outside the CLAUDE.md convention."),
     ("output/papers_2018_2020.csv", "1 citations", None, [], "No producer anywhere in the repo."),
     ("output/reviews_2018_2020.csv", "1 citations", None, [], "No producer anywhere in the repo."),
@@ -283,136 +283,136 @@ ART = [
      "No producer anywhere in the repo."),
     ("output/part_b.log", "1 citations", None, [],
      "Log of a run named nowhere in src/ or Archive/."),
-    ("outputs/arxiv_resolution.csv", "2 arxiv", "src/resolve_arxiv_ids.py#L220",
+    ("outputs/arxiv_resolution.csv", "2 arxiv", "src/fetch/resolve_arxiv_ids.py#L220",
      [DB_PATH], "Full-corpus pass 1: all 8 years against the HuggingFace arXiv dump."),
-    ("outputs/arxiv_resolution_report.md", "2 arxiv", "src/resolve_arxiv_ids.py#L264", [], ""),
-    ("outputs/arxiv_resolution.log", "2 arxiv", "src/resolve_arxiv_ids.py (stdout redirect)", [], ""),
+    ("outputs/arxiv_resolution_report.md", "2 arxiv", "src/fetch/resolve_arxiv_ids.py#L264", [], ""),
+    ("outputs/arxiv_resolution.log", "2 arxiv", "src/fetch/resolve_arxiv_ids.py (stdout redirect)", [], ""),
     ("outputs/arxiv_dump_download.log", "2 arxiv",
-     "huggingface_hub snapshot_download, command in src/resolve_arxiv_ids.py#L23-L24", [], ""),
-    ("outputs/arxiv_fuzzy_candidates.csv", "2 arxiv", "src/resolve_arxiv_fuzzy.py#L219",
+     "huggingface_hub snapshot_download, command in src/fetch/resolve_arxiv_ids.py#L23-L24", [], ""),
+    ("outputs/arxiv_fuzzy_candidates.csv", "2 arxiv", "src/fetch/resolve_arxiv_fuzzy.py#L219",
      ["outputs/arxiv_resolution.csv", DB_PATH], "Pass 2: TF-IDF abstract verification."),
-    ("outputs/arxiv_fuzzy_report.md", "2 arxiv", "src/resolve_arxiv_fuzzy.py#L199", [], ""),
-    ("outputs/arxiv_fuzzy.log", "2 arxiv", "src/resolve_arxiv_fuzzy.py (stdout redirect)", [], ""),
-    ("outputs/paper_fields.csv", "3 annotate", "src/tag_fields.py#L42,L117", [DB_PATH],
+    ("outputs/arxiv_fuzzy_report.md", "2 arxiv", "src/fetch/resolve_arxiv_fuzzy.py#L199", [], ""),
+    ("outputs/arxiv_fuzzy.log", "2 arxiv", "src/fetch/resolve_arxiv_fuzzy.py (stdout redirect)", [], ""),
+    ("outputs/paper_fields.csv", "3 annotate", "src/build/tag_fields.py#L42,L117", [DB_PATH],
      "LLM field tags via Together AI."),
-    ("outputs/paper_author_ids.csv", "1 citations", "src/fetch_author_stats.py#L30", [], ""),
-    ("outputs/author_stats.csv", "1 citations", "src/fetch_author_stats.py#L31", [], ""),
-    ("outputs/paper_venues.csv", "1 citations", "src/fetch_author_stats.py#L32", [], ""),
-    ("outputs/paper_author_covariates.csv", "4 join", "src/build_author_covariates.py#L122",
+    ("outputs/paper_author_ids.csv", "1 citations", "src/fetch/fetch_author_stats.py#L30", [], ""),
+    ("outputs/author_stats.csv", "1 citations", "src/fetch/fetch_author_stats.py#L31", [], ""),
+    ("outputs/paper_venues.csv", "1 citations", "src/fetch/fetch_author_stats.py#L32", [], ""),
+    ("outputs/paper_author_covariates.csv", "4 join", "src/build/build_author_covariates.py#L122",
      ["outputs/author_stats.csv", "outputs/paper_author_ids.csv"], ""),
-    ("outputs/eval_table.csv", "4 join", "src/build_eval_table.py#L82",
+    ("outputs/eval_table.csv", "4 join", "src/build/build_eval_table.py#L82",
      [DB_PATH, "output/citations_2018_2020.csv", "outputs/paper_fields.csv"],
      "The central study table. Holds two columns the builder cannot write — see defects."),
-    ("outputs/eval_table_2024.csv", "4 join", "src/build_eval_table_year.py#L127",
+    ("outputs/eval_table_2024.csv", "4 join", "src/build/build_eval_table_year.py#L127",
      [DB_PATH, "outputs/arxiv_resolution.csv"], "Out-of-sample year, --year 2024."),
-    ("outputs/eval_table_2025.csv", "4 join", "src/build_eval_table_year.py#L127",
+    ("outputs/eval_table_2025.csv", "4 join", "src/build/build_eval_table_year.py#L127",
      [DB_PATH, "outputs/arxiv_resolution.csv"], "Out-of-sample year, --year 2025."),
-    ("outputs/rejected_venues_s2.csv", "1 citations", "src/fetch_rejected_venues_s2.py", [], ""),
+    ("outputs/rejected_venues_s2.csv", "1 citations", "src/fetch/fetch_rejected_venues_s2.py", [], ""),
     ("outputs/rejected_venues_s2_title.csv", "1 citations",
-     "src/fetch_rejected_venues_s2_title.py", [],
+     "src/fetch/fetch_rejected_venues_s2_title.py", [],
      "Source of the `title_cached` block reused by fetch_citations_s2_full.py."),
     ("outputs/oa_title_match_venues.csv", "1 citations", None, [],
-     "Read at `src/fetch_rejected_venues_s2_title.py#L67-L68`. No writer anywhere."),
-    ("outputs/s2_citations_full.csv", "1 citations", "src/fetch_citations_s2_full.py#L36",
+     "Read at `src/fetch/fetch_rejected_venues_s2_title.py#L67-L68`. No writer anywhere."),
+    ("outputs/s2_citations_full.csv", "1 citations", "src/fetch/fetch_citations_s2_full.py#L36",
      ["outputs/eval_table.csv", "data/OpenAlex/openalex_rdd_arxiv_paper_level.csv"],
      "Three code paths in one file: arxiv_batch, title_cached, title_match."),
-    ("outputs/s2_citations_v2.csv", "1 citations", "src/fetch_citations_s2_v2.py#L45",
+    ("outputs/s2_citations_v2.csv", "1 citations", "src/fetch/fetch_citations_s2_v2.py#L45",
      ["outputs/eval_table.csv", "outputs/arxiv_resolution.csv"],
      "The rebuild: one tiered code path, ID-matched only so far."),
-    ("outputs/s2_citations_v2_tiered.csv", "1 citations", "src/fetch_citations_s2_v2.py#L309", [], ""),
-    ("outputs/s2_attribution_report.md", "1 citations", "src/fetch_citations_s2_v2.py#L355", [], ""),
+    ("outputs/s2_citations_v2_tiered.csv", "1 citations", "src/fetch/fetch_citations_s2_v2.py#L309", [], ""),
+    ("outputs/s2_attribution_report.md", "1 citations", "src/fetch/fetch_citations_s2_v2.py#L355", [], ""),
     ("outputs/s2_citations_2024.csv", "1 citations",
-     "src/fetch_citations_s2_v2.py --out (arg at #L365)", ["outputs/eval_table_2024.csv"], ""),
+     "src/fetch/fetch_citations_s2_v2.py --out (arg at #L365)", ["outputs/eval_table_2024.csv"], ""),
     ("outputs/s2_citations_2025.csv", "1 citations",
-     "src/fetch_citations_s2_v2.py --out (arg at #L365)", ["outputs/eval_table_2025.csv"], ""),
+     "src/fetch/fetch_citations_s2_v2.py --out (arg at #L365)", ["outputs/eval_table_2025.csv"], ""),
     ("outputs/citation_source_comparison.csv", "1 citations",
-     "src/compare_citation_sources.py#L57", ["outputs/eval_table.csv"], ""),
+     "src/analysis/compare_citation_sources.py#L57", ["outputs/eval_table.csv"], ""),
     ("outputs/citation_source_comparison.md", "1 citations",
-     "src/compare_citation_sources.py#L137", [], ""),
+     "src/analysis/compare_citation_sources.py#L137", [], ""),
     ("outputs/source_comparison_verified.csv", "1 citations", None, [],
      "No writer anywhere in src/ or Archive/."),
-    ("outputs/title_match_quality.csv", "1 citations", "src/check_title_match_quality.py#L13",
+    ("outputs/title_match_quality.csv", "1 citations", "src/audit/check_title_match_quality.py#L13",
      ["output/citations_2018_2020.csv"], ""),
-    ("outputs/leakage_lap_v1.csv", "3 annotate", "src/leakage_lap_v1.py#L46",
+    ("outputs/leakage_lap_v1.csv", "3 annotate", "src/probes/leakage_lap_v1.py#L46",
      ["outputs/eval_table.csv"], "LAP probe: does the model recall the accept/reject outcome?"),
-    ("outputs/leakage_lap_report.md", "5 analyse", "src/leakage_lap_v1.py#L47", [], ""),
+    ("outputs/leakage_lap_report.md", "5 analyse", "src/probes/leakage_lap_v1.py#L47", [], ""),
     ("outputs/leakage_lap_llama3_2025.csv", "3 annotate",
-     "src/leakage_lap_v1.py --tag (arg at #L411, path built at #L420)",
+     "src/probes/leakage_lap_v1.py --tag (arg at #L411, path built at #L420)",
      ["outputs/eval_table_2025.csv"], ""),
-    ("outputs/leakage_lap_traces.jsonl", "3 annotate", "src/leakage_lap_v1.py#L189", [], ""),
-    ("outputs/leakage_fame_v1.csv", "3 annotate", "src/leakage_fame_v1.py",
+    ("outputs/leakage_lap_traces.jsonl", "3 annotate", "src/probes/leakage_lap_v1.py#L189", [], ""),
+    ("outputs/leakage_fame_v1.csv", "3 annotate", "src/probes/leakage_fame_v1.py",
      ["outputs/eval_table.csv"], "FAME probe: does the model recall the paper's prominence?"),
-    ("outputs/leakage_fame_report.md", "5 analyse", "src/leakage_fame_v1.py#L151", [], ""),
+    ("outputs/leakage_fame_report.md", "5 analyse", "src/probes/leakage_fame_v1.py#L151", [], ""),
     ("outputs/leakage_fame_traces_sample30.jsonl", "3 annotate",
-     "src/leakage_fame_trace_sample.py#L80", ["outputs/leakage_fame_v1.csv"], ""),
-    ("outputs/leakage_controls.csv", "3 annotate", "src/leakage_controls.py#L170",
+     "src/probes/leakage_fame_trace_sample.py#L80", ["outputs/leakage_fame_v1.csv"], ""),
+    ("outputs/leakage_controls.csv", "3 annotate", "src/probes/leakage_controls.py#L170",
      ["outputs/leakage_lap_v1.csv"], "Probe-validity controls."),
-    ("outputs/leakage_masked_rereview.csv", "3 annotate", "src/leakage_masked_rereview.py#L124",
+    ("outputs/leakage_masked_rereview.csv", "3 annotate", "src/probes/leakage_masked_rereview.py#L124",
      ["outputs/leakage_lap_v1.csv", DB_PATH], ""),
     ("outputs/leakage_abstract_completion_v1.csv", "3 annotate",
-     "src/leakage_abstract_completion_v1.py#L205", ["outputs/eval_table.csv", DB_PATH],
+     "src/probes/leakage_abstract_completion_v1.py#L205", ["outputs/eval_table.csv", DB_PATH],
      "Verbatim-regurgitation probe."),
     ("outputs/leakage_abstract_completion_texts.jsonl", "3 annotate",
-     "src/leakage_abstract_completion_v1.py#L205", [], ""),
+     "src/probes/leakage_abstract_completion_v1.py#L205", [], ""),
     ("outputs/leakage_abstract_completion_report.md", "5 analyse",
-     "src/leakage_abstract_completion_v1.py#L340", [], ""),
-    ("outputs/leakage_exclusion_eval.csv", "5 analyse", "src/leakage_exclusion_eval.py#L146",
+     "src/probes/leakage_abstract_completion_v1.py#L340", [], ""),
+    ("outputs/leakage_exclusion_eval.csv", "5 analyse", "src/analysis/leakage_exclusion_eval.py#L146",
      ["outputs/eval_table.csv", "outputs/leakage_lap_v1.csv", "outputs/leakage_fame_v1.csv"], ""),
-    ("outputs/leakage_exclusion_eval_s2.csv", "5 analyse", "src/leakage_exclusion_eval.py#L146",
+    ("outputs/leakage_exclusion_eval_s2.csv", "5 analyse", "src/analysis/leakage_exclusion_eval.py#L146",
      ["outputs/s2_citations_full.csv", "outputs/leakage_lap_v1.csv"], ""),
     ("outputs/leakage_exclusion_bootstrap_openalex.csv", "5 analyse",
-     "src/leakage_exclusion_bootstrap.py#L172", ["outputs/eval_table.csv"], ""),
+     "src/analysis/leakage_exclusion_bootstrap.py#L172", ["outputs/eval_table.csv"], ""),
     ("outputs/leakage_exclusion_bootstrap_openalex_vp.csv", "5 analyse",
-     "src/leakage_exclusion_bootstrap.py#L172 (--venue-premium, arg at #L102)", [], ""),
+     "src/analysis/leakage_exclusion_bootstrap.py#L172 (--venue-premium, arg at #L102)", [], ""),
     ("outputs/leakage_exclusion_bootstrap_s2.csv", "5 analyse",
-     "src/leakage_exclusion_bootstrap.py#L172 (--citation-source s2)", [], ""),
+     "src/analysis/leakage_exclusion_bootstrap.py#L172 (--citation-source s2)", [], ""),
     ("outputs/leakage_exclusion_bootstrap_s2_vp.csv", "5 analyse",
-     "src/leakage_exclusion_bootstrap.py#L172 (--citation-source s2 --venue-premium)", [], ""),
-    ("outputs/leakage_threshold_sweep.csv", "5 analyse", "src/leakage_threshold_sweep.py#L65",
+     "src/analysis/leakage_exclusion_bootstrap.py#L172 (--citation-source s2 --venue-premium)", [], ""),
+    ("outputs/leakage_threshold_sweep.csv", "5 analyse", "src/analysis/leakage_threshold_sweep.py#L65",
      ["outputs/eval_table.csv", "outputs/leakage_lap_v1.csv"], ""),
-    ("outputs/leakage_power_analysis.md", "5 analyse", "src/leakage_power_analysis.py#L116",
+    ("outputs/leakage_power_analysis.md", "5 analyse", "src/analysis/leakage_power_analysis.py#L116",
      ["outputs/leakage_lap_v1.csv", "outputs/leakage_controls.csv"], ""),
-    ("outputs/samples/oos_papers.csv", "6 oos", "src/build_oos_samples.py#L174",
+    ("outputs/samples/oos_papers.csv", "6 oos", "src/build/build_oos_samples.py#L174",
      ["outputs/eval_table.csv", "outputs/eval_table_2024.csv", "outputs/eval_table_2025.csv"],
      "Frozen out-of-sample arms: clean / partial / contaminated."),
-    ("outputs/samples/oos_probe_plan.csv", "6 oos", "src/build_oos_samples.py#L193",
+    ("outputs/samples/oos_probe_plan.csv", "6 oos", "src/build/build_oos_samples.py#L193",
      ["outputs/samples/oos_papers.csv"],
-     "Rewritten in place afterwards by src/rebuild_placebo.py#L112 — see defects."),
-    ("outputs/samples/oos_sample_design.md", "6 oos", "src/build_oos_samples.py#L264", [], ""),
+     "Rewritten in place afterwards by src/build/rebuild_placebo.py#L112 — see defects."),
+    ("outputs/samples/oos_sample_design.md", "6 oos", "src/build/build_oos_samples.py#L264", [], ""),
     ("outputs/oos_probes_Llama-3-3-70B-Instruct-Turbo.csv", "6 oos",
-     "src/run_oos_probes.py#L171", ["outputs/samples/oos_probe_plan.csv"], ""),
+     "src/probes/run_oos_probes.py#L171", ["outputs/samples/oos_probe_plan.csv"], ""),
     ("outputs/oos_traces_Llama-3-3-70B-Instruct-Turbo.jsonl", "6 oos",
-     "src/run_oos_probes.py#L172", [], "Full prompt + completion per call — the evidence."),
-    ("outputs/oos_probes_gemma-4-31B-it.csv", "6 oos", "src/run_oos_probes.py#L171", [], ""),
-    ("outputs/oos_traces_gemma-4-31B-it.jsonl", "6 oos", "src/run_oos_probes.py#L172", [], ""),
-    ("outputs/oos_probe_report.md", "6 oos", "src/run_oos_probes.py#L267", [], ""),
-    ("outputs/eval_results.csv", "5 analyse", "src/run_eval.py#L79", ["outputs/eval_table.csv"],
+     "src/probes/run_oos_probes.py#L172", [], "Full prompt + completion per call — the evidence."),
+    ("outputs/oos_probes_gemma-4-31B-it.csv", "6 oos", "src/probes/run_oos_probes.py#L171", [], ""),
+    ("outputs/oos_traces_gemma-4-31B-it.jsonl", "6 oos", "src/probes/run_oos_probes.py#L172", [], ""),
+    ("outputs/oos_probe_report.md", "6 oos", "src/probes/run_oos_probes.py#L267", [], ""),
+    ("outputs/eval_results.csv", "5 analyse", "src/analysis/run_eval.py#L79", ["outputs/eval_table.csv"],
      "Superseded persona regimes — see defects."),
-    ("outputs/baselines_cache.csv", "5 analyse", "src/dashboard.py#L158", [], ""),
-    ("outputs/fuzzy_rdd.md", "5 analyse", "src/fuzzy_rdd.py#L432",
+    ("outputs/baselines_cache.csv", "5 analyse", "src/app/dashboard.py#L158", [], ""),
+    ("outputs/fuzzy_rdd.md", "5 analyse", "src/analysis/fuzzy_rdd.py#L432",
      ["data/OpenAlex/openalex_rdd_arxiv_paper_level.csv"], ""),
-    ("outputs/fuzzy_rdd_binscatter.csv", "5 analyse", "src/fuzzy_rdd.py#L437", [], ""),
-    ("outputs/hetero_analysis.md", "5 analyse", "src/hetero_analysis.py#L191",
+    ("outputs/fuzzy_rdd_binscatter.csv", "5 analyse", "src/analysis/fuzzy_rdd.py#L437", [], ""),
+    ("outputs/hetero_analysis.md", "5 analyse", "src/analysis/hetero_analysis.py#L191",
      ["outputs/eval_table.csv", "outputs/paper_author_covariates.csv"], ""),
-    ("outputs/outlier_quantitative.csv", "5 analyse", "src/outlier_analysis.py#L122", [], ""),
-    ("outputs/outlier_reviews.csv", "5 analyse", "src/outlier_analysis.py#L141", [],
-     "Then mutated in place by src/tag_rejection_reasons.py#L47 and "
-     "src/fetch_pc_decisions.py#L62 — the file is three scripts deep with no versioning."),
-    ("outputs/cite_hist.png", "5 analyse", "src/cite_hist.py#L48", [], ""),
-    ("outputs/outlier_scatter.png", "5 analyse", "src/viz_outlier_scatter.py#L102", [], ""),
-    ("outputs/rejection_tags.png", "5 analyse", "src/viz_rejection_tags.py#L81", [], ""),
+    ("outputs/outlier_quantitative.csv", "5 analyse", "src/analysis/outlier_analysis.py#L122", [], ""),
+    ("outputs/outlier_reviews.csv", "5 analyse", "src/analysis/outlier_analysis.py#L141", [],
+     "Then mutated in place by src/build/tag_rejection_reasons.py#L47 and "
+     "src/fetch/fetch_pc_decisions.py#L62 — the file is three scripts deep with no versioning."),
+    ("outputs/cite_hist.png", "5 analyse", "src/analysis/cite_hist.py#L48", [], ""),
+    ("outputs/outlier_scatter.png", "5 analyse", "src/analysis/viz_outlier_scatter.py#L102", [], ""),
+    ("outputs/rejection_tags.png", "5 analyse", "src/analysis/viz_rejection_tags.py#L81", [], ""),
     ("outputs/breakthrough_bubble.png", "5 analyse", None, [],
      "No writer anywhere in src/ or Archive/."),
     ("outputs/breakthrough_top_decile.png", "5 analyse", None, [],
      "No writer anywhere in src/ or Archive/."),
     ("outputs/table1_summary_stats.tex", "5 analyse", None, [],
-     "src/data_audit.py#L61 names table1_summary_stats.py as the producer, but that "
+     "src/audit/data_audit.py#L61 names table1_summary_stats.py as the producer, but that "
      "script only prints — see disagreements."),
-    ("outputs/data_audit.md", "5 analyse", "src/data_audit.py#L1087", [], ""),
-    ("outputs/data_audit.html", "5 analyse", "src/data_audit.py (--no-html to skip, #L1190)", [], ""),
+    ("outputs/data_audit.md", "5 analyse", "src/audit/data_audit.py#L1087", [], ""),
+    ("outputs/data_audit.html", "5 analyse", "src/audit/data_audit.py (--no-html to skip, #L1190)", [], ""),
     ("outputs/findings_integrity_check.md", "5 analyse", None, [],
      "Hand-written. Referenced from docs/PROJECT_OVERVIEW.md#L140 and as a remediation "
-     "pointer at src/data_audit.py#L878; no script writes it."),
+     "pointer at src/audit/data_audit.py#L878; no script writes it."),
     ("outputs/venue_coverage_strategy.md", "5 analyse", None, [], "Hand-written; no producer."),
 ]
 
@@ -442,7 +442,7 @@ flowchart LR
 
   subgraph RAW["Raw data (data/, read-only)"]
     DB[("data/gen_review.db<br/>SUBMISSION / REVIEW / GENAI_REVIEW")]
-    APR["data/all_paper_results.csv<br/>committee + decision head"]
+    APR["data/archive/all_paper_results.csv<br/>committee + decision head"]
     OAX["data/OpenAlex/<br/>arXiv-OpenAlex match (Archive pipeline)"]
   end
 
@@ -462,7 +462,7 @@ flowchart LR
   OOS["outputs/eval_table_2024.csv<br/>outputs/eval_table_2025.csv<br/>outputs/samples/ (frozen)"]
 
   subgraph ANL["Analyse"]
-    DASH["src/dashboard.py<br/>(recomputes regimes live)"]
+    DASH["src/app/dashboard.py<br/>(recomputes regimes live)"]
     REP["reports: data_audit.md, fuzzy_rdd.md,<br/>hetero_analysis.md, oos_probe_report.md"]
     STALE["outputs/eval_results.csv<br/>SUPERSEDED"]
   end
@@ -512,9 +512,9 @@ flowchart TB
   DB --> REV["REVIEW<br/>paper_id, reviewer_id, rating, confidence,<br/>soundness, main_review, binocular_score, ..."]
   DB --> GEN["GENAI_REVIEW<br/>paper_id, type in (neutral|positive|negative),<br/>generated, rating, binocular_score"]
 
-  SUB --> W["Study window filter<br/>when_submitted IN (2018,2019,2020)<br/>src/build_eval_table.py#L22-L26"]
-  REV --> AGG["Rating parse + aggregate<br/>str.extract('^(\\\\d+)') then groupby mean/std/count<br/>src/build_eval_table.py#L36-L43"]
-  GEN --> PIV["Pivot to llm_neutral/positive/negative_rating<br/>src/build_eval_table.py#L44-L51"]
+  SUB --> W["Study window filter<br/>when_submitted IN (2018,2019,2020)<br/>src/build/build_eval_table.py#L22-L26"]
+  REV --> AGG["Rating parse + aggregate<br/>str.extract('^(\\\\d+)') then groupby mean/std/count<br/>src/build/build_eval_table.py#L36-L43"]
+  GEN --> PIV["Pivot to llm_neutral/positive/negative_rating<br/>src/build/build_eval_table.py#L44-L51"]
 
   W --> ET["outputs/eval_table.csv"]
   AGG --> ET
@@ -527,13 +527,13 @@ flowchart TB
 DIA_CITE = """
 flowchart TB
   subgraph OApath["OpenAlex path (first, 2026-06)"]
-    OA["OpenAlex /works API<br/>src/fetch_citations_openalex.py#L47"]
+    OA["OpenAlex /works API<br/>src/fetch/fetch_citations_openalex.py#L47"]
     OA --> OAC["output/citations_2018_2020.csv<br/>paper_id, openalex_citations, status"]
     OAC --> ET["outputs/eval_table.csv<br/>status != 'found' -> NaN (#L72-L73)"]
   end
 
   subgraph S2path["Semantic Scholar path (later, 2026-07)"]
-    ETin["outputs/eval_table.csv"] --> SP["src/fetch_citations_s2_full.py"]
+    ETin["outputs/eval_table.csv"] --> SP["src/fetch/fetch_citations_s2_full.py"]
     AXOLD["data/OpenAlex/openalex_rdd_arxiv_paper_level.csv<br/>arxiv_id_canonical"] --> SP
     SP --> B1["1. arxiv_batch<br/>POST /paper/batch by ARXIV:id<br/>#L82-L100"]
     SP --> B2["2. title_cached<br/>bulk reuse of rejected_venues_s2_title.csv<br/>#L103-L118 - NO title_sim filter"]
@@ -543,12 +543,12 @@ flowchart TB
     B3 --> S2F
   end
 
-  subgraph V2["S2 rebuild (src/fetch_citations_s2_v2.py)"]
+  subgraph V2["S2 rebuild (src/fetch/fetch_citations_s2_v2.py)"]
     AXR["outputs/arxiv_resolution.csv<br/>full corpus"] --> SV2["one tiered code path<br/>A = ID, B = verified title, C = weak/demoted"]
     SV2 --> S2V["outputs/s2_citations_v2.csv<br/>+ _tiered.csv + s2_attribution_report.md"]
   end
 
-  OAC --> CMP["src/compare_citation_sources.py"]
+  OAC --> CMP["src/analysis/compare_citation_sources.py"]
   S2F --> CMP
   CMP --> CMPO["outputs/citation_source_comparison.{csv,md}<br/>median S2/OA ratio 2.88;<br/>accepted 3.47 vs rejected 2.00"]
 
@@ -566,22 +566,22 @@ flowchart TB
   end
 
   subgraph P1["Pass 1 - exact + token-set"]
-    HF --> R1["src/resolve_arxiv_ids.py<br/>normalized title exact, then token-set;<br/>verified by SequenceMatcher + Jaccard + authors<br/>no threshold applied at write time"]
+    HF --> R1["src/fetch/resolve_arxiv_ids.py<br/>normalized title exact, then token-set;<br/>verified by SequenceMatcher + Jaccard + authors<br/>no threshold applied at write time"]
     DB[("data/gen_review.db<br/>all 32,652 submissions")] --> R1
     R1 --> AXR["outputs/arxiv_resolution.csv<br/>matched flag, arxiv_id, match_rule,<br/>title_sim, token_jaccard"]
     AXR --> RPT1["outputs/arxiv_resolution_report.md"]
   end
 
   subgraph P2["Pass 2 - abstract-verified fuzzy"]
-    AXR --> R2["src/resolve_arxiv_fuzzy.py<br/>TF-IDF over 387,068 candidate preprints,<br/>abstract cosine >= 0.7"]
+    AXR --> R2["src/fetch/resolve_arxiv_fuzzy.py<br/>TF-IDF over 387,068 candidate preprints,<br/>abstract cosine >= 0.7"]
     DB --> R2
     R2 --> AXF["outputs/arxiv_fuzzy_candidates.csv"]
     AXF --> RPT2["outputs/arxiv_fuzzy_report.md"]
   end
 
-  AXOLD --> SP["src/fetch_citations_s2_full.py<br/>(still reads the OLD file)"]
-  AXR --> SV2["src/fetch_citations_s2_v2.py<br/>(reads the NEW file)"]
-  AXR --> BY["src/build_eval_table_year.py<br/>2024 / 2025 tables"]
+  AXOLD --> SP["src/fetch/fetch_citations_s2_full.py<br/>(still reads the OLD file)"]
+  AXR --> SV2["src/fetch/fetch_citations_s2_v2.py<br/>(reads the NEW file)"]
+  AXR --> BY["src/build/build_eval_table_year.py<br/>2024 / 2025 tables"]
 
   classDef gap fill:#FEF2F2,stroke:#DC2626,color:#7F1D1D;
   class AXOLD gap;
@@ -593,18 +593,18 @@ flowchart TB
   subgraph EXTRUN["Imported committee run (outside this repo)"]
     GEM["Gemma-4-31B committee<br/>4 reviewer personas"]
     DH["Decision head:<br/>DeepSeek-V3.1 | openai/gpt-oss-20b"]
-    GEM --> APR["data/all_paper_results.csv<br/>committee_rating, deepseek_p_accept,<br/>committee_model, decision_head_model"]
+    GEM --> APR["data/archive/all_paper_results.csv<br/>committee_rating, deepseek_p_accept,<br/>committee_model, decision_head_model"]
     DH --> APR
   end
 
   subgraph INREPO["In-repo annotation (src/)"]
-    TG --> TF["src/tag_fields.py<br/>5-way field taxonomy"]
+    TG --> TF["src/build/tag_fields.py<br/>5-way field taxonomy"]
     TF --> FLD["outputs/paper_fields.csv"]
-    TG --> LAP["src/leakage_lap_v1.py<br/>LAP: recall accept/reject?"]
-    TG --> FAME["src/leakage_fame_v1.py<br/>FAME: recall prominence?"]
-    TG --> CTL["src/leakage_controls.py<br/>probe validity"]
-    TG --> MSK["src/leakage_masked_rereview.py"]
-    TG --> ABS["src/leakage_abstract_completion_v1.py<br/>verbatim regurgitation"]
+    TG --> LAP["src/probes/leakage_lap_v1.py<br/>LAP: recall accept/reject?"]
+    TG --> FAME["src/probes/leakage_fame_v1.py<br/>FAME: recall prominence?"]
+    TG --> CTL["src/probes/leakage_controls.py<br/>probe validity"]
+    TG --> MSK["src/probes/leakage_masked_rereview.py"]
+    TG --> ABS["src/probes/leakage_abstract_completion_v1.py<br/>verbatim regurgitation"]
   end
 
   DBG["gen_review.db GENAI_REVIEW<br/>neutral / positive / negative personas"]
@@ -616,7 +616,7 @@ flowchart TB
   ET --> FAME
   LAP --> CTL
   LAP --> MSK
-  LAP --> EXC["src/leakage_exclusion_eval.py<br/>src/leakage_exclusion_bootstrap.py"]
+  LAP --> EXC["src/analysis/leakage_exclusion_eval.py<br/>src/analysis/leakage_exclusion_bootstrap.py"]
   FAME --> EXC
 
   classDef gap fill:#FEF2F2,stroke:#DC2626,color:#7F1D1D;
@@ -625,29 +625,29 @@ flowchart TB
 
 DIA_JOIN = """
 flowchart LR
-  DB[("gen_review.db")] -->|"SUBMISSION 2018-2020"| BE["src/build_eval_table.py"]
+  DB[("gen_review.db")] -->|"SUBMISSION 2018-2020"| BE["src/build/build_eval_table.py"]
   DB -->|"REVIEW (all years, then joined)"| BE
   DB -->|"GENAI_REVIEW"| BE
   CIT["output/citations_2018_2020.csv<br/>read at #L53 - singular output/"] --> BE
   FLD["outputs/paper_fields.csv<br/>optional, #L57-L63"] --> BE
   BE -->|"#L82 to_csv"| ET["outputs/eval_table.csv"]
   BE -->|"#L75-L80 field x year rank(pct=True)"| ET
-  APR["data/all_paper_results.csv"] -.->|"committee_rating<br/>deepseek_p_accept<br/>NO SCRIPT DOES THIS"| ET
-  ET --> DASH["src/dashboard.py<br/>recomputes all regimes live"]
-  ET --> RE["src/run_eval.py<br/>-> outputs/eval_results.csv (stale regimes)"]
+  APR["data/archive/all_paper_results.csv"] -.->|"committee_rating<br/>deepseek_p_accept<br/>NO SCRIPT DOES THIS"| ET
+  ET --> DASH["src/app/dashboard.py<br/>recomputes all regimes live"]
+  ET --> RE["src/analysis/run_eval.py<br/>-> outputs/eval_results.csv (stale regimes)"]
   classDef gap fill:#FEF2F2,stroke:#DC2626,color:#7F1D1D;
   class APR gap;
 """
 
 DIA_OOS = """
 flowchart TB
-  DB[("gen_review.db<br/>2024: 7,404 / 2025: 11,672 submissions")] --> BY["src/build_eval_table_year.py<br/>--year 2024 | 2025"]
+  DB[("gen_review.db<br/>2024: 7,404 / 2025: 11,672 submissions")] --> BY["src/build/build_eval_table_year.py<br/>--year 2024 | 2025"]
   AXR["outputs/arxiv_resolution.csv"] --> BY
   OAAPI["OpenAlex /works by arXiv DOI<br/>#L61-L69"] --> BY
   BY --> ET24["outputs/eval_table_2024.csv"]
   BY --> ET25["outputs/eval_table_2025.csv"]
 
-  ET24 --> BS["src/build_oos_samples.py<br/>seed 42, strata = decision class x citation quartile"]
+  ET24 --> BS["src/build/build_oos_samples.py<br/>seed 42, strata = decision class x citation quartile"]
   ET25 --> BS
   ET["outputs/eval_table.csv<br/>(contaminated arm)"] --> BS
   S2Y["outputs/s2_citations_2024.csv<br/>outputs/s2_citations_2025.csv"] --> BS
@@ -656,10 +656,10 @@ flowchart TB
   BS --> PLAN["outputs/samples/oos_probe_plan.csv<br/>4 probes x 448 papers = 1,792 calls/model"]
   BS --> DES["outputs/samples/oos_sample_design.md<br/>'Frozen 2026-08-03 with seed 42'"]
 
-  PLAN -.->|"rewritten IN PLACE #L112<br/>after the freeze"| RB["src/rebuild_placebo.py"]
+  PLAN -.->|"rewritten IN PLACE #L112<br/>after the freeze"| RB["src/build/rebuild_placebo.py"]
   RB --> PLAN
 
-  PLAN --> RUN["src/run_oos_probes.py<br/>probes: lap | fame | placebo | wrongyear"]
+  PLAN --> RUN["src/probes/run_oos_probes.py<br/>probes: lap | fame | placebo | wrongyear"]
   TG["Together AI"] --> RUN
   RUN --> PC["outputs/oos_probes_<model>.csv"]
   RUN --> PT["outputs/oos_traces_<model>.jsonl"]
@@ -679,25 +679,25 @@ def _check_orphan_columns():
     if et is None:
         return ("blocker", "eval_table.csv holds columns build_eval_table.py cannot produce",
                 "UNVERIFIED — outputs/eval_table.csv is missing, so the column set cannot be read.",
-                ["src/build_eval_table.py", "outputs/eval_table.csv"])
-    src_path = _abs("src/build_eval_table.py")
+                ["src/build/build_eval_table.py", "outputs/eval_table.csv"])
+    src_path = _abs("src/build/build_eval_table.py")
     try:
         src = open(src_path).read()
     except OSError:
         return ("blocker", "eval_table.csv holds columns build_eval_table.py cannot produce",
-                "UNVERIFIED — src/build_eval_table.py could not be read.",
-                ["src/build_eval_table.py"])
+                "UNVERIFIED — src/build/build_eval_table.py could not be read.",
+                ["src/build/build_eval_table.py"])
     orphans = [c for c in et if c not in src]
-    apr = _csv_columns("data/all_paper_results.csv") or []
+    apr = _csv_columns("data/archive/all_paper_results.csv") or []
     shared = [c for c in orphans if c in apr]
     ev = (f"Columns on disk that never appear as a literal in the builder source: "
-          f"**{orphans or 'none'}**. Of those, present in `data/all_paper_results.csv`: "
-          f"**{shared or 'none'}**. Re-running `python src/build_eval_table.py` writes "
+          f"**{orphans or 'none'}**. Of those, present in `data/archive/all_paper_results.csv`: "
+          f"**{shared or 'none'}**. Re-running `python src/build/build_eval_table.py` writes "
           f"`{len(et)}` columns minus these, silently breaking every regime and analysis "
           f"that reads them.")
     return ("blocker", "eval_table.csv holds columns build_eval_table.py cannot produce", ev,
-            ["src/build_eval_table.py#L82", "outputs/eval_table.csv",
-             "data/all_paper_results.csv", "outputs/data_audit.md (finding 7)"])
+            ["src/build/build_eval_table.py#L82", "outputs/eval_table.csv",
+             "data/archive/all_paper_results.csv", "outputs/data_audit.md (finding 7)"])
 
 
 def _check_title_cached():
@@ -706,7 +706,7 @@ def _check_title_cached():
     if not os.path.exists(p):
         return ("blocker", "S2 `title_cached` block is a bulk copy with no similarity filter",
                 "UNVERIFIED — outputs/s2_citations_full.csv is missing.",
-                ["src/fetch_citations_s2_full.py#L103-L118"])
+                ["src/fetch/fetch_citations_s2_full.py#L103-L118"])
     try:
         s2 = pd.read_csv(p, usecols=["paper_id", "method", "s2_citations", "title_sim"])
         ev_p = _abs("outputs/eval_table.csv")
@@ -728,27 +728,27 @@ def _check_title_cached():
         line += (f" Decision split: **{m['decision'].value_counts().to_dict()}** — "
                  f"**{n_acc}** accepted papers in the block.")
     line += (" The block is copied wholesale from `outputs/rejected_venues_s2_title.csv` "
-             "at `src/fetch_citations_s2_full.py#L103-L118`. The same script's own quality "
+             "at `src/fetch/fetch_citations_s2_full.py#L103-L118`. The same script's own quality "
              "summary treats `title_sim >= 0.9` as the bar for a usable match "
              "(#L148-L150), but nothing filters these rows on it before they enter the "
              "CSV, and #L114-L115 hardcodes `\"year\": \"\"` so the block carries no `s2_year` "
              "for a plausibility check either.")
     return ("blocker", "S2 `title_cached` block is a bulk copy with no similarity filter", line,
-            ["src/fetch_citations_s2_full.py#L103-L118",
+            ["src/fetch/fetch_citations_s2_full.py#L103-L118",
              "outputs/rejected_venues_s2_title.csv",
              "docs/notes/data_pipeline_plan.md (diagnosis paragraph)"])
 
 
 def _check_regime_registries():
     """ALL_REGIMES vs what dashboard.py imports vs what eval_results.csv contains."""
-    refs = ["src/regimes/__init__.py#L13-L28", "src/run_eval.py#L14,L49",
-            "src/dashboard.py#L17-L21,L213", "outputs/eval_results.csv"]
+    refs = ["src/regimes/__init__.py#L13-L28", "src/analysis/run_eval.py#L14,L49",
+            "src/app/dashboard.py#L17-L21,L213", "outputs/eval_results.csv"]
     try:
         reg_src = open(_abs("src/regimes/__init__.py")).read()
-        dash_src = open(_abs("src/dashboard.py")).read()
+        dash_src = open(_abs("src/app/dashboard.py")).read()
     except OSError:
         return ("major", "Two regime registries have drifted apart",
-                "UNVERIFIED — could not read src/regimes/__init__.py or src/dashboard.py.", refs)
+                "UNVERIFIED — could not read src/regimes/__init__.py or src/app/dashboard.py.", refs)
     block = reg_src.split("ALL_REGIMES", 1)[-1]
     registered = re.findall(r"(\w+)\(\)", block)
     imported = re.findall(r"from regimes\.\w+ import (\w+)", dash_src)
@@ -761,7 +761,7 @@ def _check_regime_registries():
             in_file = sorted(pd.read_csv(er, usecols=["regime"])["regime"].unique())
         except Exception:
             in_file = "unreadable"
-    ev = (f"`ALL_REGIMES` (the only thing `src/run_eval.py` evaluates): **{registered}**. "
+    ev = (f"`ALL_REGIMES` (the only thing `src/analysis/run_eval.py` evaluates): **{registered}**. "
           f"Imported directly by the dashboard: **{imported}**. "
           f"Regime modules on disk: **{on_disk}**. "
           f"Regimes actually inside `outputs/eval_results.csv`: **{in_file}**. "
@@ -785,18 +785,18 @@ def _check_output_singular():
     ev = (f"`CLAUDE.md` states every generated file lives under `outputs/`. "
           f"`output/` (singular) exists and holds **{files}**. "
           f"`output/citations_2018_2020.csv` is not merely stray output — it is a required "
-          f"*input*, read at `src/build_eval_table.py#L53`, `src/outlier_analysis.py#L27`, "
-          f"`src/cite_hist.py#L9`, `src/fetch_author_stats.py#L29`, "
-          f"`src/check_title_match_quality.py#L16`, `src/fetch_rejected_venues_s2.py#L32` and "
-          f"`src/fetch_rejected_venues_s2_title.py#L45`. git-tracked: **{tracked}**.")
+          f"*input*, read at `src/build/build_eval_table.py#L53`, `src/analysis/outlier_analysis.py#L27`, "
+          f"`src/analysis/cite_hist.py#L9`, `src/fetch/fetch_author_stats.py#L29`, "
+          f"`src/audit/check_title_match_quality.py#L16`, `src/fetch/fetch_rejected_venues_s2.py#L32` and "
+          f"`src/fetch/fetch_rejected_venues_s2_title.py#L45`. git-tracked: **{tracked}**.")
     return ("major", "A second output directory `output/` sits outside the convention", ev,
-            ["CLAUDE.md", "src/build_eval_table.py#L53", "outputs/data_audit.md (finding 22)"])
+            ["CLAUDE.md", "src/build/build_eval_table.py#L53", "outputs/data_audit.md (finding 22)"])
 
 
 def _check_arxiv_coverage():
     """Old RDD-subsample arXiv match vs the new full-corpus resolution."""
     refs = ["data/OpenAlex/openalex_rdd_arxiv_paper_level.csv",
-            "outputs/arxiv_resolution.csv", "src/fetch_citations_s2_full.py#L68",
+            "outputs/arxiv_resolution.csv", "src/fetch/fetch_citations_s2_full.py#L68",
             "docs/notes/data_pipeline_plan.md"]
     axp, etp, rsp = ("data/OpenAlex/openalex_rdd_arxiv_paper_level.csv",
                      "outputs/eval_table.csv", "outputs/arxiv_resolution.csv")
@@ -834,7 +834,7 @@ def _check_arxiv_coverage():
                    f"({w['matched'].mean():.1%}) match — "
                    f"**{w.loc[w_acc, 'matched'].mean():.1%}** accepted vs "
                    f"**{w.loc[~w_acc, 'matched'].mean():.1%}** rejected. "
-                   "But `src/fetch_citations_s2_full.py#L68` still reads the *old* file, so "
+                   "But `src/fetch/fetch_citations_s2_full.py#L68` still reads the *old* file, so "
                    "`s2_citations_full.csv` has not inherited the improvement.")
         except Exception:
             ev += " (outputs/arxiv_resolution.csv present but unreadable for comparison.)"
@@ -861,7 +861,7 @@ def _check_data_claude_md():
 
 def _check_frozen_plan_mutated():
     """rebuild_placebo.py rewrites the 'frozen' probe plan in place."""
-    refs = ["src/rebuild_placebo.py#L112", "src/build_oos_samples.py#L193",
+    refs = ["src/build/rebuild_placebo.py#L112", "src/build/build_oos_samples.py#L193",
             "outputs/samples/oos_sample_design.md"]
     _, _, plan_m = _stat("outputs/samples/oos_probe_plan.csv")
     _, _, pap_m = _stat("outputs/samples/oos_papers.csv")
@@ -871,7 +871,7 @@ def _check_frozen_plan_mutated():
                 "UNVERIFIED — outputs/samples/oos_probe_plan.csv is missing.", refs)
     ev = (f"`outputs/samples/oos_sample_design.md` states the sample was "
           "\"Frozen 2026-08-03 with seed 42. Every model and every probe runs on exactly "
-          "these papers.\" But `src/rebuild_placebo.py#L112` writes back to the same path "
+          "these papers.\" But `src/build/rebuild_placebo.py#L112` writes back to the same path "
           f"(`plan.to_csv(PLAN)`), and the mtimes bear that out: design doc **{des_m}**, "
           f"oos_papers.csv **{pap_m}**, oos_probe_plan.csv **{plan_m}**. There is no "
           "versioned copy of the pre-rebuild plan, so probe rows already collected against "
@@ -880,7 +880,7 @@ def _check_frozen_plan_mutated():
 
 
 def _check_untracked_inputs():
-    critical = [DB_PATH, "data/all_paper_results.csv", "output/citations_2018_2020.csv",
+    critical = [DB_PATH, "data/archive/all_paper_results.csv", "output/citations_2018_2020.csv",
                 "outputs/paper_fields.csv", "outputs/eval_table.csv",
                 "outputs/arxiv_resolution.csv", "outputs/s2_citations_full.csv"]
     rows = [(p, _git_tracked(p)) for p in critical]
@@ -908,13 +908,13 @@ def _check_db_window():
     ev = (f"`SUBMISSION.when_submitted` distribution: {tbl}. Study window 2018-2020 is "
           f"**{window:,}** of **{total:,}** rows ({window/total:.1%}). A further "
           f"**{oos:,}** rows (2024-2025) feed the out-of-sample tables via "
-          f"`src/build_eval_table_year.py`. The remaining "
+          f"`src/build/build_eval_table_year.py`. The remaining "
           f"**{total-window-oos:,}** rows (2021-2023) are scanned by "
-          "`src/resolve_arxiv_ids.py` but are used by no analysis in the repo. "
+          "`src/fetch/resolve_arxiv_ids.py` but are used by no analysis in the repo. "
           "`REVIEW` is *not* year-filtered when read at "
-          "`src/build_eval_table.py#L28-L31` — the filter happens implicitly at the join.")
+          "`src/build/build_eval_table.py#L28-L31` — the filter happens implicitly at the join.")
     return ("info", "The source DB is much wider than the study window", ev,
-            [DB_PATH, "src/build_eval_table.py#L22-L31"])
+            [DB_PATH, "src/build/build_eval_table.py#L22-L31"])
 
 
 CHECKS = [_check_orphan_columns, _check_title_cached, _check_regime_registries,
@@ -946,7 +946,7 @@ def _disagreements():
                     f"That reconciles exactly against the plan, which holds **{len(pl):,}** "
                     f"rows over **{pl['paper_id'].nunique()}** papers with the probe mix "
                     f"**{mix}**: the shortfall equals the placebo row count "
-                    f"(**{n_placebo}**) precisely. `src/rebuild_placebo.py#L112` rewrote "
+                    f"(**{n_placebo}**) precisely. `src/build/rebuild_placebo.py#L112` rewrote "
                     "the plan in place, replacing the fabricated placebo titles, so "
                     "previously-collected placebo answers no longer matched a plan row and "
                     "the resume logic recounted them as outstanding.\n\n"
@@ -959,25 +959,25 @@ def _disagreements():
                     "recording which.")
             out.append(("Two OOS run logs disagree on how much work was already done", body,
                         ["outputs/oos_probes_run.log", "outputs/oos_probes_run2.log",
-                         "src/rebuild_placebo.py#L112", "outputs/samples/oos_probe_plan.csv"]))
+                         "src/build/rebuild_placebo.py#L112", "outputs/samples/oos_probe_plan.csv"]))
         except Exception:
             pass
 
     # 2. PRODUCERS map in data_audit.py claims a producer that writes nothing.
-    t1 = _abs("src/table1_summary_stats.py")
+    t1 = _abs("src/analysis/table1_summary_stats.py")
     if os.path.exists(t1):
         src = open(t1).read()
         writes = re.findall(r"(to_csv|open\([^)]*['\"]w['\"])", src)
         out.append((
             "Who produces outputs/table1_summary_stats.tex?",
-            f"`src/data_audit.py#L61-L62` lists `src/table1_summary_stats.py` as the producer "
+            f"`src/audit/data_audit.py#L61-L62` lists `src/analysis/table1_summary_stats.py` as the producer "
             f"of `outputs/table1_summary_stats.tex` and uses that edge for its staleness DAG. "
             f"But grepping that script for any write yields **{writes or 'nothing'}** — its own "
             f"docstring (#L4) says it \"Prints the numbers that populate "
             f"outputs/table1_summary_stats.tex\". The `.tex` is therefore hand-maintained and "
             f"the audit's dependency edge is wrong. Recorded here as a disagreement between "
             f"two in-repo sources; both are shown rather than one silently preferred.",
-            ["src/data_audit.py#L61-L62", "src/table1_summary_stats.py#L4",
+            ["src/audit/data_audit.py#L61-L62", "src/analysis/table1_summary_stats.py#L4",
              "outputs/table1_summary_stats.tex"]))
 
     # 3. OpenAlex vs S2 — the substantive disagreement.
@@ -989,13 +989,13 @@ def _disagreements():
         out.append((
             "OpenAlex and Semantic Scholar disagree systematically on the outcome variable",
             "Quoted verbatim from `outputs/citation_source_comparison.md` (produced by "
-            "`src/compare_citation_sources.py#L137`):\n\n" +
+            "`src/analysis/compare_citation_sources.py#L137`):\n\n" +
             "\n".join(keep) +
             "\n\nBoth sources remain live in the dashboard behind the sidebar citation-source "
             "toggle; neither is treated as truth. The undercount is differential by decision "
             "(the accepted/rejected median-ratio row above), which is why it biases the RDD "
             "estimate rather than merely scaling it.",
-            ["outputs/citation_source_comparison.md", "src/compare_citation_sources.py",
+            ["outputs/citation_source_comparison.md", "src/analysis/compare_citation_sources.py",
              "outputs/s2_attribution_report.md"]))
     return out
 
@@ -1031,7 +1031,7 @@ LOGS = [
     ("outputs/arxiv_fuzzy.log", "arXiv fuzzy pass 2", "Completed: scored 2,078/2,078."),
     ("outputs/s2_fetch_full.log", "S2 full refetch",
      "PARTIAL: the log stops mid-progress and never reaches its own summary block "
-     "(`src/fetch_citations_s2_full.py#L146-L151`). Its first lines say "
+     "(`src/fetch/fetch_citations_s2_full.py#L146-L151`). Its first lines say "
      "`arXiv batch: 0 papers` / `title_cached: 0 reused`, so this was a *resumed* run. "
      "The output CSV is complete, which means it was finished by a run whose log was not "
      "kept. Coverage numbers must come from the CSV, not this log."),
@@ -1060,7 +1060,7 @@ LOGS = [
 # ──────────────────────────────────────────────────────────────────────────────
 def render():
     # This page no longer inherits dashboard.py's style block, so it carries its own.
-    # Kept byte-identical to the .section-header / .explainer rules in src/dashboard.py.
+    # Kept byte-identical to the .section-header / .explainer rules in src/app/dashboard.py.
     st.markdown(f"""
     <style>
       [data-testid="stAppViewContainer"] {{ background: #F8FAFC; }}
@@ -1089,7 +1089,7 @@ def render():
     _mermaid(TOP_FLOW, 900)
     st.markdown(
         "- **Red nodes are imported, not produced.** `data/gen_review.db`, "
-        "`data/all_paper_results.csv` and `data/OpenAlex/` all arrive from outside this "
+        "`data/archive/all_paper_results.csv` and `data/OpenAlex/` all arrive from outside this "
         "repo; no script here creates or refreshes them. The OpenAlex match files can at "
         "least be attributed to `Archive/CompletePipeline/design/"
         "fetch_openalex_citations_from_arxiv_matches.py`, which writes them under different "
@@ -1098,7 +1098,7 @@ def render():
         "`committee_rating` and `deepseek_p_accept` are on disk and drive the LLM regimes, "
         "the heterogeneity section and the exclusion eval — and no script performs that "
         "join. Verified live below.\n"
-        "- **There is a genuine cycle.** `src/fetch_citations_s2_full.py#L67` reads "
+        "- **There is a genuine cycle.** `src/fetch/fetch_citations_s2_full.py#L67` reads "
         "`outputs/eval_table.csv` to decide which papers to fetch, while the S2 counts it "
         "writes are then read back by the dashboard alongside that same table. Rebuilding "
         "in dependency order therefore requires two passes, and nothing enforces that.\n"
@@ -1142,14 +1142,14 @@ def render():
             "- The schema is three tables (`sqlite3 data/gen_review.db .schema`): "
             "`SUBMISSION`, `REVIEW`, `GENAI_REVIEW`. `GENAI_REVIEW` holds the "
             "neutral/positive/negative persona reviews — a *different* LLM annotation from "
-            "the committee run in `data/all_paper_results.csv`, and the source of the "
+            "the committee run in `data/archive/all_paper_results.csv`, and the source of the "
             "`llm_*_rating` columns.\n"
             "- The accept test used everywhere is `decision.str.startswith('Accept')` "
-            "(`src/build_eval_table.py#L85`), which pools `Reject`, "
+            "(`src/build/build_eval_table.py#L85`), which pools `Reject`, "
             "`Invite to Workshop Track` and `Desk Reject` on the reject side. Desk rejects "
             "have no reviews but still sit in the pool the random and ideal baselines draw "
             "from.\n"
-            "- `REVIEW` is read without a year filter (`src/build_eval_table.py#L28-L31`); "
+            "- `REVIEW` is read without a year filter (`src/build/build_eval_table.py#L28-L31`); "
             "the window is applied only by the left join onto the filtered submissions."
         )
 
@@ -1164,7 +1164,7 @@ def render():
             "distinguished only by its `method` column: `arxiv_batch` (ID match, reliable), "
             "`title_cached` (bulk copy, unfiltered) and `title_match` (live, records "
             "`title_sim` so it is at least tunable).\n"
-            "- **`src/fetch_citations_s2_v2.py` is the rebuild** that puts everything on one "
+            "- **`src/fetch/fetch_citations_s2_v2.py` is the rebuild** that puts everything on one "
             "tiered path. Per `outputs/s2_attribution_report.md`, it is **ID-matched papers "
             "only** so far — the report's own first line says title matching and stub probes "
             "\"are deferred until the API key arrives, so the papers missing here are "
@@ -1181,21 +1181,21 @@ def render():
         _mermaid(DIA_ARXIV, 760)
         st.markdown(
             "- **Two passes, both full-corpus, both recent and both uncommitted.** "
-            "`src/resolve_arxiv_ids.py` (exact + token-set) and "
-            "`src/resolve_arxiv_fuzzy.py` (TF-IDF abstract verification at cosine ≥ 0.7) "
+            "`src/fetch/resolve_arxiv_ids.py` (exact + token-set) and "
+            "`src/fetch/resolve_arxiv_fuzzy.py` (TF-IDF abstract verification at cosine ≥ 0.7) "
             "are untracked work in progress — `git log` returns nothing for either, so "
             "there is no history and no authorship record for them.\n"
             "- **They replace, but have not displaced, the old match.** "
-            "`src/fetch_citations_s2_full.py#L68` still reads "
+            "`src/fetch/fetch_citations_s2_full.py#L68` still reads "
             "`data/OpenAlex/openalex_rdd_arxiv_paper_level.csv`. Only "
-            "`src/fetch_citations_s2_v2.py` and `src/build_eval_table_year.py` read the new "
+            "`src/fetch/fetch_citations_s2_v2.py` and `src/build/build_eval_table_year.py` read the new "
             "resolution. Quantified in the defects section.\n"
             "- **The dump is not in the repo.** `outputs/arxiv_dump_download.log` ends with "
             "a path into the user's local HuggingFace cache. The scan is reproducible only "
             "on a machine that re-downloads the same snapshot revision — the log does record "
             "the revision hash, which is the one thing that makes it pinnable.\n"
             "- **Neither pass applies a threshold at write time** "
-            "(`src/resolve_arxiv_ids.py` docstring), so `title_sim`, `token_jaccard` and "
+            "(`src/fetch/resolve_arxiv_ids.py` docstring), so `title_sim`, `token_jaccard` and "
             "`abstract_cos` stay tunable downstream without a re-scan. Good practice; it "
             "also means the CSV is *candidates*, not decisions.\n"
             "- **The accept/reject match gap is real, not a bug**, and both reports say so. "
@@ -1217,7 +1217,7 @@ def render():
             "- **Two unrelated LLM annotation sources are easy to confuse.** "
             "`GENAI_REVIEW` inside the DB (neutral/positive/negative personas → the "
             "`llm_*_rating` columns) is *not* the committee run; the committee and "
-            "decision-head outputs live in `data/all_paper_results.csv` and were produced "
+            "decision-head outputs live in `data/archive/all_paper_results.csv` and were produced "
             "outside this repo.\n"
             "- **The decision head is two different models.** Per `outputs/data_audit.md` "
             "(Stage 2 statistics), `decision_head_model` is `DeepSeek-V3.1` on 2,361 papers "
@@ -1227,12 +1227,12 @@ def render():
             "- **Field tags are LLM-generated and unvalidated**, and coverage collapses in "
             "2020: `outputs/data_audit.md` Stage 2 reports field coverage by year as "
             "`{2018: '100%', 2019: '100%', 2020: '17%'}`. Since `citation_pct_rank` is "
-            "computed *within* field×year cells (`src/build_eval_table.py#L75-L80`), the "
+            "computed *within* field×year cells (`src/build/build_eval_table.py#L75-L80`), the "
             "normalized ground truth inherits that hole.\n"
             "- **The leakage probes are annotations, not results.** LAP and FAME write "
             "per-paper CSVs plus JSONL traces; the exclusion eval and bootstrap then consume "
             "them. Reading the traces is the only way to audit a probe, and "
-            "`src/leakage_lap_v1.py#L189` writes them all to one hardcoded path "
+            "`src/probes/leakage_lap_v1.py#L189` writes them all to one hardcoded path "
             "(`outputs/leakage_lap_traces.jsonl`) regardless of the `--tag` used for the "
             "CSV, so tagged runs cannot be separated from the main one. Check that file's "
             "size in the inventory above before trusting any trace-level claim.\n"
@@ -1245,7 +1245,7 @@ def render():
     with stage_tabs[4]:
         _mermaid(DIA_JOIN, 520)
         st.markdown(
-            "- `src/build_eval_table.py` is 91 lines and does the whole join: DB window "
+            "- `src/build/build_eval_table.py` is 91 lines and does the whole join: DB window "
             "filter, review-rating parse and aggregate, `GENAI_REVIEW` pivot, OpenAlex "
             "counts, field tags, then field×year percentile rank.\n"
             "- **Citations are nulled unless OpenAlex reported `status == 'found'`** "
@@ -1284,7 +1284,7 @@ def render():
             "smaller than that are not detectable with these n, and within-arm subgroup "
             "splits are wider still.\n"
             "- **These files are being written while you read this.** The probe CSVs and "
-            "JSONL traces are append-mode and resumable (`src/run_oos_probes.py#L183-L187`); "
+            "JSONL traces are append-mode and resumable (`src/probes/run_oos_probes.py#L183-L187`); "
             "row counts in the inventory below are a snapshot of an in-progress run, not a "
             "final N."
         )
@@ -1354,7 +1354,7 @@ def render():
     st.markdown(
         '<p class="explainer">Each entry is re-verified against the files every time this '
         'page renders — the evidence text below is generated, not stored. Severity follows '
-        'the convention <code>src/data_audit.py</code> uses: <b>blocker</b> = a number is '
+        'the convention <code>src/audit/data_audit.py</code> uses: <b>blocker</b> = a number is '
         'wrong or not reproducible; <b>major</b> = a real bias or fragility that must be '
         'disclosed; <b>minor</b> = an undocumented choice; <b>info</b> = context.</p>',
         unsafe_allow_html=True)
@@ -1422,7 +1422,7 @@ def render():
         "OpenReview API version, on what date, with what inclusion rules. Only the scraper "
         "source or a scrape log would settle it. The `source_id` column on `SUBMISSION` may "
         "encode the provenance, but nothing documents its meaning.\n"
-        "- `data/all_paper_results.csv` / `.jsonl` / `paper_manifest.csv` / "
+        "- `data/archive/all_paper_results.csv` / `.jsonl` / `paper_manifest.csv` / "
         "`gemma_ready7_wave1_cached_v2/` — partly self-describing: `data/summary.json` "
         "records `created_at_utc`, four named source runs under "
         "`OutputNew/Empirics/…`, per-run year breakdowns and validation counts, and "
@@ -1436,7 +1436,7 @@ def render():
         "to `rawdata/Design/OpenAlex/`, not `data/OpenAlex/`. The copy step is undocumented, "
         "so the attribution is by name, not by trace. `CLAUDE.md` states `Archive/` is never "
         "run or imported, which makes these files unreproducible by design.\n"
-        "- `data/OpenAlex/openalex_rdd_dashboard.csv` — read at `src/dashboard.py#L1042` and "
+        "- `data/OpenAlex/openalex_rdd_dashboard.csv` — read at `src/app/dashboard.py#L1042` and "
         "written by nothing. Git dates it to commit `534fa8e` (2026-07-10, "
         "\"data: add slim RDD and covariate files for Streamlit Cloud deploy\"), so it was "
         "hand-derived from the paper-level file to keep the deploy small. **UNVERIFIED**: "
@@ -1449,7 +1449,7 @@ def render():
         "mtime with the DB, which suggests a one-off export at scrape time — that is an "
         "inference, not evidence.\n"
         "- `outputs/oa_title_match_venues.csv` — read at "
-        "`src/fetch_rejected_venues_s2_title.py#L67-L68` to *exclude* already-covered "
+        "`src/fetch/fetch_rejected_venues_s2_title.py#L67-L68` to *exclude* already-covered "
         "papers, so it silently changes that script's working set, and no script writes it. "
         "This one has downstream effect, which makes it the most consequential gap in the "
         "list.\n"
@@ -1515,7 +1515,7 @@ def render():
         "- `docs/notes/data_pipeline_plan.md` (2026-07-28) is the remediation plan written "
         "against that audit and is the best single account of *why* the citation pipeline "
         "looks the way it does. It marks phase 1 (full-corpus arXiv resolution) as "
-        "IN PROGRESS — consistent with `src/resolve_arxiv_ids.py` being untracked."
+        "IN PROGRESS — consistent with `src/fetch/resolve_arxiv_ids.py` being untracked."
     )
 
     st.markdown("---")
