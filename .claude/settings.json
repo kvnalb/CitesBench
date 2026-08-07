@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-.}\" && python src/audit/build_manifest.py >/dev/null 2>&1 || true",
+            "timeout": 60,
+            "statusMessage": "Regenerating MANIFEST.md"
+          }
+        ]
+      }
+    ]
+  }
+}
