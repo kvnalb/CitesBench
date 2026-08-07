@@ -12,12 +12,12 @@ Run all scripts from the repo root. Outputs land in `outputs/`.
 
 ## Scripts
 
-### `src/cite_hist.py`
+### `src/analysis/cite_hist.py`
 
 Plots citation count distributions for accepted vs. rejected papers (2018–2020).
 
 ```bash
-python src/cite_hist.py
+python src/analysis/cite_hist.py
 ```
 
 **Inputs:**

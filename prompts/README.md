@@ -35,4 +35,4 @@ script under `src/` — scripts call `load("<path>", **placeholders)` from
 ## Check
 
     python src/prompts.py                          # templates load, placeholders resolve
-    python src/build_leakage_ledger.py --selfcheck  # prompt_sha1 still matches past runs
+    python src/build/build_leakage_ledger.py --selfcheck  # prompt_sha1 still matches past runs

@@ -82,8 +82,8 @@ of a 2018 paper is not a blind review — it can reflect memorized hindsight abo
 "LLM beats human" could be pure leakage: the model already knows the answer.
 
 **Update — a five-layer leakage test suite was built and run on the full corpus.** Scripts:
-`src/leakage_lap_v1.py`, `src/leakage_fame_v1.py`, `src/leakage_controls.py`,
-`src/leakage_masked_rereview.py`, `src/leakage_exclusion_eval.py`. Reports:
+`src/probes/leakage_lap_v1.py`, `src/probes/leakage_fame_v1.py`, `src/probes/leakage_controls.py`,
+`src/probes/leakage_masked_rereview.py`, `src/analysis/leakage_exclusion_eval.py`. Reports:
 `outputs/leakage_lap_report.md`, `outputs/leakage_fame_report.md`,
 `outputs/leakage_masked_report.md`, `outputs/leakage_exclusion_eval.csv`.
 
@@ -98,7 +98,7 @@ of a 2018 paper is not a blind review — it can reflect memorized hindsight abo
 
 2. **Probe validity (placebo controls) — scaled to power-justified N (2026-07-11).** The original
    pilot (30 fabricated + 30 wrong-year) was a convenience sample with no power analysis; see
-   `src/leakage_power_analysis.py` / `outputs/leakage_power_analysis.md` for the sizing. Fabricated
+   `src/analysis/leakage_power_analysis.py` / `outputs/leakage_power_analysis.md` for the sizing. Fabricated
    titles scaled to N=150 (sized so the 95% CI on the false-positive rate clears the real commit
    rate with >2x margin); wrong-year scaled to N≈300/offset across two offsets (+1, −1), sized via
    TOST equivalence testing at a ±0.05 margin (a non-significant pilot result at N=30 is not itself
@@ -149,13 +149,13 @@ not 1.40, with the 0.22 gap reported as the measured leakage tax.**
 isn't guaranteed clean, and the exclusion test can only remove memorization the probes actually
 elicit. Not fatal, but keep this caveat in any writeup.
 
-**Threshold-sensitivity check (2026-07-11, `src/leakage_threshold_sweep.py`, no new API calls).**
+**Threshold-sensitivity check (2026-07-11, `src/analysis/leakage_threshold_sweep.py`, no new API calls).**
 Re-ran the exclusion eval at every cutoff from 0.1 to 0.9. Excluded-pool size barely moves
 (1,563–1,568 papers) because LAP/FAME scores cluster near 0 or 1, and per-regime Δ (leakage-excluded
 minus full lift) is flat across the whole range — e.g. LLM Committee stays at roughly −0.21 to −0.22
 throughout. 0.5 isn't cherry-picked; the same conclusion holds at any threshold in this band.
 
-7. **Abstract-completion extraction probe (2026-07-16, `src/leakage_abstract_completion_v1.py`).**
+7. **Abstract-completion extraction probe (2026-07-16, `src/probes/leakage_abstract_completion_v1.py`).**
    Third independent method (after logprob recall and trace forensics): given title + year + first
    abstract sentence, the model completes the abstract (greedy decode); scored vs 5 same-field×year
    decoys via ROUGE-L margin, with a verbatim-8-gram requirement for "extractable" (Carlini-style
@@ -166,7 +166,7 @@ throughout. 0.5 isn't cherry-picked; the same conclusion holds at any threshold 
    story at the verbatim-text level. One-sided test: instruct-tuning suppresses regurgitation, so
    low-decile nulls don't prove absence. Report: `outputs/leakage_abstract_completion_report.md`.
 
-8. **Thinking-trace forensics (2026-07-16, `src/leakage_fame_trace_sample.py`).** Gemma's thinking
+8. **Thinking-trace forensics (2026-07-16, `src/probes/leakage_fame_trace_sample.py`).** Gemma's thinking
    channel is recoverable from the logprob token stream at zero extra cost; probes now archive
    traces (`outputs/leakage_*_traces*.jsonl`). A 30-paper fame-stratified sample shows "high"
    answers retrieving identity facts not in the prompt (library names, author names, method
@@ -178,7 +178,7 @@ throughout. 0.5 isn't cherry-picked; the same conclusion holds at any threshold 
 **Ground-truth sensitivity of the exclusion re-run (2026-07-16).** The exclusion table above uses
 OpenAlex counts, which turn out to undercount accepted papers ~3.5× and rejected ~2.0× (see P5
 update). Re-running with Semantic Scholar ground truth
-(`python src/leakage_exclusion_eval.py --citation-source s2`,
+(`python src/analysis/leakage_exclusion_eval.py --citation-source s2`,
 `outputs/leakage_exclusion_eval_s2.csv`) sharpens the conclusion considerably:
 
    | Regime | Full (S2) | Excluded (S2) | Δ |
@@ -210,7 +210,7 @@ variance. A ranking without error bars invites over-reading.
 regimes), recompute every metric, repeat 1000×. Report CIs on each bar *and* on every
 regime-minus-regime difference. Only call a difference real if its CI clears zero.
 
-**Update (2026-07-16, `src/leakage_exclusion_bootstrap.py`).** Paired percentile bootstrap
+**Update (2026-07-16, `src/analysis/leakage_exclusion_bootstrap.py`).** Paired percentile bootstrap
 (B=2,000, resample papers within year, same draw across regimes, conditional on realized
 selections, analytic random baselines) on the exclusion-eval headline (mean lift over random,
 5 metrics × 3 years). Outputs: `outputs/leakage_exclusion_bootstrap_{openalex,s2}.csv`; shown in
@@ -268,11 +268,11 @@ Two distinct holes:
 **Update (2026-07-16) — ground-truth audit, largely FIXED via Semantic Scholar refetch.**
 Root cause found: 98.6% of our OpenAlex records carry only an arXiv DOI — OpenAlex matched papers
 to the *preprint* record and never merged the published ICLR version, so citations to the
-published version are lost. Audit (`src/compare_citation_sources.py`,
+published version are lost. Audit (`src/analysis/compare_citation_sources.py`,
 `outputs/citation_source_comparison.md`, n=1,383 arXiv-matched): median S2/OA ratio 2.9×, 70% of
 papers undercounted >2×, and — critically — **the undercount is differential by acceptance**
 (median 3.5× accepted vs 2.0× rejected; accepted papers have a published version to lose
-citations to, rejected ones often don't). Full-corpus refetch (`src/fetch_citations_s2_full.py`,
+citations to, rejected ones often don't). Full-corpus refetch (`src/fetch/fetch_citations_s2_full.py`,
 `outputs/s2_citations_full.csv`): S2 batch by arXiv ID + title match (sim ≥ 0.9) covers **93.0%
 of the corpus vs OpenAlex's 71.5%, and coverage is symmetric (93.1% accepts / 93.0% rejects vs
 OA's 89%/63%)** because S2 indexes OpenReview-only submissions via the MAG ingestion. Effects:

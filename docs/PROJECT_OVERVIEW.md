@@ -70,7 +70,7 @@ gems" table surfaced in the dashboard.
 Replaced the dead persona regimes with `LLMCommittee` and `LLMDeepSeek`. Added
 Section 3 (covariate heterogeneity: field coverage, subgroup recall@10%
 advantage, field-controlled regression) and Section 4 (fuzzy regression
-discontinuity around the acceptance score cutoff, `src/fuzzy_rdd.py`) to the
+discontinuity around the acceptance score cutoff, `src/analysis/fuzzy_rdd.py`) to the
 dashboard.
 
 ### Phase 4 — leakage/memorization test suite (`3b0b9db`, `31907cc`, Jul 10–11)
@@ -143,7 +143,7 @@ methodology audit in `outputs/findings_integrity_check.md`.
 Target venue identified: NeurIPS 2026 workshop *AI-Native Academia*, Track 3
 ("AI-Assisted Peer Review and Reviewer Accountability"), 9-page long-paper
 format, deadline 2026-08-29. `outputs/table1_summary_stats.tex` +
-`src/table1_summary_stats.py` built as the paper's Table 1 (full corpus vs.
+`src/analysis/table1_summary_stats.py` built as the paper's Table 1 (full corpus vs.
 RDD-sample summary statistics, cross-checked against the raw DB and both
 citation sources). A narrative skeleton (abstract → intro → data → methods →
 results → discussion) was mapped out but not yet written to disk. The field
