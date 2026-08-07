@@ -27,7 +27,7 @@ Dump: HuggingFace `librarian-bots/arxiv-metadata-snapshot` (parquet, ~2.9 GB, no
 Output: outputs/arxiv_resolution.csv       one row per submission
         outputs/arxiv_resolution_report.md match rate by year and by decision
 
-Run: python src/resolve_arxiv_ids.py [--years 2018 2019 2020] [--report-only]
+Run: python src/fetch/resolve_arxiv_ids.py [--years 2018 2019 2020] [--report-only]
 
 # ponytail: one scan of the dump serves every year at once; the title index is the only
 # thing held in memory, and the dump streams shard by shard.
@@ -231,7 +231,7 @@ def write_report(out, scanned=None, n_shards=None):
 
     L = ["# arXiv resolution report", "",
          f"Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} by "
-         "`python src/resolve_arxiv_ids.py`.",
+         "`python src/fetch/resolve_arxiv_ids.py`.",
          "", f"Attempted for **all {len(out):,} submissions** under identical rules"
          + (f" against {n_shards} dump shards ({scanned:,} arXiv records scanned)." if scanned else "."),
          "", "## Match rate by year", "",

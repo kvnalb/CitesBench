@@ -14,13 +14,13 @@ LAP/FAME scores, so this sweep is free.
 
 Output: outputs/leakage_threshold_sweep.csv
 
-Run: python src/leakage_threshold_sweep.py [--mode raw]
+Run: python src/analysis/leakage_threshold_sweep.py [--mode raw]
 """
 import os
 import sys
 import argparse
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import pandas as pd

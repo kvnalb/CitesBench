@@ -23,10 +23,10 @@ completions endpoint and explicit chat templating.
 
 Output: outputs/oos_probes_<model>.csv    one row per call
         outputs/oos_traces_<model>.jsonl  full prompt + completion, for reading
-Report: python src/run_oos_probes.py --report
+Report: python src/probes/run_oos_probes.py --report
 
-Run: python src/run_oos_probes.py --model meta-llama/Llama-3.3-70B-Instruct-Turbo
-     python src/run_oos_probes.py --model google/gemma-4-31B-it        # contaminated comparator
+Run: python src/probes/run_oos_probes.py --model meta-llama/Llama-3.3-70B-Instruct-Turbo
+     python src/probes/run_oos_probes.py --model google/gemma-4-31B-it        # contaminated comparator
 """
 import os
 import re
@@ -44,7 +44,7 @@ import numpy as np
 import pandas as pd
 import requests
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from prompts import load
 
 os.makedirs("outputs", exist_ok=True)

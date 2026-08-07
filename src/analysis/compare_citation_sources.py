@@ -14,7 +14,7 @@ Outputs:
   outputs/citation_source_comparison.csv    — per-paper OA vs S2 counts
   outputs/citation_source_comparison.md     — summary report
 
-Run: python src/compare_citation_sources.py [--report-only]
+Run: python src/analysis/compare_citation_sources.py [--report-only]
 """
 import os
 import sys

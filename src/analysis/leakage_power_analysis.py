@@ -18,7 +18,7 @@ Two separate questions, two separate designs:
    evidence of absence. Sized via TOST (two one-sided tests) at a pre-specified
    equivalence margin on the LAP scale.
 
-Run: python src/leakage_power_analysis.py
+Run: python src/analysis/leakage_power_analysis.py
 """
 import os
 import numpy as np

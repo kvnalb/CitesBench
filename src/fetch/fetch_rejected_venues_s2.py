@@ -8,7 +8,7 @@ Output: outputs/rejected_venues_s2.csv
   paper_id, arxiv_id, s2_venue, s2_venue_type, s2_venue_id, s2_citations, s2_title
 
 Resumable: skips already-fetched paper_ids on restart.
-Run from repo root: python src/fetch_rejected_venues_s2.py
+Run from repo root: python src/fetch/fetch_rejected_venues_s2.py
 """
 import os
 import re

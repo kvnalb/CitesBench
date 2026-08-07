@@ -1,11 +1,11 @@
 """
 Run all regimes × years, compute metrics + baselines, write eval_results.csv.
 
-Usage: python src/run_eval.py
+Usage: python src/analysis/run_eval.py
 """
 import sys
 import os
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import pandas as pd

@@ -5,8 +5,8 @@ Section 6 of the dashboard traces *data* lineage (which file produced which CSV)
 This does the other half: which modules import which, and which scripts nothing
 imports. Emits mermaid so provenance_tab.py can render it inline.
 
-    python src/import_graph.py           # writes outputs/import_graph.mmd, prints summary
-    python src/import_graph.py --test    # self-check
+    python src/audit/import_graph.py           # writes outputs/import_graph.mmd, prints summary
+    python src/audit/import_graph.py --test    # self-check
 """
 import ast
 import os

@@ -8,7 +8,7 @@ Inputs:
 Output:
   outputs/paper_author_covariates.csv  — one row per paper_id
 
-Run: python src/build_author_covariates.py
+Run: python src/build/build_author_covariates.py
 """
 import os
 import pandas as pd

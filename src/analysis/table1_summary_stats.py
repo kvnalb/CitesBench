@@ -4,7 +4,7 @@ Table 1: summary statistics for the full ICLR 2018-2020 corpus and the RDD sampl
 Prints the numbers that populate outputs/table1_summary_stats.tex. Pure recompute,
 no API calls.
 
-Run: python src/table1_summary_stats.py
+Run: python src/analysis/table1_summary_stats.py
 """
 import os
 import sqlite3

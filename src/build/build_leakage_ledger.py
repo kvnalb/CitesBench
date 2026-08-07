@@ -18,7 +18,7 @@ generations (896 placebo traces for 448 plan rows). Rows whose probe_title is no
 current plan are marked `v1_superseded` rather than silently mixed in.
 
 Output: outputs/leakage_ledger.csv
-Run:    python src/build_leakage_ledger.py [--selfcheck]
+Run:    python src/build/build_leakage_ledger.py [--selfcheck]
 """
 import os
 import re
@@ -52,7 +52,7 @@ def mtime(p):
 def oos_rows():
     """Current out-of-sample runs: results CSV + trace JSONL + reconstructable prompt."""
     import sys
-    sys.path.insert(0, "src")
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     try:
         from run_oos_probes import prompt_for, CHAT_ONLY
         have_prompt = True
@@ -119,7 +119,7 @@ def legacy_rows():
     """July probe runs. Traces were not captured (leakage_lap_traces.jsonl is empty), so
     completions are unavailable; prompts are reconstructed from the scripts' own functions."""
     import sys
-    sys.path.insert(0, "src")
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     specs = [
         ("outputs/leakage_lap_v1.csv", "leakage_lap_v1", "leakage_lap_v1", "recall_prompt",
          {"answer": "answer", "p_pos": "p_accept", "p_neg": "p_reject", "p_unk": "p_unknown",

@@ -8,7 +8,7 @@ runs' hidden reasoning. Forensic question: does the model's thinking show
 
 Output: outputs/leakage_fame_traces_sample30.jsonl
 
-Run: python src/leakage_fame_trace_sample.py [--n-per-stratum 10]
+Run: python src/probes/leakage_fame_trace_sample.py [--n-per-stratum 10]
 """
 import os
 import sys
@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from leakage_lap_v1 import probe_one
 from leakage_fame_v1 import fame_prompt, HIGH_TOKENS, LOW_TOKENS, UNKNOWN_TOKENS
 

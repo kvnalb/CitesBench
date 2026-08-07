@@ -11,7 +11,7 @@ design pairs a model with a known cutoff against papers that postdate it:
   2025         Sep 2024    Jan 2025    neither
 
 Citations come from OpenAlex by arXiv DOI (identifier lookups are free and unmetered;
-title search is not), using the arXiv IDs from src/resolve_arxiv_ids.py. Every row carries
+title search is not), using the arXiv IDs from src/fetch/resolve_arxiv_ids.py. Every row carries
 `citations_fetched_at` — accept and reject are always measured on the same day, which the
 old pipeline did not guarantee.
 
@@ -21,7 +21,7 @@ exits, which are neither accepts nor comparable rejects.
 
 Output: outputs/eval_table_<year>.csv
 
-Run: python src/build_eval_table_year.py --year 2025
+Run: python src/build/build_eval_table_year.py --year 2025
 """
 import os
 import re

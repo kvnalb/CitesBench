@@ -11,7 +11,7 @@ Pass 3: work endpoint (locations) → published venue per paper
   output: outputs/paper_venues.csv
 
 All outputs are incrementally written and resumable.
-Run from repo root: python src/fetch_author_stats.py
+Run from repo root: python src/fetch/fetch_author_stats.py
 """
 import os
 import time

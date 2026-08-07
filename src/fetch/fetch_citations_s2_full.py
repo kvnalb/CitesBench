@@ -17,7 +17,7 @@ Method, per paper:
 Output: outputs/s2_citations_full.csv (incremental, resumable)
   paper_id, method, s2_citations, s2_title, title_sim, s2_year, s2_venue
 
-Run: python src/fetch_citations_s2_full.py [--limit N]
+Run: python src/fetch/fetch_citations_s2_full.py [--limit N]
 """
 import os
 import re

@@ -11,7 +11,7 @@ Inputs:
 Output:
   outputs/hetero_analysis.md
 
-Run: python src/hetero_analysis.py
+Run: python src/analysis/hetero_analysis.py
 """
 import os
 import sys
@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
-sys.path.insert(0, "src")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from metrics import compute_metrics
 from regimes.llm_committee import LLMCommittee
 from regimes.human_actual import HumanActual

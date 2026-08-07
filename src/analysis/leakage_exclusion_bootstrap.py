@@ -20,7 +20,7 @@ same replicate.
 
 Output: outputs/leakage_exclusion_bootstrap_{openalex|s2}.csv + printed summary.
 
-Run: python src/leakage_exclusion_bootstrap.py [--citation-source s2] [--B 2000]
+Run: python src/analysis/leakage_exclusion_bootstrap.py [--citation-source s2] [--B 2000]
      (pure recompute — no API calls)
 """
 import os
@@ -28,7 +28,7 @@ import sys
 import math
 import argparse
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import pandas as pd

@@ -19,9 +19,9 @@ Match tiers (assigned in --report, so thresholds are tunable without refetching)
   C  anything weaker — excluded from the primary outcome, kept for sensitivity.
 
 Output: outputs/s2_citations_v2.csv (incremental, resumable)
-Report: outputs/s2_attribution_report.md  (python src/fetch_citations_s2_v2.py --report)
+Report: outputs/s2_attribution_report.md  (python src/fetch/fetch_citations_s2_v2.py --report)
 
-Run: python src/fetch_citations_s2_v2.py [--limit N] [--report]
+Run: python src/fetch/fetch_citations_s2_v2.py [--limit N] [--report]
 
 # ponytail: no S2 key in .env, so SLEEP is the unauthenticated 100-req/5-min budget.
 # Set SEMANTIC_SCHOLAR_API_KEY to drop it to 1.0s (~1h instead of ~4h).
@@ -102,7 +102,7 @@ def load_inputs(min_cos=0.70, eval_table="outputs/eval_table.csv"):
     ids, known, id_source = {}, {}, {}
     res_path = "outputs/arxiv_resolution.csv"
     if not os.path.exists(res_path):
-        sys.exit("Run src/resolve_arxiv_ids.py first.")
+        sys.exit("Run src/fetch/resolve_arxiv_ids.py first.")
     res = pd.read_csv(res_path, low_memory=False,
                       dtype={"arxiv_id": str, "paper_id": str})
     res = res[res["matched"].eq(1)]

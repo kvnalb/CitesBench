@@ -10,7 +10,7 @@ Mirrors Archive/CompletePipeline/analysis/01_citation_rdd.R
 using data/OpenAlex/openalex_rdd_arxiv_paper_level.csv (already trimmed to
 year-specific bandwidths).
 
-Run: python src/fuzzy_rdd.py
+Run: python src/analysis/fuzzy_rdd.py
 """
 import os
 import numpy as np

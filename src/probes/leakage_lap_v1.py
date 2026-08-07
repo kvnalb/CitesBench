@@ -26,7 +26,7 @@ Outputs:
   outputs/leakage_lap_v1.csv    — incremental, one row per API call
   outputs/leakage_lap_report.md — regression results
 
-Run: python src/leakage_lap_v1.py [--smoke] [--full] [--report-only]
+Run: python src/probes/leakage_lap_v1.py [--smoke] [--full] [--report-only]
 """
 import os
 import sys
@@ -38,7 +38,7 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from prompts import load
 
 load_dotenv()

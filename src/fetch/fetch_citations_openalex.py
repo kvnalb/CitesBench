@@ -8,7 +8,7 @@ openalex_id, DOI, and cited_by_count.
 Resumable: skips paper_ids already present in the output CSV.
 
 Usage:
-    python src/fetch_citations_openalex.py [--years 2018 2019 2020] [--threshold 0.85]
+    python src/fetch/fetch_citations_openalex.py [--years 2018 2019 2020] [--threshold 0.85]
 """
 import argparse
 import sqlite3

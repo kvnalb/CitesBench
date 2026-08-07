@@ -12,7 +12,7 @@ Outputs:
   outputs/leakage_fame_v1.csv    — incremental, one row per API call
   outputs/leakage_fame_report.md — recall accuracy vs actual citation rank
 
-Run: python src/leakage_fame_v1.py [--smoke] [--n 300] [--report-only]
+Run: python src/probes/leakage_fame_v1.py [--smoke] [--n 300] [--report-only]
 """
 import os
 import sys
@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from leakage_lap_v1 import probe_one, build_sample, MODEL
 from prompts import load
 

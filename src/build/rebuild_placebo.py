@@ -20,7 +20,7 @@ analysis (outputs/arxiv_fuzzy_report.md) at roughly a fifth of unmatched submiss
 Only the placebo rows of the probe plan change; lap / fame / wrongyear stay byte-identical,
 so only the placebo calls need re-running.
 
-Run: python src/rebuild_placebo.py
+Run: python src/build/rebuild_placebo.py
 """
 import os
 import re

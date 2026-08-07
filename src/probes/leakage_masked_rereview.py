@@ -27,7 +27,7 @@ Outputs (suffixed per rubric so the two scales never share a file):
                         (including `rationale`). Written for failed papers too.
   outputs/leakage_masked_report[_calibrated].md     — paired analysis (skipped in smoke)
 
-Run: python src/leakage_masked_rereview.py [--smoke] [--n 120] [--rubric simple]
+Run: python src/probes/leakage_masked_rereview.py [--smoke] [--n 120] [--rubric simple]
 """
 import os
 import re
@@ -45,7 +45,7 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from prompts import load
 
 load_dotenv()

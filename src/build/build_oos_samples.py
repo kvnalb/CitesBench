@@ -39,7 +39,7 @@ Output: outputs/samples/oos_papers.csv       frozen paper sample, one row per pa
         outputs/samples/oos_probe_plan.csv   one row per paper x probe variant
         outputs/samples/oos_sample_design.md the design, strata counts and MDE
 
-Run: python src/build_oos_samples.py [--n-per-arm 600] [--seed 42]
+Run: python src/build/build_oos_samples.py [--n-per-arm 600] [--seed 42]
 """
 import os
 import re

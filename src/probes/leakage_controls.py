@@ -19,7 +19,7 @@ and outputs/leakage_power_analysis.md:
 
 Output: outputs/leakage_controls.csv (incremental, resumable) + printed summary.
 
-Run: python src/leakage_controls.py [--smoke] [--n-fake 150] [--n-wrongyear 300] [--offsets 1,-1]
+Run: python src/probes/leakage_controls.py [--smoke] [--n-fake 150] [--n-wrongyear 300] [--offsets 1,-1]
 """
 import os
 import sys
@@ -32,7 +32,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 from dotenv import load_dotenv
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from leakage_lap_v1 import probe_one, recall_prompt, MODEL
 
 load_dotenv()

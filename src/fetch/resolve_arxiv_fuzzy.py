@@ -21,7 +21,7 @@ replace one decision-correlated matching rule with its mirror image.
 Output: outputs/arxiv_fuzzy_candidates.csv   top-3 candidates per unmatched paper
         outputs/arxiv_fuzzy_report.md        recovery by decision, and the revised gap
 
-Run: python src/resolve_arxiv_fuzzy.py [--years 2018 2019 2020] [--min-cos 0.70]
+Run: python src/fetch/resolve_arxiv_fuzzy.py [--years 2018 2019 2020] [--min-cos 0.70]
 
 # ponytail: TF-IDF + chunked sparse matmul, no embedding model. If the recovered set turns
 # out to matter, upgrade to sentence embeddings then — not before.

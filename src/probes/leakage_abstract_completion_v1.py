@@ -33,7 +33,7 @@ Outputs:
   outputs/leakage_abstract_completion_texts.jsonl — generated continuations (audit)
   outputs/leakage_abstract_completion_report.md  — gradient, convergence, exhibits
 
-Run: python src/leakage_abstract_completion_v1.py [--smoke] [--n-per-decile 30] [--workers 10]
+Run: python src/probes/leakage_abstract_completion_v1.py [--smoke] [--n-per-decile 30] [--workers 10]
 """
 import os
 import re
@@ -50,7 +50,7 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from prompts import load
 
 load_dotenv()

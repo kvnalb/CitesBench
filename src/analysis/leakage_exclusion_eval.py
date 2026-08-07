@@ -13,7 +13,7 @@ coverage is printed with the results.
 
 Output: outputs/leakage_exclusion_eval.csv + printed comparison.
 
-Run: python src/leakage_exclusion_eval.py [--threshold 0.5] [--mode raw]
+Run: python src/analysis/leakage_exclusion_eval.py [--threshold 0.5] [--mode raw]
      [--citation-source s2]   # Semantic Scholar ground truth (see
                               # outputs/citation_source_comparison.md); writes
                               # outputs/leakage_exclusion_eval_s2.csv
@@ -22,7 +22,7 @@ import os
 import sys
 import argparse
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import pandas as pd

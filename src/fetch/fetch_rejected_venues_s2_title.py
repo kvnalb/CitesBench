@@ -12,7 +12,7 @@ Records title_sim (difflib ratio on normalized titles) so the match threshold
 (recommend >= 0.9) can be tuned downstream without refetching.
 
 Resumable: skips already-fetched paper_ids on restart.
-Run from repo root: python src/fetch_rejected_venues_s2_title.py
+Run from repo root: python src/fetch/fetch_rejected_venues_s2_title.py
 """
 import csv
 import os
