@@ -1,9 +1,9 @@
 """
 Reviewer regime comparison dashboard.
-Run: streamlit run src/dashboard.py
+Run: streamlit run src/app/dashboard.py
 """
 import sys, os
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import math
 import numpy as np
@@ -108,7 +108,7 @@ try:
     df_static = load_results()
     eval_table = _et(citation_source)
 except FileNotFoundError:
-    st.error("Run `python src/run_eval.py` first.")
+    st.error("Run `python src/analysis/run_eval.py` first.")
     st.stop()
 
 BASELINE_CACHE = "outputs/baselines_cache.csv"
@@ -652,7 +652,7 @@ def _load_hetero_full(src="OpenAlex", _v=3):
 _het_df = _load_hetero_full(citation_source)
 
 if _het_df is None:
-    st.info("Run `python src/build_author_covariates.py` to enable this section.")
+    st.info("Run `python src/build/build_author_covariates.py` to enable this section.")
 else:
     total_papers = len(_het_df)
     n_matched = _het_df["top_institution_flag"].notna().sum()
@@ -1277,7 +1277,7 @@ st.markdown('<p class="explainer">'
             'decision-recall probe (LAP), a probe-validity placebo check, a fame-recall probe, '
             'a masked re-review ablation, a leakage-excluded re-run of the headline comparison, '
             'and an abstract-completion extraction probe. '
-            'Scripts: <code>src/leakage_lap_v1.py</code>, <code>leakage_fame_v1.py</code>, '
+            'Scripts: <code>src/probes/leakage_lap_v1.py</code>, <code>leakage_fame_v1.py</code>, '
             '<code>leakage_controls.py</code>, <code>leakage_masked_rereview.py</code>, '
             '<code>leakage_exclusion_eval.py</code>, <code>leakage_abstract_completion_v1.py</code>.</p>',
             unsafe_allow_html=True)
@@ -1312,7 +1312,7 @@ def _load_leakage(_v=1):
 _leak = _load_leakage(_v=2)
 
 if _leak["lap"] is None or _leak["fame"] is None:
-    st.info("Run `python src/leakage_lap_v1.py --full` and `leakage_fame_v1.py --full` to enable this section.")
+    st.info("Run `python src/probes/leakage_lap_v1.py --full` and `leakage_fame_v1.py --full` to enable this section.")
 else:
     _lap = _leak["lap"][_leak["lap"]["lap"].notna()]
     _fame = _leak["fame"][_leak["fame"]["fame"].notna()]
@@ -1366,7 +1366,7 @@ else:
         st.markdown("##### Probe validity (placebo controls)")
         st.markdown('<p class="explainer">'
                     'N is power/precision-justified, not arbitrary (see '
-                    '<code>src/leakage_power_analysis.py</code>, '
+                    '<code>src/analysis/leakage_power_analysis.py</code>, '
                     '<code>outputs/leakage_power_analysis.md</code>): fabricated-title N sized so the '
                     '95% CI on the false-positive rate clears the real commit rate with margin; '
                     'wrong-year N sized via TOST equivalence testing (a non-significant pilot result at '
@@ -1606,7 +1606,7 @@ else:
                     "cancels. When bootstrap results exist, the bars and error bars above use the "
                     "bootstrap point estimates and 95% CIs (analytic per-replicate random "
                     "baselines), so chart, table, and CIs share one convention. "
-                    "Script: src/leakage_exclusion_bootstrap.py."
+                    "Script: src/analysis/leakage_exclusion_bootstrap.py."
                 )
 
             _pool_ids = set(eval_table["paper_id"])
@@ -1619,7 +1619,7 @@ else:
                 f"papers ({len(_probed_ids) / len(_pool_ids):.1%}); {len(_excluded_ids):,} excluded as "
                 f"memorized (LAP or FAME ≥ 0.5). "
                 + ("Semantic Scholar ground truth (follows the sidebar toggle; "
-                   "src/leakage_exclusion_eval.py --citation-source s2). Under S2, exclusion "
+                   "src/analysis/leakage_exclusion_eval.py --citation-source s2). Under S2, exclusion "
                    "helps every regime — famous excluded papers carry even more of the citation "
                    "mass — but helps humans far more: the LLM Committee's full-pool edge over "
                    "Human AC nearly vanishes on the leakage-excluded pool."
