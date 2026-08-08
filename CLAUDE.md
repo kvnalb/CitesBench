@@ -100,8 +100,25 @@ Never hardcode keys. Never read `os.environ["KEY"]` without `load_dotenv()` firs
 
 Any script that calls an external API in a loop must write results incrementally — one row per API call, appended immediately to the output CSV. Never accumulate in memory and flush at the end. This makes scripts resumable by default: on restart, read the output file, skip already-processed IDs, continue from where it left off.
 
+## Workflow
+
+- Never commit to `main`. Branch per unit of work, PR, merge, delete the branch.
+  Branches are short-lived — if one is more than ~10 commits ahead of `main`, it
+  should have been a PR already.
+- Anything spanning more than one session gets a GitHub issue first, written as the
+  next concrete step rather than a theme ("add per-field recall@k to the dashboard",
+  not "improve metrics"). Reference it in the PR body so merging closes it.
+- Commit messages: `type: imperative summary` — `feat:`, `fix:`, `docs:`, `refactor:`,
+  `perf:`, `data:`. One logical change per commit.
+- README stays high-level: setup, data, schema, pointers. The script inventory lives
+  in `MANIFEST.md` and is generated — do not duplicate it into the README.
+
 ## What not to add
 
+- No PR templates, CODEOWNERS, issue labels, or branch protection — process for
+  coordinating people, and this repo has one. Add when a second contributor arrives.
+- No CI. The `Stop` hook already keeps `MANIFEST.md` honest locally; a server-side
+  check earns its keep only once someone else can push.
 - No intermediate abstraction layers unless two scripts share >10 lines of identical logic.
 - No config files for values that don't change across runs.
 - `Archive/` is append-only: move old scripts in, never import from it.
