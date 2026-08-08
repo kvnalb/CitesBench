@@ -5,3 +5,4 @@ streamlit
 python-dotenv
 openai
 scipy
+pydantic

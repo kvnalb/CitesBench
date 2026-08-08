@@ -55,8 +55,8 @@ PERSONAS = ["empiricist", "theorist", "systems_pragmatist", "novelty_gatekeeper"
 
 FIELDS = ["paper_id", "decision", "primary_area", "markdown_chars", "run_order",
           "model", "rating", "confidence", "soundness", "presentation", "contribution",
-          "recommendation", "n_calls", "text_synthesis", "cost_usd", "elapsed_s",
-          "error", "ts"]
+          "recommendation", "n_calls", "text_synthesis", "prompt_tokens",
+          "completion_tokens", "retried_calls", "elapsed_s", "error", "ts"]
 
 _lock = threading.Lock()
 
@@ -97,7 +97,11 @@ def one_paper(row, markdown, model_key, fcsv, writer, ftr):
             "recommendation": result.get("recommendation"),
             "n_calls": len(traces),
             "text_synthesis": result.get("text_synthesis"),
-            "cost_usd": round(sum(t.get("cost_usd") or 0.0 for t in traces), 6),
+            "prompt_tokens": sum(t.get("prompt_tokens") or 0 for t in traces),
+            "completion_tokens": sum(t.get("completion_tokens") or 0 for t in traces),
+            # a call that needed a repair turn got a different conversation than a
+            # clean one; worth seeing per paper rather than only in the traces
+            "retried_calls": sum(1 for t in traces if (t.get("attempts") or 1) > 1),
             "error": "",
         })
     except Exception as e:
@@ -160,8 +164,9 @@ def main():
                 elif rec.get("n_calls") != 9:
                     flag = f"  only {rec['n_calls']} calls"
                 print(f"[{i}/{len(futs)}] {rec['paper_id']} "
-                      f"rating={rec.get('rating')} {rec['elapsed_s']}s"
-                      f" ${rec.get('cost_usd')}{flag}", flush=True)
+                      f"rating={rec.get('rating')} {rec['elapsed_s']}s "
+                      f"{rec.get('prompt_tokens')}in/{rec.get('completion_tokens')}out"
+                      f"{flag}", flush=True)
 
     d = pd.read_csv(out_csv)
     ok = d[d.error.isna() | (d.error == "")]
@@ -170,9 +175,14 @@ def main():
         print(f"rating: mean {ok.rating.mean():.2f} sd {ok.rating.std():.2f} "
               f"range {ok.rating.min()}-{ok.rating.max()}")
         print(f"calls: {ok.n_calls.value_counts().to_dict()}   "
-              f"synthesis: {ok.text_synthesis.value_counts().to_dict()}")
-        print(f"cost so far: ${ok.cost_usd.sum():.2f}  "
+              f"synthesis: {ok.text_synthesis.value_counts().to_dict()}   "
+              f"papers with a retried call: {(ok.retried_calls > 0).sum()}")
+        print(f"tokens/paper: {ok.prompt_tokens.median():,.0f} in, "
+              f"{ok.completion_tokens.median():,.0f} out   "
               f"median {ok.elapsed_s.median():.0f}s/paper")
+        print(f"extrapolated to 3,703 papers: "
+              f"{ok.prompt_tokens.median() * 3703 / 1e6:,.0f}M in, "
+              f"{ok.completion_tokens.median() * 3703 / 1e6:,.0f}M out")
 
 
 if __name__ == "__main__":
