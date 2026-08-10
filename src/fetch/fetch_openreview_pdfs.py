@@ -44,7 +44,6 @@ import sys
 import time
 import argparse
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -61,6 +60,7 @@ SAMPLE_2025 = "outputs/samples/slim_2025_papers.csv"
 
 # observed server limit: 26 per rolling hour. 25 leaves headroom for the odd retry.
 DEFAULT_PER_HOUR = 25
+COOLDOWN_SECONDS = 65 * 60   # past the hourly reset, with slack for clock skew
 
 _lock = threading.Lock()
 
@@ -117,17 +117,17 @@ def fetch_one(c, pid, out_dir, flog, limiter):
         status = f"ok {len(blob)}"
     except Exception as e:
         status = f"fail {type(e).__name__}: {str(e)[:120]}"
-        # A 429 means the quota is gone; continuing just burns it further and risks
-        # the account. Surface it as a stop signal rather than grinding on.
+        # A 429 means the quota for this hour is gone. Don't retry into it and don't
+        # give up: this is meant to run for days, so sleep past the reset and carry on.
+        # The paper is left undone and gets picked up on the next pass.
         if "RateLimit" in type(e).__name__ or "429" in str(e) or "Too many requests" in str(e):
             with _lock:
                 flog.write(f"{pid}\trate_limited\n")
                 flog.flush()
-            raise SystemExit(
-                "\nSTOPPED: OpenReview rate limit hit. Already-downloaded PDFs are "
-                "kept and this script resumes where it left off — rerun after the "
-                "reset, or request elevated access before fetching a full corpus."
-            )
+            print(f"  rate limited on {pid}; sleeping {COOLDOWN_SECONDS/60:.0f}min",
+                  flush=True)
+            time.sleep(COOLDOWN_SECONDS)
+            return "fail"
     with _lock:
         flog.write(f"{pid}\t{status}\n")
         flog.flush()
@@ -139,6 +139,8 @@ def main():
     ap.add_argument("--year", type=int, default=2025)
     ap.add_argument("--per-hour", type=int, default=DEFAULT_PER_HOUR,
                     help=f"requests/hour (server limit is 26; default {DEFAULT_PER_HOUR})")
+    ap.add_argument("--forever", action="store_true",
+                    help="keep passing over the list until every PDF is fetched")
     ap.add_argument("--limit", type=int, default=0,
                     help="stop after N papers (0 = all); use to fetch a control subset")
     args = ap.parse_args()
@@ -152,6 +154,7 @@ def main():
     ids = paper_ids(args.year)
     if args.limit:
         ids = ids[:args.limit]
+    args.passes = 200 if args.forever else 1
     c = client()
     limiter = RateLimiter(args.per_hour)
     todo = [p for p in ids
@@ -164,18 +167,24 @@ def main():
     t0 = time.time()
     counts = {"ok": 0, "skip": 0, "fail": 0}
     with open(LOG.format(year=args.year), "a") as flog:
-        with ThreadPoolExecutor(max_workers=args.workers) as ex:
-            futs = {ex.submit(fetch_one, c, pid, out_dir, flog, limiter): pid
-                    for pid in ids}
-            for i, f in enumerate(as_completed(futs), 1):
-                counts[f.result()] = counts.get(f.result(), 0) + 1
-                if i % 10 == 0 or i == len(ids):
+        for pass_no in range(1, args.passes + 1):
+            pending = [p for p in ids
+                       if not (os.path.exists(os.path.join(out_dir, f"{p}.pdf"))
+                               and os.path.getsize(os.path.join(out_dir, f"{p}.pdf")) > 1024)]
+            if not pending:
+                print(f"all {len(ids)} PDFs present — nothing left", flush=True)
+                break
+            if pass_no > 1:
+                print(f"\n--- pass {pass_no}: {len(pending)} still missing ---", flush=True)
+            for i, pid in enumerate(pending, 1):
+                counts[fetch_one(c, pid, out_dir, flog, limiter)] += 1
+                if i % 10 == 0 or i == len(pending):
                     el = time.time() - t0
                     gb = sum(os.path.getsize(os.path.join(out_dir, x))
                              for x in os.listdir(out_dir) if x.endswith(".pdf")) / 1e9
-                    print(f"[{i}/{len(ids)}] ok={counts['ok']} skip={counts['skip']} "
-                          f"fail={counts['fail']}  {gb:.1f}GB  {el/60:.1f}min "
-                          f"eta {(el/i)*(len(ids)-i)/60:.0f}min", flush=True)
+                    print(f"[{i}/{len(pending)}] ok={counts['ok']} skip={counts['skip']} "
+                          f"fail={counts['fail']}  {gb:.1f}GB  {el/3600:.1f}h "
+                          f"eta {(len(pending)-i)/max(args.per_hour,1):.0f}h", flush=True)
 
     print(f"\ndone: {counts} in {(time.time()-t0)/60:.1f}min", flush=True)
     if counts["fail"]:
