@@ -22,6 +22,9 @@ MODELS = {
     # reasoning it emits before the JSON; Llama answers directly
     "gemma": ("google/gemma-4-31B-it", 3000),
     "llama": ("meta-llama/Llama-3.3-70B-Instruct-Turbo", 1500),
+    # decision head for the slim 9-call pipeline; verified present in Together's
+    # /v1/models catalogue rather than guessed from the vendor's naming
+    "oss120": ("openai/gpt-oss-120b", 3000),
 }
 
 RUBRIC_FIELDS = ["rating", "confidence", "correctness",
