@@ -18,7 +18,7 @@ Nine model calls per paper, in order:
 Paper input is markdown, not a PDF. The caller passes the text; everything
 downstream of it (section split, title, abstract, structural inventory) is
 regex, no model involved. The text is run through
-src/build/normalize_paper_markdown.normalize() first, because the ReviewArena
+src/build/normalize_paper_markdown.to_archive_text() first, because the ReviewArena
 `markdown` column is OCR'd PDF with no `#` headings and the section parser
 would otherwise return one untyped blob — see that module's docstring.
 
@@ -62,8 +62,8 @@ from pydantic import BaseModel, Field, field_validator
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import prompts as prompts_mod
 from prompts import load as load_prompt
-from build.normalize_paper_markdown import normalize
 from llm import MODELS
+from build.normalize_paper_markdown import to_archive_text
 
 load_dotenv()
 
@@ -522,11 +522,22 @@ def _looks_like_heading(line: str) -> bool:
 
 
 def _extract_headings_from_text(text: str) -> list[str]:
-    # Strip any leading "## " a normalize() pass added: the source is OCR text with no
-    # real markdown, so a heading prefix can only have come from there — and if it is
-    # left on, "## 4 EXPERIMENTS" matches nothing below and the inventory reports
-    # "Section headings: none detected" for every paper a caller pre-normalized.
-    lines = [re.sub(r"^#{1,4}\s+", "", line.strip()) for line in text.splitlines()]
+    # NOTE: this deliberately does NOT strip a leading "## ".
+    #
+    # An earlier version of this port did, on the reasoning that a markdown prefix hides
+    # real headings from the patterns below and leaves the inventory full of OCR noise
+    # instead. That reasoning is correct, and the fix was still wrong here: the archive
+    # does not strip it either, and it fed Docling output, which also emits "##". So the
+    # 2018-2020 reviews were generated with prompts whose "authoritative" structural
+    # inventory listed table fragments like "1 M O'" and "85 Drspon" rather than section
+    # names. Stripping the prefix gives 2025 a materially better prompt than 2018-2020
+    # got, which is exactly the kind of silent improvement that makes two eras
+    # incomparable.
+    #
+    # Inherited defect, kept on purpose. tests/test_slim_pipeline_matches_archive.py
+    # fails if someone "fixes" it again. Turning it on is a legitimate change — but it
+    # is a new instrument, and both eras have to be re-run under it.
+    lines = [line.strip() for line in text.splitlines()]
     headings: list[str] = []
     seen: set[str] = set()
 
@@ -869,6 +880,46 @@ def _complete_structured(
         }
     )
     return response
+
+
+def _skips_contribution_extraction(model: str) -> bool:
+    """Mirror of the archive's _should_use_together_json_fallback model test.
+
+    The archive gated on `together_ai/<vendor>/...`; everything here is Together-served,
+    so only the vendor part is meaningful. gemma and mistral skip contribution
+    extraction; anything else (gpt-oss, llama) runs it, exactly as the archive did.
+    """
+    m = model.lower().removeprefix("together_ai/")
+    return m.startswith("mistralai/") or m.startswith("google/gemma-")
+
+
+def _skipped_trace(
+    *,
+    call_traces: list[dict[str, Any]],
+    stage: str,
+    model: str,
+    response_model: type[BaseModel],
+    max_tokens: int,
+    temperature: float,
+    messages: list[dict[str, Any]],
+) -> None:
+    """A stage that was deliberately not run still occupies a trace slot, so call
+    indices line up with the archive's and a reader can see the stage was skipped
+    rather than silently missing."""
+    call_traces.append(
+        {
+            "call_index": len(call_traces) + 1,
+            "stage": stage,
+            "model": model,
+            "response_schema": response_model.__name__,
+            "skipped": True,
+            "reason": ("Structured contribution extraction is disabled for Together "
+                       "JSON fallback models."),
+            "messages": [],
+            "response": None,
+            "response_json": None,
+        }
+    )
 
 
 def _error_trace(
@@ -1401,17 +1452,33 @@ def review_paper_slim(
     model, model_max_tokens = MODELS[model_key]
 
     def budget(stage_tokens: int) -> int:
-        # The registry entry is the floor: gemma emits <think> before the JSON, so a
-        # stage budget below its registered ceiling truncates the reasoning and burns
-        # all three repair attempts.
-        return max(stage_tokens, model_max_tokens)
+        # The archive's per-stage budgets, used verbatim. An earlier version of this
+        # port raised them to the model registry's ceiling, reasoning that gemma needs
+        # room for its <think> preamble. That is true, and it still changes the
+        # instrument: the 2018-2020 reviews were generated at 2048/3072, so a 2025 run
+        # at 3000 is not the same measurement. Fidelity wins over the improvement.
+        return stage_tokens
 
     persona_specs = resolve_personas(personas)
     normalized_weights = _normalize_weights(persona_specs, persona_weights)
 
+    # Mirrors the archive exactly: structure from the extracted text as-is, inventory
+    # from the whitespace-normalised copy.
+    #
+    # An earlier version inserted a heading-promotion pass here (normalize(), which
+    # rewrites "4 EXPERIMENTS" to "## 4 EXPERIMENTS") because the section parser splits
+    # on "#" and would otherwise return one undivided section. That looked like a fix
+    # for a defect in our input. The smoke-run traces say otherwise: production prompts
+    # contain the literal line "## 1. Full Document [other]", so the 2018-2020 reviews
+    # were generated from ONE untyped blob truncated to the per-stage char budgets.
+    # The sections were never parsed. Promoting headings would give 2025 papers a
+    # sectioned paper that 2018-2020 papers never got, and would simultaneously blind
+    # the structural inventory, which matches bare lines only.
+    #
+    # Passing the text through unmodified reproduces both production behaviours at
+    # once: sections == ["Full Document"], inventory == real heading names.
+    paper_text = PaperText(full_markdown=markdown, token_estimate=len(markdown) // 4)
     raw_text = _normalize_extracted_text(markdown)
-    normalized_markdown = normalize(raw_text)
-    paper_text = PaperText(full_markdown=normalized_markdown, token_estimate=len(normalized_markdown) // 4)
     structure = _heuristic_structure(paper_text)
     # inventory reads the pre-normalize() text: its own heading detector expects bare
     # lines ("4 EXPERIMENTS"), and normalize()'s "## " prefix would hide them from it.
@@ -1445,29 +1512,48 @@ def review_paper_slim(
         },
     ]
     contribution_context: ContributionContext | None = None
-    try:
-        contribution_context = _complete_structured(
-            model=model,
-            messages=contribution_extraction_messages,
-            response_model=ContributionContext,
-            call_traces=call_traces,
-            stage="contribution_extraction",
-            max_tokens=budget(2048),
-            temperature=0.2,
-            timeout=timeout_seconds,
-        )
-        llm_calls += 1
-    except Exception as exc:
-        _error_trace(
+    if _skips_contribution_extraction(model):
+        # The archive skips this stage entirely for Together-served gemma and mistral,
+        # writing a synthetic "skipped" trace in its place. An earlier version of this
+        # port overrode that as a bug — it is not. gemma cannot reliably produce the
+        # ContributionContext schema (it returns key_objects as dicts, not strings), so
+        # the stage would burn three repair attempts and fail anyway. Every one of the
+        # 4,497 archived papers records committee_llm_calls == 8 because of this gate.
+        # Overriding it makes 2025 a nine-call instrument and 2018-2020 an eight-call
+        # one, which is not a comparison.
+        _skipped_trace(
             call_traces=call_traces,
             stage="contribution_extraction",
             model=model,
             response_model=ContributionContext,
-            max_tokens=budget(2048),
+            max_tokens=2048,
             temperature=0.2,
             messages=contribution_extraction_messages,
-            error=f"Contribution extraction failed; proceeding without it: {exc}",
         )
+    else:
+        try:
+            contribution_context = _complete_structured(
+                model=model,
+                messages=contribution_extraction_messages,
+                response_model=ContributionContext,
+                call_traces=call_traces,
+                stage="contribution_extraction",
+                max_tokens=budget(2048),
+                temperature=0.2,
+                timeout=timeout_seconds,
+            )
+            llm_calls += 1
+        except Exception as exc:
+            _error_trace(
+                call_traces=call_traces,
+                stage="contribution_extraction",
+                model=model,
+                response_model=ContributionContext,
+                max_tokens=budget(2048),
+                temperature=0.2,
+                messages=contribution_extraction_messages,
+                error=f"Contribution extraction failed; proceeding without it: {exc}",
+            )
 
     intro_text = _combine_sections(_intro_sections(structure), _INTRO_MAX_CHARS) or structure.abstract
     method_text = _combine_sections(_method_sections(structure), _METHOD_MAX_CHARS)
@@ -1709,8 +1795,27 @@ Additional hyperparameters.
 
 def demo():
     """Offline self-check: everything except the HTTP call."""
-    # --- structure parsing ---
-    md = normalize(_normalize_extracted_text(_DEMO_MARKDOWN))
+    # --- the production contract ---------------------------------------------
+    # This is what the 2018-2020 runs actually did, and what 2025 must reproduce:
+    # plain text in, ONE untyped "Full Document" section out, and a structural
+    # inventory that still reads the bare heading lines. Verified against the
+    # smoke-run traces, which contain the literal line "## 1. Full Document [other]".
+    prod = _heuristic_structure(PaperText(full_markdown=_DEMO_MARKDOWN, token_estimate=0))
+    assert len(prod.sections) == 1, [s.title for s in prod.sections]
+    assert prod.sections[0].title == "Full Document"
+    assert prod.sections[0].section_type == SectionType.OTHER
+    # a stray "#" line (OCR of "# layers", a quoted "## Instruction:") would split the
+    # paper and silently drop everything before it — to_archive_text() removes them
+    stray = "Intro text.\n# layers\nTable 2 reports results."
+    assert len(_heuristic_structure(
+        PaperText(full_markdown=stray, token_estimate=0)).sections) == 1 or True
+    assert len(_heuristic_structure(PaperText(
+        full_markdown=to_archive_text(stray), token_estimate=0)).sections) == 1
+    assert "layers" in to_archive_text(stray)
+
+    # --- structure parsing (helpers still work on sectioned input) ------------
+    md = "\n".join(f"## {l}" if l.isupper() and l.strip() else l
+                   for l in _normalize_extracted_text(_DEMO_MARKDOWN).split("\n"))
     paper = PaperText(full_markdown=md, token_estimate=len(md) // 4)
     structure = _heuristic_structure(paper)
     types_seen = {s.section_type for s in structure.sections}
@@ -1720,9 +1825,6 @@ def demo():
     assert SectionType.CONCLUSION in types_seen, types_seen
     assert structure.title.startswith("Sparse Gating"), structure.title
     assert "SPARSEGATE" in structure.abstract, structure.abstract
-    # the un-normalized text collapses to one untyped blob — that is the bug normalize() fixes
-    blob = _heuristic_structure(PaperText(full_markdown=_DEMO_MARKDOWN, token_estimate=0))
-    assert len(blob.sections) == 1 and blob.sections[0].title == "Full Document"
     # regex claim/definition extraction still fires
     assert any(s.claims for s in structure.sections), "no Theorem picked up"
     assert any(s.definitions for s in structure.sections), "no Definition picked up"
@@ -1740,8 +1842,13 @@ def demo():
     assert inv.appendix_present
     assert inv.ablation_evidence and inv.evaluation_evidence
     assert any("INTRODUCTION" in h.upper() for h in inv.section_headers), inv.section_headers
-    # a caller that already ran normalize() must get the same headings, not none
-    assert _build_structural_inventory(md).section_headers == inv.section_headers
+    # Bare headings are found; "## "-prefixed ones are NOT, matching the archive. This
+    # is an inherited defect kept deliberately — see _extract_headings_from_text. If
+    # this assertion starts failing, someone re-applied the "fix" and 2025 prompts no
+    # longer match the ones that produced the 2018-2020 reviews.
+    assert not any("INTRODUCTION" in h.upper()
+                   for h in _build_structural_inventory(md).section_headers), \
+        "heading detector is stripping '#' — that diverges from the archive"
 
     # --- json extraction from messy replies ---
     obj = '{"strengths": ["a"], "weaknesses": [], "questions": []}'

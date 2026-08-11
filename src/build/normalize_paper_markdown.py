@@ -1,80 +1,72 @@
 """
-Turn ReviewArena's `markdown` column into text that actually has markdown headings.
+Make ReviewArena text look like the text the 2018-2020 pipeline was fed.
 
-The column is misnamed: it is OCR'd PDF text, not markdown. Section titles arrive as
-bare uppercase lines ("INTRODUCTION") or numbered ones ("4 EXPERIMENTS"), and across
-200 sampled 2025 papers the median count of real `#` headings is ZERO.
+The archive ran on plain extracted text with no markdown headings. The traces prove it:
+production intro/method prompts contain the literal line `## 1. Full Document [other]`,
+meaning `_parse_sections_from_markdown` found no `#` headings, returned the document as
+one untyped section, and every review stage worked from that blob truncated to the
+per-stage character budgets. Meanwhile the structural inventory — which matches bare
+lines like `4 EXPERIMENTS` — read correctly.
 
-That matters because the slim pipeline's section parser splits on `^#{1,4}\\s+`. Fed
-the raw column it returns a single untyped "Full Document" section, which makes the
-methodology stage silently skip (no method section found) and the introduction stage
-fall back to the abstract. The pipeline would still emit reviews — it would just be
-reviewing an abstract and a blob, and nothing in the output would say so.
+ReviewArena text is nearly the same shape, with one difference that matters. About 30%
+of 2025 papers contain at least one stray `#` line: OCR of table headers such as
+`# layers`, `# queries`, `# Parameters` (i.e. "number of layers"), or fragments of
+prompt templates like `# Instruction:`. Those are not section headings, but the parser
+cannot tell. A single one flips a paper from "one Full Document section" to "one section
+starting at that line" — and text before the first heading belongs to no section at all.
+For papers with exactly one stray marker the median position is 77% of the way through,
+so roughly three quarters of the paper would be dropped, silently, with a normal-looking
+review produced from the remainder.
 
-So: promote detected headings to `## `, leave every other line alone, and let the
-existing parser work unmodified. Detection is deliberately conservative — OCR noise
-puts plenty of short uppercase junk on its own line (table cells like "GRIT", "SANE",
-garbled fragments like "CIFARIO"), and a false heading fragments a section, which is
-worse than missing one.
+So: strip the marker, keep the words. Every paper then parses to a single Full Document
+section, exactly as in 2018-2020, and the inventory still sees the bare heading lines.
 
-Two rules, both required to fire on a line on its own:
-  numbered   "3 THEORETICAL FRAMEWORK", "4.1 DATASETS AND SETUP"  -> any numbered title
-  keyword    "INTRODUCTION", "RELATED WORK", "CONCLUSIONS"        -> known section names
+An earlier version of this module did the opposite — it promoted detected headings TO
+`## `, so the parser would split papers into sections. That produced better-structured
+prompts than production ever had, on top of blinding the inventory, and would have made
+2025 a different instrument. Inverted deliberately; see the comments in
+src/probes/slim_pipeline.py.
 
-Measured on 400 papers: median 18 headings each, zero papers with none.
-
-ponytail: regex over the known ICLR section vocabulary, not a layout model. If a
-paper's sections stop being found, widen KEYWORDS before reaching for anything bigger.
+ponytail: one regex over line starts. If ReviewArena ever ships real markdown, this
+becomes wrong rather than unnecessary — check the parsed section count, not this file.
 """
 import re
 
-# a numbered heading: "3 FOO", "4.1 FOO BAR", "2. Foo" — title must start with a capital
-NUMBERED = re.compile(r"^\d+(\.\d+)*\.?\s+[A-Z][A-Za-z].{2,60}$")
-
-# unnumbered headings we trust by name; trailing words allowed ("EXPERIMENTAL SETUP")
-KEYWORDS = re.compile(
-    r"^(ABSTRACT|INTRODUCTION|RELATED WORKS?|BACKGROUND|PRELIMINARIES|"
-    r"METHOD(S|OLOGY)?|APPROACH|EXPERIMENTS?|EXPERIMENTAL SETUP|RESULTS|"
-    r"EVALUATION|ANALYSIS|ABLATIONS?|DISCUSSIONS?|LIMITATIONS|CONCLUSIONS?|"
-    r"REFERENCES|ACKNOWLEDGE?MENTS?|APPENDI(X|CES))\b.{0,40}$"
-)
+# a leading markdown heading marker, and only that: the line's text is preserved
+HEADING_MARKER = re.compile(r"^\s{0,3}#{1,6}\s+", re.M)
 
 
-def is_heading(line):
-    s = line.strip()
-    return bool(NUMBERED.match(s) or KEYWORDS.match(s))
-
-
-def normalize(md):
-    """OCR'd paper text -> same text with section titles promoted to '## ' headings."""
-    out = []
-    for line in md.split("\n"):
-        out.append(f"## {line.strip()}" if is_heading(line) else line)
-    return "\n".join(out)
+def to_archive_text(md):
+    """ReviewArena markdown -> plain text shaped like the archive's extracted text."""
+    return HEADING_MARKER.sub("", md)
 
 
 def demo():
     raw = "\n".join([
         "Published as a conference paper at ICLR 2025",
         "ABSTRACT",
-        "Graph Convolutional Networks have emerged as powerful tools.",
+        "We study dropout in graph convolutional networks.",
         "1 INTRODUCTION",
         "Dropout is poorly understood in this setting.",
-        "3.2 DIMENSION-SPECIFIC SUBGRAPHS",
-        "We define the sampling procedure.",
-        "4 EXPERIMENTS",
-        "GRIT",          # OCR noise: a table cell, must NOT become a heading
-        "SANE",
-        "5 CONCLUSIONS",
-        "We conclude.",
+        "# graphs",                 # OCR of a table header: "number of graphs"
+        "Table 2 reports results.",
+        "## Instruction:",          # fragment of a quoted prompt template
+        "Answer the question.",
     ])
-    got = [l for l in normalize(raw).split("\n") if l.startswith("## ")]
-    assert got == ["## ABSTRACT", "## 1 INTRODUCTION", "## 3.2 DIMENSION-SPECIFIC SUBGRAPHS",
-                   "## 4 EXPERIMENTS", "## 5 CONCLUSIONS"], got
-    # noise stayed put, and the paper's own prose was not touched
-    assert "GRIT" in normalize(raw).split("\n")
-    assert "## GRIT" not in normalize(raw)
-    assert "Published as a conference paper at ICLR 2025" in normalize(raw)
+    out = to_archive_text(raw)
+
+    # markers gone, words kept
+    assert "#" not in out, out
+    assert "graphs" in out and "Instruction:" in out
+    # bare heading lines untouched, so the structural inventory still sees them
+    assert "1 INTRODUCTION" in out and "ABSTRACT" in out
+    # nothing else moved: same line count, same order
+    assert len(out.split("\n")) == len(raw.split("\n"))
+    assert out.split("\n")[0] == raw.split("\n")[0]
+
+    # the property that matters: no line can start a new section
+    import re as _re
+    assert not _re.search(r"^(#{1,4})\s+(.+)$", out, _re.M)
     print("ok")
 
 

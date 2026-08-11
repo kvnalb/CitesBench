@@ -17,7 +17,7 @@ paper 2,800 must cost nothing, so both outputs are append-only and a restart ski
 paper_ids already present in the CSV.
 
 Two fields worth watching in the per-paper CSV, because both fail quietly:
-  n_calls          8 rather than 9 means no methodology section was detected
+  n_calls          7 rather than 8 means no methodology section was detected
   text_synthesis   'fallback' means the committee synthesis call threw and scores were
                    aggregated arithmetically — the row looks normal either way
 
@@ -44,7 +44,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from llm import MODELS
 from build.build_slim_2025_papers import load_year
-from build.normalize_paper_markdown import normalize
+from build.normalize_paper_markdown import to_archive_text
 from probes.slim_pipeline import review_paper_slim
 
 load_dotenv()
@@ -55,7 +55,7 @@ PERSONAS = ["empiricist", "theorist", "systems_pragmatist", "novelty_gatekeeper"
 
 FIELDS = ["paper_id", "decision", "primary_area", "markdown_chars", "run_order",
           "model", "rating", "confidence", "soundness", "presentation", "contribution",
-          "recommendation", "n_calls", "text_synthesis", "prompt_tokens",
+          "recommendation", "n_calls", "skipped_stages", "text_synthesis", "prompt_tokens",
           "completion_tokens", "retried_calls", "elapsed_s", "error", "ts"]
 
 _lock = threading.Lock()
@@ -84,7 +84,7 @@ def one_paper(row, markdown, model_key, fcsv, writer, ftr):
     try:
         result, traces = review_paper_slim(
             paper_id=row["paper_id"],
-            markdown=normalize(markdown),
+            markdown=to_archive_text(markdown),
             model_key=model_key,
             personas=PERSONAS,
         )
@@ -95,7 +95,10 @@ def one_paper(row, markdown, model_key, fcsv, writer, ftr):
             "presentation": result.get("presentation"),
             "contribution": result.get("contribution"),
             "recommendation": result.get("recommendation"),
-            "n_calls": len(traces),
+            # llm_calls, not len(traces): a deliberately skipped stage still occupies
+            # a trace slot (contribution_extraction on gemma), so traces overcount by one
+            "n_calls": result.get("llm_calls"),
+            "skipped_stages": sum(1 for t in traces if t.get("skipped")),
             "text_synthesis": result.get("text_synthesis"),
             "prompt_tokens": sum(t.get("prompt_tokens") or 0 for t in traces),
             "completion_tokens": sum(t.get("completion_tokens") or 0 for t in traces),
@@ -161,7 +164,7 @@ def main():
                 flag = ""
                 if rec.get("error"):
                     flag = f"  ERROR {rec['error'][:60]}"
-                elif rec.get("n_calls") != 9:
+                elif rec.get("n_calls") != 8:
                     flag = f"  only {rec['n_calls']} calls"
                 print(f"[{i}/{len(futs)}] {rec['paper_id']} "
                       f"rating={rec.get('rating')} {rec['elapsed_s']}s "

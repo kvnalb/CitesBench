@@ -30,7 +30,7 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
-import import_graph
+from audit import import_graph
 
 # Palette copied from src/app/dashboard.py:29-43 so the two stay visually identical.
 # Not imported, because importing dashboard.py would re-execute the whole app.

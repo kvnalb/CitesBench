@@ -875,7 +875,7 @@ else:
 
         # ── Pooled field×year FE regression (replaces the old per-cell ρ scan) ──
         st.markdown("###### citation_pct_rank ~ committee_rating × field + year FE")
-        from fuzzy_rdd import cat_dummies, wls_hc1, wls_hc1_full
+        from analysis.fuzzy_rdd import cat_dummies, wls_hc1, wls_hc1_full
         from scipy.stats import t as _tdist
 
         def _stars(p):
@@ -1083,7 +1083,7 @@ def _rdd_year_bscatter(yr, n_bins=16, src="OpenAlex"):
 def _rdd_all_specs(src="OpenAlex"):
     dm = _load_rdd_sample(src)
     if dm is None: return [], [], []
-    from fuzzy_rdd import run_specs_constant, run_specs
+    from analysis.fuzzy_rdd import run_specs_constant, run_specs
     pooled_lc = [r for h in [0.5, 0.75, 1.0]
                  if (r := run_specs_constant(dm, h, f"Pooled ±{h:.2f}"))]
     pooled_field_lc = [r for h in [0.5, 0.75, 1.0]
