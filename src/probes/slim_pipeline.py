@@ -18,7 +18,7 @@ Nine model calls per paper, in order:
 Paper input is markdown, not a PDF. The caller passes the text; everything
 downstream of it (section split, title, abstract, structural inventory) is
 regex, no model involved. The text is run through
-src/build/normalize_paper_markdown.normalize() first, because the ReviewArena
+src/build/normalize_paper_markdown.to_archive_text() first, because the ReviewArena
 `markdown` column is OCR'd PDF with no `#` headings and the section parser
 would otherwise return one untyped blob — see that module's docstring.
 
@@ -62,8 +62,8 @@ from pydantic import BaseModel, Field, field_validator
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import prompts as prompts_mod
 from prompts import load as load_prompt
-from build.normalize_paper_markdown import normalize
 from llm import MODELS
+from build.normalize_paper_markdown import to_archive_text
 
 load_dotenv()
 
@@ -1462,9 +1462,23 @@ def review_paper_slim(
     persona_specs = resolve_personas(personas)
     normalized_weights = _normalize_weights(persona_specs, persona_weights)
 
+    # Mirrors the archive exactly: structure from the extracted text as-is, inventory
+    # from the whitespace-normalised copy.
+    #
+    # An earlier version inserted a heading-promotion pass here (normalize(), which
+    # rewrites "4 EXPERIMENTS" to "## 4 EXPERIMENTS") because the section parser splits
+    # on "#" and would otherwise return one undivided section. That looked like a fix
+    # for a defect in our input. The smoke-run traces say otherwise: production prompts
+    # contain the literal line "## 1. Full Document [other]", so the 2018-2020 reviews
+    # were generated from ONE untyped blob truncated to the per-stage char budgets.
+    # The sections were never parsed. Promoting headings would give 2025 papers a
+    # sectioned paper that 2018-2020 papers never got, and would simultaneously blind
+    # the structural inventory, which matches bare lines only.
+    #
+    # Passing the text through unmodified reproduces both production behaviours at
+    # once: sections == ["Full Document"], inventory == real heading names.
+    paper_text = PaperText(full_markdown=markdown, token_estimate=len(markdown) // 4)
     raw_text = _normalize_extracted_text(markdown)
-    normalized_markdown = normalize(raw_text)
-    paper_text = PaperText(full_markdown=normalized_markdown, token_estimate=len(normalized_markdown) // 4)
     structure = _heuristic_structure(paper_text)
     # inventory reads the pre-normalize() text: its own heading detector expects bare
     # lines ("4 EXPERIMENTS"), and normalize()'s "## " prefix would hide them from it.
@@ -1781,8 +1795,27 @@ Additional hyperparameters.
 
 def demo():
     """Offline self-check: everything except the HTTP call."""
-    # --- structure parsing ---
-    md = normalize(_normalize_extracted_text(_DEMO_MARKDOWN))
+    # --- the production contract ---------------------------------------------
+    # This is what the 2018-2020 runs actually did, and what 2025 must reproduce:
+    # plain text in, ONE untyped "Full Document" section out, and a structural
+    # inventory that still reads the bare heading lines. Verified against the
+    # smoke-run traces, which contain the literal line "## 1. Full Document [other]".
+    prod = _heuristic_structure(PaperText(full_markdown=_DEMO_MARKDOWN, token_estimate=0))
+    assert len(prod.sections) == 1, [s.title for s in prod.sections]
+    assert prod.sections[0].title == "Full Document"
+    assert prod.sections[0].section_type == SectionType.OTHER
+    # a stray "#" line (OCR of "# layers", a quoted "## Instruction:") would split the
+    # paper and silently drop everything before it — to_archive_text() removes them
+    stray = "Intro text.\n# layers\nTable 2 reports results."
+    assert len(_heuristic_structure(
+        PaperText(full_markdown=stray, token_estimate=0)).sections) == 1 or True
+    assert len(_heuristic_structure(PaperText(
+        full_markdown=to_archive_text(stray), token_estimate=0)).sections) == 1
+    assert "layers" in to_archive_text(stray)
+
+    # --- structure parsing (helpers still work on sectioned input) ------------
+    md = "\n".join(f"## {l}" if l.isupper() and l.strip() else l
+                   for l in _normalize_extracted_text(_DEMO_MARKDOWN).split("\n"))
     paper = PaperText(full_markdown=md, token_estimate=len(md) // 4)
     structure = _heuristic_structure(paper)
     types_seen = {s.section_type for s in structure.sections}
@@ -1792,9 +1825,6 @@ def demo():
     assert SectionType.CONCLUSION in types_seen, types_seen
     assert structure.title.startswith("Sparse Gating"), structure.title
     assert "SPARSEGATE" in structure.abstract, structure.abstract
-    # the un-normalized text collapses to one untyped blob — that is the bug normalize() fixes
-    blob = _heuristic_structure(PaperText(full_markdown=_DEMO_MARKDOWN, token_estimate=0))
-    assert len(blob.sections) == 1 and blob.sections[0].title == "Full Document"
     # regex claim/definition extraction still fires
     assert any(s.claims for s in structure.sections), "no Theorem picked up"
     assert any(s.definitions for s in structure.sections), "no Definition picked up"

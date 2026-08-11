@@ -58,7 +58,7 @@ _turns fetched data into analysis tables and frozen samples_
 | `src/build/build_leakage_ledger.py` | Flatten every leakage/recall probe run in the repo into one auditable ledger |
 | `src/build/build_oos_samples.py` | Freeze the evaluation samples for the out-of-sample leakage / review benchmark |
 | `src/build/build_slim_2025_papers.py` | Freeze the ICLR 2025 population the slim 9-call pipeline runs on |
-| `src/build/normalize_paper_markdown.py` | Turn ReviewArena's `markdown` column into text that actually has markdown headings |
+| `src/build/normalize_paper_markdown.py` | Make ReviewArena text look like the text the 2018-2020 pipeline was fed |
 | `src/build/rebuild_placebo.py` | Replace the placebo probe titles with real arXiv titles that were never ICLR submissions |
 | `src/build/tag_fields.py` | Tag each 2018-2020 ICLR paper with a primary research field using Together AI |
 | `src/build/tag_rejection_reasons.py` | Tag each outlier paper with 1-3 rejection reason labels using Claude |

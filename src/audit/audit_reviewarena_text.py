@@ -41,7 +41,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from build.build_slim_2025_papers import load_year
-from build.normalize_paper_markdown import normalize
+from build.normalize_paper_markdown import to_archive_text as normalize
 from probes.slim_pipeline import (
     PaperText, SectionType, _heuristic_structure, _parse_sections_from_markdown,
     _method_sections, _intro_sections, _combine_sections,

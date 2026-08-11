@@ -145,10 +145,9 @@ def main():
     import pandas as pd
     sys.path.insert(0, os.path.join(REPO, "src"))
     from build.build_slim_2025_papers import load_year
-    from build.normalize_paper_markdown import normalize
-
+    # raw ReviewArena text, exactly what the pipeline will receive for the 2025 run
     row = load_year(2025).iloc[0]
-    markdown = normalize(row.markdown)
+    markdown = row.markdown
     print(f"paper {row.forum_id}: {len(markdown):,} chars\n")
 
     with tempfile.TemporaryDirectory() as tmp:
