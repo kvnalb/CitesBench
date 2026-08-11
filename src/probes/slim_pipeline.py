@@ -776,6 +776,7 @@ def _together_json(
             # untouched text, the token usage, and how many attempts it took; a reply
             # that needed two repair turns must not look identical to a clean one.
             meta = {
+                "cost_usd": _completion_cost(model, base_messages, content),
                 "usage": parsed_body.get("usage"),
                 "raw_content": content,
                 "attempts": attempt + 1,
@@ -800,6 +801,29 @@ def _together_json(
             time.sleep(2 ** attempt)
 
     raise ValueError(f"Together JSON call failed for {model}: {last_error}")
+
+
+def _completion_cost(model: str, messages: list[dict[str, Any]], content: str):
+    """Per-call cost in USD, computed the way the archive computed it.
+
+    The archive used litellm.completion_cost() inside a bare try/except in exactly this
+    spot, so the numbers in coarse_call_costs.json are comparable across eras. litellm
+    is used for nothing else here — the request itself is still plain urllib.
+
+    Returns None rather than 0.0 when pricing is unknown: a missing price and a free
+    call are different facts, and 0.0 would quietly understate a run's cost.
+    """
+    try:
+        import litellm
+        cost = litellm.completion_cost(
+            model=f"together_ai/{model}" if not model.startswith("together_ai/") else model,
+            messages=messages,
+            completion=content,
+            call_type="completion",
+        )
+        return round(cost, 8) if cost is not None else None
+    except Exception:
+        return None
 
 
 def _message_chars(messages: list[dict[str, Any]]) -> int:
@@ -868,6 +892,7 @@ def _complete_structured(
             "temperature": float(temperature),
             "prompt_chars": _message_chars(messages),
             "response_chars": _response_chars(response),
+            "cost_usd": meta.get("cost_usd"),
             "prompt_tokens": usage.get("prompt_tokens"),
             "completion_tokens": usage.get("completion_tokens"),
             "attempts": meta.get("attempts"),
@@ -1753,7 +1778,14 @@ def review_paper_slim(
         title=structure.title,
         model_key=model_key,
         model=model,
-        llm_calls=llm_calls,
+        # Derived from the traces rather than a hand-maintained counter. The archive
+        # incremented at six scattered sites and not at committee_synthesis, so its
+        # counter and its trace list could disagree — and did: this run recorded 9
+        # calls and reported 8. Counting non-skipped, non-errored trace slots is the
+        # same number by construction, and reproduces the archive's published value
+        # (8) for a gemma run, where contribution_extraction is skipped.
+        llm_calls=sum(1 for t in call_traces
+                      if not t.get("skipped") and not t.get("error")),
         structural_inventory=structural_inventory,
         persona_reviews=persona_reviews,
         persona_markdowns=persona_markdowns,
