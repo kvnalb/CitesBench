@@ -270,8 +270,8 @@ _shared modules imported by the above_
 | `outputs/leakage_threshold_sweep.csv` | `src/analysis/leakage_threshold_sweep.py` | `src/app/dashboard.py`, `src/app/provenance_tab.py`, `src/audit/data_audit.py` |
 | `outputs/oa_title_match_venues.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py`, `src/fetch/fetch_rejected_venues_s2_title.py` |
 | `outputs/oos_probe_report.md` | `src/probes/run_oos_probes.py` | `src/app/provenance_tab.py` |
-| `outputs/oos_probes_Llama-3-3-70B-Instruct-Turbo.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/oos_probes_{slug(model)}.csv`) | `src/app/provenance_tab.py` |
-| `outputs/oos_probes_gemma-4-31B-it.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/oos_probes_{slug(model)}.csv`) | `src/app/provenance_tab.py` |
+| `outputs/oos_probes_Llama-3-3-70B-Instruct-Turbo.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
+| `outputs/oos_probes_gemma-4-31B-it.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/oos_probes_run.log` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/oos_probes_run2.log` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/oos_traces_Llama-3-3-70B-Instruct-Turbo.jsonl` | `src/build/build_leakage_ledger.py` (via pattern `outputs/oos_traces_{slug}.jsonl`) | `src/app/provenance_tab.py` |
@@ -321,7 +321,7 @@ _shared modules imported by the above_
 | `outputs/venue_coverage_strategy.md` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `data/OpenAlex/openalex_batch_cache/` (450 files, rolled up) | **ORPHAN** | — |
 | `data/OpenAlex/openalex_miss_title_search_cache/` (330 files, rolled up) | **ORPHAN** | — |
-| `data/pdf_2025/` (40 files, rolled up) | **ORPHAN** | — |
+| `data/pdf_2025/` (3,699 files, rolled up) | **ORPHAN** | — |
 | `data/pdf_2025_openreview/` (238 files, rolled up) | **ORPHAN** | — |
 
 ### Files written by more than one script
