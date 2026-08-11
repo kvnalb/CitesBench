@@ -34,9 +34,10 @@ import json
 import pandas as pd
 import streamlit as st
 
-# Any directory matching the archive layout. Globbed rather than hardcoded so a new run
-# dropped into data/ shows up without a code change.
-RUN_GLOB = "data/*/run_manifest.json"
+# Any directory matching the archive layout, wherever it lives: data/ holds runs that
+# arrived from elsewhere (the 2018-2020 Dropbox logs), outputs/runs/ holds ours. Globbed
+# rather than hardcoded so a new run appears without a code change.
+RUN_GLOBS = ["data/*/run_manifest.json", "outputs/runs/*/run_manifest.json"]
 
 SCORE_FIELDS = ["rating", "confidence", "soundness", "presentation", "contribution"]
 
@@ -59,7 +60,7 @@ def _load(path, default=None):
 
 
 def _find_runs():
-    return sorted(os.path.dirname(p) for p in glob.glob(RUN_GLOB))
+    return sorted({os.path.dirname(p) for g in RUN_GLOBS for p in glob.glob(g)})
 
 
 def _kv(d, keys):
@@ -119,11 +120,14 @@ def render():
 
     runs = _find_runs()
     if not runs:
-        st.warning(f"No run directories found matching `{RUN_GLOB}`. "
-                   "Drop a run folder (with `run_manifest.json`) under `data/`.")
+        st.warning("No run directories found matching " +
+                   " or ".join(f"`{g}`" for g in RUN_GLOBS) +
+                   ". A run folder needs a `run_manifest.json` at its root.")
         return
 
-    run_dir = st.selectbox("Run", runs, format_func=os.path.basename)
+    run_dir = st.selectbox(
+        "Run", runs,
+        format_func=lambda p: f"{os.path.basename(p)}  ({p.split(os.sep)[0]}/)")
     papers = sorted(os.path.basename(p) for p in
                     glob.glob(os.path.join(run_dir, "papers", "*")) if os.path.isdir(p))
     if not papers:
