@@ -49,6 +49,7 @@ Run: python src/probes/run_slim_pipeline.py --model gemma --n 5          # smoke
 import os
 import re
 import sys
+import math
 import csv
 import json
 import time
@@ -95,10 +96,31 @@ def paths(model_key):
             f"outputs/slim_2025_{tag}_traces.jsonl")
 
 
+def _finite(o):
+    """Replace NaN/Infinity with None, recursively.
+
+    Python's json encoder emits bare NaN and Infinity, which are not JSON: a strict
+    parser rejects the whole file. These artifacts are meant to outlive us and be read
+    by other people's tools, so nothing non-finite may reach disk. NaN is also the
+    wrong value semantically here — the standard deviation of one sample is undefined,
+    which is null, not not-a-number.
+    """
+    if isinstance(o, dict):
+        return {k: _finite(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_finite(v) for v in o]
+    if isinstance(o, float) and not math.isfinite(o):
+        return None
+    return o
+
+
 def _write_json(path, payload):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
-        json.dump(payload, f, indent=2, ensure_ascii=False, default=str)
+        # allow_nan=False turns a missed non-finite into a loud error rather than an
+        # unparseable file discovered by whoever tries to read it later
+        json.dump(_finite(payload), f, indent=2, ensure_ascii=False,
+                  default=str, allow_nan=False)
 
 
 def write_paper_dir(run_dir, row, result, traces, model_key):
@@ -346,5 +368,25 @@ def main():
               f"{ok.completion_tokens.median() * 3703 / 1e6:,.0f}M out")
 
 
+def demo():
+    """Offline self-check: no API calls, no files outside a temp dir."""
+    import tempfile
+    assert _finite(float("nan")) is None
+    assert _finite(float("inf")) is None
+    assert _finite({"a": [float("nan"), 1.0], "b": {"c": float("-inf")}}) \
+        == {"a": [None, 1.0], "b": {"c": None}}
+    assert _slug("myorg/google/gemma-4-31B-it-46372f56") == "myorg_google_gemma-4-31B-it-46372f56"
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "x", "s.json")
+        _write_json(p, {"sd": float("nan"), "n": 1})
+        # strict parse: a bare NaN would raise here
+        json.loads(open(p).read(),
+                   parse_constant=lambda c: (_ for _ in ()).throw(ValueError(c)))
+    print("ok")
+
+
 if __name__ == "__main__":
-    main()
+    if "--demo" in sys.argv:
+        demo()
+    else:
+        main()
