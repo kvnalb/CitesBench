@@ -47,6 +47,7 @@ Run: python src/probes/run_slim_pipeline.py --model gemma --n 5          # smoke
      python src/probes/run_slim_pipeline.py --model gemma --workers 8    # full 3,703
 """
 import os
+import re
 import sys
 import csv
 import json
@@ -82,9 +83,16 @@ _lock = threading.Lock()
 RUNS_DIR = "outputs/runs"
 
 
+def _slug(model_key):
+    """Filesystem-safe tag. A dedicated endpoint id contains slashes and dots, which
+    would otherwise scatter output files across invented directories."""
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", model_key)
+
+
 def paths(model_key):
-    return (f"outputs/slim_2025_{model_key}.csv",
-            f"outputs/slim_2025_{model_key}_traces.jsonl")
+    tag = _slug(model_key)
+    return (f"outputs/slim_2025_{tag}.csv",
+            f"outputs/slim_2025_{tag}_traces.jsonl")
 
 
 def _write_json(path, payload):
@@ -113,7 +121,7 @@ def write_paper_dir(run_dir, row, result, traces, model_key):
         "markdown_chars": row.get("markdown_chars"),
         "run_order": row.get("run_order"),
         "text_source": "ReviewArena parquet (markdown column), heading markers stripped",
-        "committee_model": MODELS[model_key][0], "committee_bias": "plain",
+        "committee_model": result.model, "committee_bias": "plain",
     })
 
     call_costs = [{"stage": t.get("stage"), "model": t.get("model"),
@@ -227,7 +235,10 @@ def one_paper(row, markdown, model_key, fcsv, writer, ftr, run_dir=None):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="gemma", choices=sorted(MODELS))
+    ap.add_argument("--model", default="gemma",
+                    help=f"registry key ({', '.join(sorted(MODELS))}) or a full "
+                         "Together model id, e.g. a dedicated endpoint "
+                         "'myorg/google/gemma-4-31B-it-46372f56'")
     ap.add_argument("--n", type=int, default=0, help="first N by run_order; 0 = all")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--run-slug", default=None,
@@ -255,14 +266,14 @@ def main():
     # Run config is written BEFORE any paper, so a run killed halfway is still
     # self-describing — the archive did the same and it is why we could reconstruct
     # what its runs did years later.
-    slug = args.run_slug or f"iclr2025_{args.model}_slim"
+    slug = args.run_slug or f"iclr2025_{_slug(args.model)}_slim"
     run_dir = os.path.join(RUNS_DIR, slug)
     started = datetime.now(timezone.utc)
     _write_json(os.path.join(run_dir, "run_manifest.json"), {
         "created_at_utc": started.isoformat(timespec="seconds"),
         "run_slug": slug,
         "years": [2025],
-        "committee_model": MODELS[args.model][0],
+        "committee_model": model_id,
         "committee_bias": "plain",
         "personas": PERSONAS,
         "persona_weights": None,
@@ -275,7 +286,8 @@ def main():
     })
     # gemma and mistral skip contribution_extraction (the archive's gate), everything
     # else runs it — so the expected call count is model-dependent, not a constant
-    expected_calls = 8 if _skips_contribution_extraction(MODELS[args.model][0]) else 9
+    model_id = MODELS[args.model][0] if args.model in MODELS else args.model
+    expected_calls = 8 if _skips_contribution_extraction(model_id) else 9
     print(f"run dir: {run_dir}  (expecting {expected_calls} calls/paper)", flush=True)
 
     # A run killed before its first row leaves a 0-byte file behind: DictWriter buffers
