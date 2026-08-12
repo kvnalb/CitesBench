@@ -194,11 +194,25 @@ def write_paper_dir(run_dir, row, result, traces, model_key):
 
 
 def done_ids(csv_path):
-    """paper_ids already written, so a restart resumes instead of re-billing."""
+    """paper_ids that SUCCEEDED, so a restart resumes without re-billing them.
+
+    Failed rows are deliberately excluded. A failure is usually about the moment, not
+    the paper — an endpoint mid-redeploy returns 503 for everything in flight — so
+    treating "has a row" as "is done" would permanently skip papers that only needed
+    retrying. That is silent and unrecoverable: the run reports complete, and the
+    corpus is quietly short.
+
+    Consequence: a paper that fails every time is retried on every rerun. That is the
+    right trade — a genuinely broken paper shows up as a persistent error, which is
+    visible, rather than as a gap, which is not.
+    """
     if not os.path.exists(csv_path):
         return set()
     try:
-        return set(pd.read_csv(csv_path).paper_id.astype(str))
+        d = pd.read_csv(csv_path)
+        if "error" in d.columns:
+            d = d[d.error.isna() | (d.error.astype(str).str.strip() == "")]
+        return set(d.paper_id.astype(str))
     except Exception:
         return set()
 
