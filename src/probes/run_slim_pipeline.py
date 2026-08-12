@@ -266,6 +266,9 @@ def main():
                          "'myorg/google/gemma-4-31B-it-46372f56'")
     ap.add_argument("--n", type=int, default=0, help="first N by run_order; 0 = all")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--max-consecutive-failures", type=int, default=5,
+                    help="abort the run after this many consecutive paper failures "
+                         "(archive used 1; 5 tolerates transient network blips)")
     ap.add_argument("--base-model", default=None,
                     help="what a dedicated endpoint actually serves, e.g. "
                          "'google/gemma-4-31B-it'. Required when the endpoint name "
@@ -319,12 +322,20 @@ def main():
         "decision_head_model": None,     # not ported yet
         "n_selected": int(len(todo)),
         "max_parallel_papers": args.workers,
+        "max_consecutive_failures": args.max_consecutive_failures,
         "sample_csv": SAMPLE_CSV,
         "text_source": "data/ReviewArena/raw/data/*.parquet (markdown column)",
         "command": " ".join(sys.argv),
     })
     print(f"run dir: {run_dir}\n  endpoint : {model_id}\n  serves   : {base}\n"
           f"  expecting: {expected_calls} calls/paper", flush=True)
+
+    # A long unattended run on a metered endpoint must not keep paying while every
+    # paper fails. The archive aborted a shard after a single consecutive failure; the
+    # default here is 5, the same guard with room for a transient blip. "Consecutive"
+    # is counted in completion order — that is what is observable with N in flight.
+    consecutive_failures, abort_reason = 0, None
+    started_at = time.time()
 
     # A run killed before its first row leaves a 0-byte file behind: DictWriter buffers
     # the header until a row is written or the file is closed. Treating "exists" as
@@ -341,6 +352,10 @@ def main():
                     for r in todo.itertuples(index=False)}
             for i, f in enumerate(as_completed(futs), 1):
                 rec = f.result()
+                if rec.get("error"):
+                    consecutive_failures += 1
+                else:
+                    consecutive_failures = 0
                 flag = ""
                 if rec.get("error"):
                     flag = f"  ERROR {rec['error'][:60]}"
@@ -351,6 +366,17 @@ def main():
                       f"{rec.get('prompt_tokens')}in/{rec.get('completion_tokens')}out"
                       f"{flag}", flush=True)
 
+                if consecutive_failures >= args.max_consecutive_failures:
+                    abort_reason = (f"{consecutive_failures} consecutive failures "
+                                    f"(limit {args.max_consecutive_failures}); "
+                                    f"last error: {rec.get('error')}")
+                    print(f"\nABORTING: {abort_reason}\n"
+                          f"Papers already written are kept; rerunning resumes from "
+                          f"where this stopped. STOP THE ENDPOINT if you are not "
+                          f"restarting immediately.", flush=True)
+                    ex.shutdown(cancel_futures=True)
+                    break
+
     d = pd.read_csv(out_csv)
     ok = d[d.error.isna() | (d.error == "")]
     _write_json(os.path.join(run_dir, "summary.json"), {
@@ -359,6 +385,8 @@ def main():
         "run_slug": slug, "years": [2025],
         "n_selected": int(len(d)), "n_completed": int(len(ok)),
         "n_failed": int(len(d) - len(ok)),
+        "abort_reason": abort_reason,
+        "max_consecutive_failures": args.max_consecutive_failures,
         "elapsed_minutes": round((datetime.now(timezone.utc) - started).total_seconds() / 60, 2),
         "metrics": {
             "rating_mean": float(ok.rating.mean()) if len(ok) else None,
