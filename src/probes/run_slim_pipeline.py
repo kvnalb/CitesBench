@@ -49,6 +49,7 @@ Run: python src/probes/run_slim_pipeline.py --model gemma --n 5          # smoke
 import os
 import re
 import sys
+import glob
 import math
 import csv
 import json
@@ -266,6 +267,11 @@ def main():
                          "'myorg/google/gemma-4-31B-it-46372f56'")
     ap.add_argument("--n", type=int, default=0, help="first N by run_order; 0 = all")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--max-hours", type=float, default=0.0,
+                    help="stop cleanly after this many hours (0 = no limit). The "
+                         "deadline is checked when a paper completes, and papers "
+                         "already in flight finish, so overrun is bounded by roughly "
+                         "one paper's duration. Everything written is resumable.")
     ap.add_argument("--max-consecutive-failures", type=int, default=5,
                     help="abort the run after this many consecutive paper failures "
                          "(archive used 1; 5 tolerates transient network blips)")
@@ -323,6 +329,7 @@ def main():
         "n_selected": int(len(todo)),
         "max_parallel_papers": args.workers,
         "max_consecutive_failures": args.max_consecutive_failures,
+        "max_hours": args.max_hours or None,
         "sample_csv": SAMPLE_CSV,
         "text_source": "data/ReviewArena/raw/data/*.parquet (markdown column)",
         "command": " ".join(sys.argv),
@@ -365,6 +372,19 @@ def main():
                       f"rating={rec.get('rating')} {rec['elapsed_s']}s "
                       f"{rec.get('prompt_tokens')}in/{rec.get('completion_tokens')}out"
                       f"{flag}", flush=True)
+
+                if args.max_hours and (time.time() - started_at) >= args.max_hours * 3600:
+                    done = len(list(glob.glob(os.path.join(run_dir, "papers", "*"))))
+                    abort_reason = (f"reached --max-hours {args.max_hours} after "
+                                    f"{(time.time() - started_at)/3600:.2f}h with "
+                                    f"{done} papers written")
+                    print(f"\nSTOPPING: {abort_reason}\n"
+                          f"Papers in flight will finish (a few minutes of overrun). "
+                          f"Rerun the same command to resume from here.\n"
+                          f"STOP THE ENDPOINT if you are not restarting immediately.",
+                          flush=True)
+                    ex.shutdown(cancel_futures=True)
+                    break
 
                 if consecutive_failures >= args.max_consecutive_failures:
                     abort_reason = (f"{consecutive_failures} consecutive failures "
