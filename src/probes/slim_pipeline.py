@@ -778,7 +778,7 @@ def _together_json(
             # untouched text, the token usage, and how many attempts it took; a reply
             # that needed two repair turns must not look identical to a clean one.
             meta = {
-                "cost_usd": _completion_cost(cost_model or model, base_messages, content),
+                "cost_usd": _completion_cost(cost_model or model, parsed_body.get("usage")),
                 "usage": parsed_body.get("usage"),
                 "raw_content": content,
                 "attempts": attempt + 1,
@@ -805,27 +805,55 @@ def _together_json(
     raise ValueError(f"Together JSON call failed for {model}: {last_error}")
 
 
-def _completion_cost(model: str, messages: list[dict[str, Any]], content: str):
-    """Per-call cost in USD, computed the way the archive computed it.
+_PRICING_CACHE: dict[str, tuple[float, float]] = {}
 
-    The archive used litellm.completion_cost() inside a bare try/except in exactly this
-    spot, so the numbers in coarse_call_costs.json are comparable across eras. litellm
-    is used for nothing else here — the request itself is still plain urllib.
 
-    Returns None rather than 0.0 when pricing is unknown: a missing price and a free
-    call are different facts, and 0.0 would quietly understate a run's cost.
+def _together_pricing(model: str):
+    """(input, output) USD per token for a model, from Together's own catalogue.
+
+    Prices come from the vendor rather than litellm's table. litellm does not have
+    gemma-4-31B mapped at all — get_model_info() raises for it — yet completion_cost()
+    still returns a number by falling back to a default rate, which overstated this
+    model by ~18% ($0.80/M blended against Together's actual $0.68/M). A silent 18%
+    error in a run's reported cost is worse than no number.
+
+    This is a deliberate deviation from the archive, which used litellm. It is more
+    accurate, and it is applied to both eras' artifacts only when recomputed — the
+    2018-2020 numbers on disk stay as they were recorded.
     """
-    try:
-        import litellm
-        cost = litellm.completion_cost(
-            model=f"together_ai/{_canonical_model_id(base_model or model)}",
-            messages=messages,
-            completion=content,
-            call_type="completion",
-        )
-        return round(cost, 8) if cost is not None else None
-    except Exception:
+    if not _PRICING_CACHE:
+        try:
+            import requests
+            key = os.environ.get("TOGETHER_API_KEY", "")
+            r = requests.get("https://api.together.xyz/v1/models",
+                             headers={"Authorization": f"Bearer {key}"}, timeout=30)
+            for m in r.json():
+                pr = m.get("pricing") or {}
+                if pr.get("input") is not None:
+                    _PRICING_CACHE[m["id"]] = (pr["input"] / 1e6, pr["output"] / 1e6)
+        except Exception:
+            _PRICING_CACHE["__failed__"] = (0.0, 0.0)
+    return _PRICING_CACHE.get(_canonical_model_id(model))
+
+
+def _completion_cost(model: str, usage: dict | None):
+    """Per-call cost from the usage the API reported, priced at Together's rates.
+
+    Exact rather than estimated: the response carries prompt_tokens and
+    completion_tokens, so there is no need to re-tokenise the text and guess.
+
+    `model` must already be the base model, not an endpoint alias — the caller resolves
+    that. Returns None when pricing is unknown: a missing price and a free call are
+    different facts, and 0.0 would quietly understate a run's cost.
+    """
+    if not usage:
         return None
+    price = _together_pricing(model)
+    if not price:
+        return None
+    pin, pout = price
+    return round((usage.get("prompt_tokens") or 0) * pin +
+                 (usage.get("completion_tokens") or 0) * pout, 8)
 
 
 def _message_chars(messages: list[dict[str, Any]]) -> int:
