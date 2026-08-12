@@ -45,6 +45,7 @@ Self-check (offline, no API calls): python src/probes/slim_pipeline.py
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import json
 import os
 import re
@@ -735,6 +736,7 @@ def _together_json(
     max_tokens: int,
     temperature: float,
     timeout: int,
+    cost_model: str | None = None,
 ) -> BaseModel:
     """POST to Together and validate the reply against `response_model`.
 
@@ -776,7 +778,7 @@ def _together_json(
             # untouched text, the token usage, and how many attempts it took; a reply
             # that needed two repair turns must not look identical to a clean one.
             meta = {
-                "cost_usd": _completion_cost(model, base_messages, content),
+                "cost_usd": _completion_cost(cost_model or model, base_messages, content),
                 "usage": parsed_body.get("usage"),
                 "raw_content": content,
                 "attempts": attempt + 1,
@@ -816,7 +818,7 @@ def _completion_cost(model: str, messages: list[dict[str, Any]], content: str):
     try:
         import litellm
         cost = litellm.completion_cost(
-            model=f"together_ai/{_canonical_model_id(model)}",
+            model=f"together_ai/{_canonical_model_id(base_model or model)}",
             messages=messages,
             completion=content,
             call_type="completion",
@@ -872,8 +874,10 @@ def _complete_structured(
     max_tokens: int,
     temperature: float,
     timeout: int,
+    cost_model: str | None = None,
 ) -> BaseModel:
     response, meta = _together_json(
+        cost_model=cost_model,
         model=model,
         messages=messages,
         response_model=response_model,
@@ -920,6 +924,37 @@ def _canonical_model_id(model: str) -> str:
     model_id = model.split("/", 1)[1] if model.startswith("together_ai/") else model
     m = _ENDPOINT_SUFFIX_RE.match(model_id)
     return m.group("base") if m else model_id
+
+
+def resolve_base_model(model: str, base_model: str | None = None) -> str:
+    """What model is this endpoint actually serving?
+
+    Together auto-names dedicated endpoints '<owner>/<base>-<8 hex>', which
+    _canonical_model_id() can decode. But an endpoint can be given any name — a real
+    one from this project is 'thedatainnovati-6e25/gemma-2025' — and no amount of
+    pattern matching recovers 'google/gemma-4-31B-it' from that.
+
+    It matters twice: the skip gate decides 8 calls vs 9, and litellm needs the base
+    model to price the call. Guessing wrong on the first silently produces a different
+    instrument from the 2018-2020 runs.
+
+    So an unrecognisable id must be declared, not inferred, and refusing is safer than
+    defaulting: a wrong default is invisible, a refusal is not.
+    """
+    if base_model:
+        return _canonical_model_id(base_model)
+    canonical = _canonical_model_id(model)
+    if "/" in canonical and canonical.split("/", 1)[0].lower() in _KNOWN_VENDORS:
+        return canonical
+    raise ValueError(
+        f"Cannot tell which base model '{model}' serves, and that decides whether the "
+        f"run makes 8 calls or 9. Pass base_model=... (e.g. 'google/gemma-4-31B-it')."
+    )
+
+
+# vendors whose ids we can read directly; anything else must be declared
+_KNOWN_VENDORS = {"google", "openai", "meta-llama", "mistralai", "deepseek-ai",
+                  "qwen", "nvidia", "together"}
 
 
 def _skips_contribution_extraction(model: str) -> bool:
@@ -1480,6 +1515,7 @@ def review_paper_slim(
     persona_weights: dict[str, float] | None = None,
     title_hint: str | None = None,
     timeout_seconds: int = 600,
+    base_model: str | None = None,
 ) -> tuple[SlimPipelineResult, list[dict[str, Any]]]:
     """Run the nine-call slim review over one paper's markdown.
 
@@ -1491,6 +1527,11 @@ def review_paper_slim(
     # entry is no longer consulted — budgets are per-stage and come from the archive —
     # so an unregistered id needs no configuration at all.
     model = MODELS[model_key][0] if model_key in MODELS else model_key
+    base = resolve_base_model(model, base_model)
+    # Bound once: every stage sends to `model` (the endpoint) but prices against
+    # `base` (what it serves). Binding here rather than at six call sites keeps the
+    # stage bodies identical to the archive's.
+    _complete = functools.partial(_complete_structured, cost_model=base)
     if "/" not in model:
         raise ValueError(
             f"'{model_key}' is neither a registry key ({', '.join(sorted(MODELS))}) "
@@ -1557,7 +1598,7 @@ def review_paper_slim(
         },
     ]
     contribution_context: ContributionContext | None = None
-    if _skips_contribution_extraction(model):
+    if _skips_contribution_extraction(base):
         # The archive skips this stage entirely for Together-served gemma and mistral,
         # writing a synthetic "skipped" trace in its place. An earlier version of this
         # port overrode that as a bug — it is not. gemma cannot reliably produce the
@@ -1577,7 +1618,7 @@ def review_paper_slim(
         )
     else:
         try:
-            contribution_context = _complete_structured(
+            contribution_context = _complete(
                 model=model,
                 messages=contribution_extraction_messages,
                 response_model=ContributionContext,
@@ -1605,7 +1646,7 @@ def review_paper_slim(
     conclusion_text = _combine_sections(_conclusion_sections(structure), _CONCLUSION_MAX_CHARS)
 
     # --- 2. introduction notes --------------------------------------------
-    intro_notes = _complete_structured(
+    intro_notes = _complete(
         model=model,
         messages=[
             {"role": "system", "content": INTRO_REVIEW_SYSTEM},
@@ -1633,7 +1674,7 @@ def review_paper_slim(
     # --- 3. methodology notes (only when there is methodology text) --------
     method_notes = None
     if method_text.strip():
-        method_notes = _complete_structured(
+        method_notes = _complete(
             model=model,
             messages=[
                 {"role": "system", "content": METHOD_REVIEW_SYSTEM},
@@ -1659,7 +1700,7 @@ def review_paper_slim(
         llm_calls += 1
 
     # --- 4. contribution notes --------------------------------------------
-    contribution_notes = _complete_structured(
+    contribution_notes = _complete(
         model=model,
         messages=[
             {"role": "system", "content": CONTRIBUTION_REVIEW_SYSTEM},
@@ -1697,7 +1738,7 @@ def review_paper_slim(
     persona_reviews: dict[str, SlimConferenceReview] = {}
     persona_markdowns: dict[str, str] = {}
     for persona in persona_specs:
-        review = _complete_structured(
+        review = _complete(
             model=model,
             messages=[
                 {"role": "system", "content": _persona_final_review_system(persona)},
@@ -1750,7 +1791,7 @@ def review_paper_slim(
             },
         ]
         try:
-            committee_text = _complete_structured(
+            committee_text = _complete(
                 model=model,
                 messages=committee_messages,
                 response_model=CommitteeTextSections,
@@ -1914,6 +1955,18 @@ def demo():
     assert _skips_contribution_extraction("together_ai/mistralai/Mistral-7B-Instruct-v0.3")
     assert not _skips_contribution_extraction("openai/gpt-oss-120b")
     assert not _skips_contribution_extraction("myorg/openai/gpt-oss-120b-deadbeef")
+
+    # A hand-named endpoint reveals nothing about what it serves. Guessing would pick
+    # 9 calls and quietly produce a different instrument, so an undeclared one must
+    # refuse; a declared one resolves to the base model.
+    try:
+        resolve_base_model("thedatainnovati-6e25/gemma-2025")
+        raise AssertionError("an unrecognisable endpoint id must not be guessed at")
+    except ValueError:
+        pass
+    assert resolve_base_model("thedatainnovati-6e25/gemma-2025",
+                              "google/gemma-4-31B-it") == "google/gemma-4-31B-it"
+    assert resolve_base_model("google/gemma-4-31B-it") == "google/gemma-4-31B-it"
 
     # --- json extraction from messy replies ---
     obj = '{"strengths": ["a"], "weaknesses": [], "questions": []}'
