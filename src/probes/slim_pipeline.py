@@ -816,7 +816,7 @@ def _completion_cost(model: str, messages: list[dict[str, Any]], content: str):
     try:
         import litellm
         cost = litellm.completion_cost(
-            model=f"together_ai/{model}" if not model.startswith("together_ai/") else model,
+            model=f"together_ai/{_canonical_model_id(model)}",
             messages=messages,
             completion=content,
             call_type="completion",
@@ -907,6 +907,21 @@ def _complete_structured(
     return response
 
 
+# A Together dedicated endpoint is addressed as "<owner>/<base>-<8 hex>", e.g.
+# thedatainnovati_6e25/google/gemma-4-31B-it-46372f56. The archive's runs used exactly
+# this form. Canonicalising back to "google/gemma-4-31B-it" matters twice over: the
+# skip gate matches on the vendor prefix, and litellm prices the base model. Without
+# it a rented gemma endpoint would silently run 9 calls instead of 8.
+_ENDPOINT_SUFFIX_RE = re.compile(r"^(?P<owner>[^/]+)/(?P<base>.+)-(?P<suffix>[0-9a-f]{8})$")
+
+
+def _canonical_model_id(model: str) -> str:
+    """Dedicated-endpoint id -> the base model it serves. Verbatim from the archive."""
+    model_id = model.split("/", 1)[1] if model.startswith("together_ai/") else model
+    m = _ENDPOINT_SUFFIX_RE.match(model_id)
+    return m.group("base") if m else model_id
+
+
 def _skips_contribution_extraction(model: str) -> bool:
     """Mirror of the archive's _should_use_together_json_fallback model test.
 
@@ -914,8 +929,7 @@ def _skips_contribution_extraction(model: str) -> bool:
     so only the vendor part is meaningful. gemma and mistral skip contribution
     extraction; anything else (gpt-oss, llama) runs it, exactly as the archive did.
     """
-    m = model.lower().removeprefix("together_ai/")
-    return m.startswith("mistralai/") or m.startswith("google/gemma-")
+    return _canonical_model_id(model).lower().startswith(("mistralai/", "google/gemma-"))
 
 
 def _skipped_trace(
@@ -1472,9 +1486,15 @@ def review_paper_slim(
     Returns (result, call_traces). `result.call_traces` is the same list object;
     it is returned separately because the caller writes one JSONL row per trace.
     """
-    if model_key not in MODELS:
-        raise ValueError(f"Unknown model key '{model_key}'. Available: {', '.join(sorted(MODELS))}")
-    model, model_max_tokens = MODELS[model_key]
+    # `model_key` is either a registry key ("gemma") or a full Together model id,
+    # which is how a rented dedicated endpoint is addressed. The registry's max_tokens
+    # entry is no longer consulted — budgets are per-stage and come from the archive —
+    # so an unregistered id needs no configuration at all.
+    model = MODELS[model_key][0] if model_key in MODELS else model_key
+    if "/" not in model:
+        raise ValueError(
+            f"'{model_key}' is neither a registry key ({', '.join(sorted(MODELS))}) "
+            "nor a Together model id like 'google/gemma-4-31B-it'")
 
     def budget(stage_tokens: int) -> int:
         # The archive's per-stage budgets, used verbatim. An earlier version of this
@@ -1881,6 +1901,19 @@ def demo():
     assert not any("INTRODUCTION" in h.upper()
                    for h in _build_structural_inventory(md).section_headers), \
         "heading detector is stripping '#' — that diverges from the archive"
+
+    # --- model id canonicalisation and the skip gate ---
+    # A rented dedicated endpoint is addressed as "<owner>/<base>-<8 hex>". If that is
+    # not canonicalised, the gate misses and a gemma endpoint runs 9 calls where
+    # 2018-2020 ran 8 — the exact divergence this port exists to prevent.
+    assert _canonical_model_id("thedatainnovati_6e25/google/gemma-4-31B-it-46372f56") \
+        == "google/gemma-4-31B-it"
+    assert _canonical_model_id("together_ai/google/gemma-4-31B-it") == "google/gemma-4-31B-it"
+    assert _canonical_model_id("openai/gpt-oss-120b") == "openai/gpt-oss-120b"
+    assert _skips_contribution_extraction("myorg/google/gemma-4-31B-it-deadbeef")
+    assert _skips_contribution_extraction("together_ai/mistralai/Mistral-7B-Instruct-v0.3")
+    assert not _skips_contribution_extraction("openai/gpt-oss-120b")
+    assert not _skips_contribution_extraction("myorg/openai/gpt-oss-120b-deadbeef")
 
     # --- json extraction from messy replies ---
     obj = '{"strengths": ["a"], "weaknesses": [], "questions": []}'
