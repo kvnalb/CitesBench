@@ -65,7 +65,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from llm import MODELS
 from build.build_slim_2025_papers import load_year
 from build.normalize_paper_markdown import to_archive_text
-from probes.slim_pipeline import review_paper_slim, _skips_contribution_extraction
+from probes.slim_pipeline import (review_paper_slim, _skips_contribution_extraction,
+                                  resolve_base_model)
 
 load_dotenv()
 os.makedirs("outputs", exist_ok=True)
@@ -201,7 +202,8 @@ def done_ids(csv_path):
         return set()
 
 
-def one_paper(row, markdown, model_key, fcsv, writer, ftr, run_dir=None):
+def one_paper(row, markdown, model_key, fcsv, writer, ftr, run_dir=None,
+              base_model=None):
     t0 = time.time()
     rec = {k: row.get(k) for k in ("paper_id", "decision", "primary_area",
                                    "markdown_chars", "run_order")}
@@ -212,6 +214,7 @@ def one_paper(row, markdown, model_key, fcsv, writer, ftr, run_dir=None):
             markdown=to_archive_text(markdown),
             model_key=model_key,
             personas=PERSONAS,
+            base_model=base_model,
         )
         rec.update({
             "rating": result.get("rating"),
@@ -263,6 +266,10 @@ def main():
                          "'myorg/google/gemma-4-31B-it-46372f56'")
     ap.add_argument("--n", type=int, default=0, help="first N by run_order; 0 = all")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--base-model", default=None,
+                    help="what a dedicated endpoint actually serves, e.g. "
+                         "'google/gemma-4-31B-it'. Required when the endpoint name "
+                         "does not reveal it — it decides 8 calls vs 9, and pricing.")
     ap.add_argument("--run-slug", default=None,
                     help="run directory name under outputs/runs/ (default: derived)")
     args = ap.parse_args()
@@ -285,6 +292,13 @@ def main():
     # full text stays in the parquet until needed — 3,703 x 79k chars is ~290MB
     text = load_year().set_index("forum_id").markdown
 
+    # Resolve the model FIRST. If we cannot tell what a dedicated endpoint serves, the
+    # run would silently make 9 calls where 2018-2020 made 8 — so fail here, before a
+    # run directory exists and before a single paper is billed.
+    model_id = MODELS[args.model][0] if args.model in MODELS else args.model
+    base = resolve_base_model(model_id, args.base_model)
+    expected_calls = 8 if _skips_contribution_extraction(base) else 9
+
     # Run config is written BEFORE any paper, so a run killed halfway is still
     # self-describing — the archive did the same and it is why we could reconstruct
     # what its runs did years later.
@@ -296,6 +310,9 @@ def main():
         "run_slug": slug,
         "years": [2025],
         "committee_model": model_id,
+        "base_model": base,
+        "quantization_note": "declared by --base-model; endpoint quantization (e.g. FP8) "
+                             "is a property of the deployment, not recorded by the API",
         "committee_bias": "plain",
         "personas": PERSONAS,
         "persona_weights": None,
@@ -306,11 +323,8 @@ def main():
         "text_source": "data/ReviewArena/raw/data/*.parquet (markdown column)",
         "command": " ".join(sys.argv),
     })
-    # gemma and mistral skip contribution_extraction (the archive's gate), everything
-    # else runs it — so the expected call count is model-dependent, not a constant
-    model_id = MODELS[args.model][0] if args.model in MODELS else args.model
-    expected_calls = 8 if _skips_contribution_extraction(model_id) else 9
-    print(f"run dir: {run_dir}  (expecting {expected_calls} calls/paper)", flush=True)
+    print(f"run dir: {run_dir}\n  endpoint : {model_id}\n  serves   : {base}\n"
+          f"  expecting: {expected_calls} calls/paper", flush=True)
 
     # A run killed before its first row leaves a 0-byte file behind: DictWriter buffers
     # the header until a row is written or the file is closed. Treating "exists" as
@@ -322,7 +336,8 @@ def main():
             writer.writeheader()
         with ThreadPoolExecutor(max_workers=args.workers) as ex:
             futs = {ex.submit(one_paper, r._asdict(), text[r.paper_id],
-                              args.model, fcsv, writer, ftr, run_dir): r.paper_id
+                              args.model, fcsv, writer, ftr, run_dir,
+                              args.base_model): r.paper_id
                     for r in todo.itertuples(index=False)}
             for i, f in enumerate(as_completed(futs), 1):
                 rec = f.result()

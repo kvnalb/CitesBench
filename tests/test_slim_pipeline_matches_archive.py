@@ -100,7 +100,8 @@ def capture_port(markdown):
     from probes import slim_pipeline as P
     calls = []
 
-    def fake(*, model, messages, response_model, max_tokens, temperature, timeout):
+    def fake(*, model, messages, response_model, max_tokens, temperature, timeout,
+             cost_model=None):
         calls.append({"messages": messages, "max_tokens": max_tokens,
                       "temperature": temperature, "model": response_model.__name__})
         return canned(response_model), {"usage": {}, "raw_content": "{}", "attempts": 1,
