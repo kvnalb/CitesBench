@@ -217,6 +217,57 @@ def done_ids(csv_path):
         return set()
 
 
+def preflight(model_id, workers, sample=None):
+    """Refuse to start unless the endpoint can actually take the concurrency we plan.
+
+    A dedicated endpoint with min_replicas=1 provisions ONE replica and only adds more
+    reactively — it must observe sustained load, wait out the scale-up window, then
+    boot each replica. Firing N concurrent requests at it from a standing start does
+    not queue them, it gets them rejected with 503, and the run dies before autoscaling
+    can help. That happened twice, marking ~590 papers failed.
+
+    Measured on this endpoint: with one replica, 64 concurrent tiny requests returned
+    14 x 503 and 288 returned 173 x 503, while 16 concurrent REALISTIC requests (4k
+    prompt, 256 generated) all succeeded. So the binding limit is concurrent
+    connections, not payload size — which means the probe must match the concurrency
+    we intend to use and can otherwise be as cheap as possible. An earlier version
+    sampled 32 regardless of --workers, passed, and every real paper then 503'd.
+
+    Note this cannot verify the replica COUNT. Together's API does not expose this
+    deployment (/v1/deployments is enterprise-gated), so the console remains the only
+    place to confirm "9/9 running". This checks the thing that matters operationally:
+    can the endpoint, as currently provisioned, absorb the concurrency we are about
+    to send.
+    """
+    import requests
+    n = sample or workers          # the full concurrency we are about to use
+    key = os.environ.get("TOGETHER_API_KEY", "")
+    body = {"model": model_id, "messages": [{"role": "user", "content": "ok"}],
+            "max_tokens": 5}
+
+    def probe(_):
+        try:
+            r = requests.post("https://api.together.xyz/v1/chat/completions",
+                              headers={"Authorization": f"Bearer {key}"},
+                              json=body, timeout=120)
+            return r.status_code
+        except Exception:
+            return 0
+
+    with ThreadPoolExecutor(max_workers=n) as ex:
+        codes = list(ex.map(probe, range(n)))
+    ok = sum(1 for c in codes if c == 200)
+    print(f"preflight: {ok}/{n} concurrent probes OK", flush=True)
+    if ok < n * 0.95:
+        bad = {c: codes.count(c) for c in set(codes) if c != 200}
+        sys.exit(
+            f"ABORT: endpoint cannot take {n} concurrent requests ({bad}).\n"
+            f"  If this is a dedicated endpoint, check Min replicas — min=1 provisions\n"
+            f"  one replica and only scales up reactively, which a burst workload never\n"
+            f"  survives. Set Min replicas to the number you actually want running,\n"
+            f"  wait until they are all ready, then rerun. Nothing has been billed.")
+
+
 def one_paper(row, markdown, model_key, fcsv, writer, ftr, run_dir=None,
               base_model=None):
     t0 = time.time()
@@ -281,6 +332,8 @@ def main():
                          "'myorg/google/gemma-4-31B-it-46372f56'")
     ap.add_argument("--n", type=int, default=0, help="first N by run_order; 0 = all")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--no-preflight", action="store_true",
+                    help="skip the concurrency check (not advised on a metered endpoint)")
     ap.add_argument("--max-hours", type=float, default=0.0,
                     help="stop cleanly after this many hours (0 = no limit). The "
                          "deadline is checked when a paper completes, and papers "
@@ -355,6 +408,9 @@ def main():
     # paper fails. The archive aborted a shard after a single consecutive failure; the
     # default here is 5, the same guard with room for a transient blip. "Consecutive"
     # is counted in completion order — that is what is observable with N in flight.
+    if not args.no_preflight:
+        preflight(model_id, args.workers)
+
     consecutive_failures, abort_reason = 0, None
     started_at = time.time()
 
