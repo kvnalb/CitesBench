@@ -39,6 +39,29 @@ import streamlit as st
 # rather than hardcoded so a new run appears without a code change.
 RUN_GLOBS = ["data/*/run_manifest.json", "outputs/runs/*/run_manifest.json"]
 
+# This page is for reading ONE paper closely, not for browsing a corpus. The 2025 run
+# holds 3,632 papers and a dropdown of that length is slow and useless. So the default
+# is a short curated list — one worked example per era and sample — with a checkbox to
+# fall back to the full list when someone genuinely needs a specific paper.
+#
+# Entries are (label, run_dir, paper_id). Missing ones are skipped rather than erroring,
+# so this list can name papers we do not have yet (the RDD-sample run is still on the
+# collaborator's Dropbox).
+EXAMPLES = [
+    ("2018-2020 · RDD bandwidth sample",
+     "data/rdd_bandwidth_2018_2020_gemma4_gptoss20b", None),
+    ("2018-2020 · remaining (non-RDD) sample",
+     "data/full_2018_2020_remaining_gemma4_gptoss20b_smoke", "r1AMITFaW"),
+    # These two are the SAME paper on two models, so the pair is a direct comparison:
+    # gemma skips contribution_extraction (8 calls), gpt-oss-120b does not (9).
+    ("2025 · ICLR accepted — gemma (8 calls)",
+     "outputs/runs/iclr2025_gemma_pilot", "b0WpXBABdu"),
+    ("2025 · same paper — gpt-oss-120b (9 calls)",
+     "outputs/runs/smoke_oss120_1", "b0WpXBABdu"),
+    ("2025 · full run (3,632 papers) — first paper",
+     "outputs/runs/iclr2025_gemma_full", None),
+]
+
 SCORE_FIELDS = ["rating", "confidence", "soundness", "presentation", "contribution"]
 
 
@@ -125,15 +148,38 @@ def render():
                    ". A run folder needs a `run_manifest.json` at its root.")
         return
 
-    run_dir = st.selectbox(
-        "Run", runs,
-        format_func=lambda p: f"{os.path.basename(p)}  ({p.split(os.sep)[0]}/)")
-    papers = sorted(os.path.basename(p) for p in
-                    glob.glob(os.path.join(run_dir, "papers", "*")) if os.path.isdir(p))
-    if not papers:
-        st.warning(f"No paper directories under `{run_dir}/papers/`.")
-        return
-    paper_id = st.selectbox("Paper", papers)
+    # curated examples first; only resolve the ones that actually exist on disk
+    available = []
+    for label, rdir, pid in EXAMPLES:
+        if pid is None:
+            found = sorted(glob.glob(os.path.join(rdir, "papers", "*")))
+            pid = os.path.basename(found[0]) if found else None
+        if pid and os.path.isdir(os.path.join(rdir, "papers", pid)):
+            available.append((label, rdir, pid))
+
+    browse = st.checkbox("Browse all papers instead", value=not available,
+                         help="The curated list covers one worked example per era. "
+                              "Turn this on to pick any paper from any run.")
+
+    if not browse and available:
+        labels = [a[0] for a in available]
+        choice = st.radio("Example", labels, horizontal=False)
+        _, run_dir, paper_id = available[labels.index(choice)]
+        missing = [e[0] for e in EXAMPLES if e[0] not in labels]
+        if missing:
+            st.caption("Not on disk yet: " + "; ".join(missing))
+    else:
+        run_dir = st.selectbox(
+            "Run", runs,
+            format_func=lambda p: f"{os.path.basename(p)}  ({p.split(os.sep)[0]}/)")
+        papers = sorted(os.path.basename(p) for p in
+                        glob.glob(os.path.join(run_dir, "papers", "*")) if os.path.isdir(p))
+        if not papers:
+            st.warning(f"No paper directories under `{run_dir}/papers/`.")
+            return
+        paper_id = st.selectbox(f"Paper ({len(papers)} in this run)", papers)
+
+    st.caption(f"`{run_dir}/papers/{paper_id}`")
     pdir = os.path.join(run_dir, "papers", paper_id)
 
     manifest = _load(os.path.join(run_dir, "run_manifest.json"), {})
