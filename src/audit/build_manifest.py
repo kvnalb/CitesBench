@@ -109,14 +109,28 @@ def main():
 
     # Cache directories hold thousands of API-response files whose provenance is the
     # directory, not the file. Roll each up to one row so real outputs stay legible.
+    #
+    # Per-paper run directories need rolling up a level higher. A pipeline run writes
+    # outputs/runs/<slug>/papers/<paper_id>/ with ~14 files each — under ROLLUP_MIN on
+    # its own, but 3,632 papers produced a 104,000-line, 11MB MANIFEST. Their
+    # provenance is identical and belongs to the run, not the paper, so the whole
+    # papers/ tree collapses to one row.
     ROLLUP_MIN = 20
+    ROLLUP_TREES = ("outputs/runs/*/papers",)
     all_files = [rel(p) for d in ("outputs", "data")
                  for p in glob.glob(os.path.join(ROOT, d, "**", "*"), recursive=True)
                  if os.path.isfile(p)]
-    bydir = {}
+    # collapse whole subtrees first, before the per-directory pass sees them
+    tree_roots = [rel(p) for pat in ROLLUP_TREES
+                  for p in glob.glob(os.path.join(ROOT, pat))]
+    bydir, rolled = {}, {}
     for p in all_files:
-        bydir.setdefault(os.path.dirname(p), []).append(p)
-    present, rolled = [], {}  # noqa: E501  (rolled filled below)
+        root = next((t for t in tree_roots if p.startswith(t + os.sep)), None)
+        if root:
+            rolled[root] = rolled.get(root, 0) + 1
+        else:
+            bydir.setdefault(os.path.dirname(p), []).append(p)
+    present = []
     for d, files in bydir.items():
         # never roll up outputs/ or data/ themselves — only nested cache dirs
         if d not in ("outputs", "data") and len(files) >= ROLLUP_MIN:
