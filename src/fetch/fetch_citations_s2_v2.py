@@ -136,11 +136,17 @@ def load_inputs(min_cos=0.70, eval_table="outputs/eval_table.csv"):
                     .str.replace(r"^https?://doi\.org/", "", regex=True).to_dict())
 
     # Author names from OpenAlex too — a source independent of both arXiv and S2.
-    pa_path = "outputs/paper_author_ids.csv"
-    if os.path.exists(pa_path):
-        pa = pd.read_csv(pa_path)
-        for pid, g in pa.groupby("paper_id")["author_name"]:
-            known.setdefault(pid, set()).update(last_names(g.dropna().tolist()))
+    # OpenAlex author names, and ReviewArena's. Neither alone is enough: OpenAlex
+    # covers 3,264 papers all in 2018-2020, ReviewArena covers 2020 onward. A 2025
+    # paper with no arXiv preprint has authors from ReviewArena only — and that is
+    # precisely the population reaching the title-match path, so without it every
+    # 2025 title match scores author_overlap=0 and assign_tiers demotes it to C.
+    for pa_path in ("outputs/paper_author_ids.csv",
+                    "outputs/paper_author_names_reviewarena.csv"):
+        if os.path.exists(pa_path):
+            pa = pd.read_csv(pa_path)
+            for pid, g in pa.groupby("paper_id")["author_name"]:
+                known.setdefault(pid, set()).update(last_names(g.dropna().tolist()))
 
     in_scope = set(ev["paper_id"]) & set(ids)
     print(f"  arXiv IDs available for {len(in_scope):,}/{len(ev):,} in-scope papers "
