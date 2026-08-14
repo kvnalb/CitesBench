@@ -7,10 +7,14 @@ import os
 import sys
 import streamlit as st
 
-# src/app/ — where provenance_tab.py lives. Three dirnames would reach src/, which is
-# one level too high; Streamlit does not add the parent page directory to sys.path in
-# multipage mode, so the import failed the moment anyone clicked this page.
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Both are needed and neither is optional: src/app/ so `import provenance_tab`
+# resolves, and src/ so provenance_tab's own `from audit import import_graph` does.
+# Streamlit adds neither in multipage mode, so a missing path here fails only when
+# somebody clicks the page — not at startup.
+_APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _p in (_APP, os.path.dirname(_APP)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 import provenance_tab
 
 st.set_page_config(page_title="CitesBench — Data Provenance", layout="wide")
