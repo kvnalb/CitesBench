@@ -110,16 +110,15 @@ def main(tier_a_only=False):
     fig.suptitle("ICLR 2025: the LLM committee ranks accepted papers better than "
                  "the humans do", x=0.008, y=0.975, ha="left", fontsize=13.5,
                  fontweight="bold", color=INK)
-    fig.text(0.008, 0.935,
+    fig.text(0.008, 0.938,
              f"Same {len(d):,} accepted papers, same outcome (within-year citation "
              f"percentile). Top-k averaged over {ce.N_SHUFFLE} random tie-breaks.",
              ha="left", fontsize=9, color=INK)
-    fig.text(0.008, 0.905,
-             "PROVISIONAL — citation coverage 74%; the title-match fetch closes it. "
+    fig.text(0.008, 0.907,
              "The AC tier has only 3 levels (Poster/Spotlight/Oral), which limits it "
              "at small k by construction.",
-             ha="left", fontsize=8.4, color=INK2, style="italic")
-    fig.tight_layout(rect=[0, 0, 1, 0.885])
+             ha="left", fontsize=9, color=INK2)
+    fig.tight_layout(rect=[0, 0, 1, 0.888])
     os.makedirs("outputs", exist_ok=True)
     fig.savefig(OUT_PNG, dpi=200)
     fig.savefig(OUT_PDF)

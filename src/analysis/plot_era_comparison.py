@@ -149,12 +149,7 @@ def main(tier_a_only=False):
              f"{rho2:.2f} (2025, n={len(d2):,}).   Accepted papers only, both eras.   "
              f"Same instrument: gemma-4-31B-it, 8 LLM calls.",
              ha="left", fontsize=8.6, color=INK)
-    fig.text(0.008, 0.925,
-             f"PROVISIONAL — citation coverage is still unequal "
-             f"({len(d1)/len(acc):.0%} vs {len(d2)/len(r25):.0%}); the title-match fetch "
-             f"closes it. Magnitudes will move, direction is unlikely to.",
-             ha="left", fontsize=8.2, color=INK2, style="italic")
-    fig.tight_layout(rect=[0, 0, 1, 0.905])
+    fig.tight_layout(rect=[0, 0, 1, 0.925])
     os.makedirs("outputs", exist_ok=True)
     fig.savefig(OUT_PNG, dpi=200)
     fig.savefig(OUT_PDF)
