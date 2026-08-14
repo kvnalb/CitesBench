@@ -1,14 +1,19 @@
 """
 Figures for the era comparison (ICLR 2018-2020 vs 2025).
 
-Three panels, in the order the argument runs:
-  A  recall@k across all k — the headline
-  B  rating decile -> mean citation percentile — the same claim as a dose-response
-  C  citation distributions — the age confound, shown rather than hidden
+All three human/LLM selectors are drawn in both eras, because the committee's
+era-to-era fall means nothing on its own — the 2025 outcome is measured over ~18
+months against 6-8 years, so *any* selector should look worse there. The human
+reviewers and the area chairs are the control: they face the identical outcome in
+each era, so whatever the citation window costs, it costs them too. If only the
+committee falls, the window is not the explanation.
 
-Panel C is the honest one: 2025 papers have ~18 months of citations against 6-8
-years, so the outcome itself is coarser there. That attenuates any correlation
-mechanically and is a live alternative to the leakage reading of panel A.
+Encoding: colour = era, line style = selector (solid LLM, dashed reviewers,
+dotted area chairs).
+
+  A  recall@k across all k — the decision-relevant view
+  B  own-score decile -> mean citation percentile — the same claim as dose-response
+  C  citation distributions — the age confound, shown rather than hidden
 
 Run: python src/analysis/plot_era_comparison.py [--tier-a-only]
 """
@@ -26,6 +31,7 @@ from scipy import stats
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import figstyle as fs
 import compare_eras as ce
+import did_leakage as dl
 
 OUT_PNG = "outputs/era_comparison.png"
 OUT_PDF = "outputs/era_comparison.pdf"
@@ -33,22 +39,30 @@ OUT_PDF = "outputs/era_comparison.pdf"
 C_1820, C_2025 = fs.BLUE, fs.ORANGE
 KGRID = np.arange(0.02, 0.51, 0.02)
 
+# colour carries the era, style carries the selector
+SELECTORS = [("rating", "LLM committee", "-", 2.6),
+             ("mean_rating", "Human reviewers", (0, (5, 2)), 1.9),
+             ("ac", "Area chairs", (0, (1.4, 1.8)), 1.9)]
 
-def recall_curve(d):
+
+def recall_curve(d, col):
     rng = np.random.default_rng(ce.SEED)
-    r, c = d["rating"].to_numpy(), d["cite_pct"].to_numpy()
+    r, c = d[col].to_numpy(float), d["cite_pct"].to_numpy()
     return np.array([ce.topk_recall(r, c, k, rng)[0] for k in KGRID]) * 100
 
 
-def panel_a(ax, d1, d2):
+def panel_a(ax, eras):
     ax.plot(KGRID * 100, KGRID * 100, ls=(0, (4, 3)), lw=1.4, color=fs.MUTED, zorder=1)
     ax.annotate("random", (40, 36), color=fs.MUTED, fontsize="small",
                 rotation=26, ha="left")
     ends = []
-    for d, col, lbl in [(d1, C_1820, "2018–2020"), (d2, C_2025, "2025")]:
-        y = recall_curve(d)
-        ax.plot(KGRID * 100, y, lw=2.6, color=col, solid_capstyle="round", zorder=3)
-        ends.append([y[-1], lbl, col])
+    for d, colr, era in eras:
+        for col, lbl, style, lw in SELECTORS:
+            y = recall_curve(d, col)
+            ax.plot(KGRID * 100, y, lw=lw, ls=style, color=colr,
+                    solid_capstyle="round", zorder=3)
+            if col == "rating":                       # label the committee only
+                ends.append([y[-1], era, colr])
     fs.label_ends(ax, ends, KGRID[-1] * 100, min_gap=5)
     ax.set_xlabel("% of papers selected")
     fs.axis_note(ax, "% of true top-k captured")
@@ -58,25 +72,30 @@ def panel_a(ax, d1, d2):
     fs.clean(ax)
 
 
-def panel_b(ax, d1, d2):
+def panel_b(ax, eras):
     ends = []
-    for d, col, lbl in [(d1, C_1820, "2018–2020"), (d2, C_2025, "2025")]:
-        q = pd.qcut(d["rating"].rank(method="first"), 10, labels=False)
-        g = d.groupby(q)["cite_pct"].agg(["mean", "sem"])
-        ax.errorbar(np.arange(1, 11), g["mean"] * 100, yerr=g["sem"] * 100, lw=2.6,
-                    color=col, marker="o", ms=5, capsize=2, elinewidth=1)
-        ends.append([g["mean"].iloc[-1] * 100, lbl, col])
+    for d, colr, era in eras:
+        for col, lbl, style, lw in SELECTORS:
+            # decile on the selector's OWN score, so each is graded on its own ranking
+            q = pd.qcut(d[col].rank(method="first"), 10, labels=False)
+            g = d.groupby(q)["cite_pct"].agg(["mean", "sem"])
+            ax.errorbar(np.arange(1, 11), g["mean"] * 100, yerr=g["sem"] * 100,
+                        lw=lw, ls=style, color=colr,
+                        marker="o" if col == "rating" else None, ms=4,
+                        capsize=2, elinewidth=0.9)
+            if col == "rating":
+                ends.append([g["mean"].iloc[-1] * 100, era, colr])
     ax.axhline(50, ls=(0, (4, 3)), lw=1.4, color=fs.MUTED, zorder=1)
     fs.label_ends(ax, ends, 10, min_gap=6)
-    ax.set_xlabel("committee rating decile")
+    ax.set_xlabel("decile of the selector's own score")
     fs.axis_note(ax, "mean citation percentile")
     ax.set_xlim(0.5, 14.5); ax.set_xticks([1, 5, 10])
     ax.set_title("Dose–response", pad=34)
     fs.clean(ax)
 
 
-def panel_c(ax, d1, d2):
-    for d, col, lbl in [(d1, C_1820, "2018–2020"), (d2, C_2025, "2025")]:
+def panel_c(ax, eras):
+    for d, col, lbl in [(e[0], e[1], e[2]) for e in eras]:
         v = d["s2_citations"].clip(lower=0) + 1
         ax.hist(v, bins=np.logspace(0, 4, 34), weights=np.ones(len(v)) / len(v) * 100,
                 histtype="step", lw=2.2, color=col)
@@ -92,30 +111,38 @@ def panel_c(ax, d1, d2):
 
 
 def main(tier_a_only=False):
-    tiers = ["A"] if tier_a_only else ["A", "B"]
-    ev = pd.read_csv(ce.EVAL_1820, low_memory=False)
-    acc = ev[ev["decision"].str.startswith("Accept", na=False)]
-    d1 = ce.load_era(acc[["paper_id", "year", "committee_rating"]],
-                     ce.TIER_1820, "committee_rating", tiers)
-    r25 = pd.read_csv(ce.RATE_2025)
-    d2 = ce.load_era(r25[["paper_id", "year", "rating"]], ce.TIER_2025, "rating", tiers)
+    # dl.load already joins the human score and the area chair tier onto both eras
+    d1, d2 = dl.load(tier_a_only)
+    eras = [(d1, C_1820, "2018–2020"), (d2, C_2025, "2025")]
 
     fs.apply()
-    fig, axes = plt.subplots(1, 3, figsize=(14, 5))
-    panel_a(axes[0], d1, d2)
-    panel_b(axes[1], d1, d2)
-    panel_c(axes[2], d1, d2)
+    fig, axes = plt.subplots(1, 3, figsize=(14, 5.4))
+    panel_a(axes[0], eras)
+    panel_b(axes[1], eras)
+    panel_c(axes[2], eras)
 
-    rho1 = stats.spearmanr(d1["rating"], d1["cite_pct"])[0]
-    rho2 = stats.spearmanr(d2["rating"], d2["cite_pct"])[0]
-    fs.title_block(fig, "The committee ranks 2018–2020 papers far better than 2025 "
-                        f"(ρ {rho1:.2f} vs {rho2:.2f})")
-    fig.subplots_adjust(left=0.045, right=0.975, top=0.775, bottom=0.135, wspace=0.34)
+    r = {e: {c: stats.spearmanr(d[c], d["cite_pct"])[0] for c, _, _, _ in SELECTORS}
+         for d, _, e in eras}
+    fs.title_block(
+        fig,
+        "Only the committee falls between eras — the humans it is judged against do not",
+        f"ρ vs citation percentile.  2018–2020: committee {r['2018–2020']['rating']:.2f}, "
+        f"reviewers {r['2018–2020']['mean_rating']:.2f}, area chairs "
+        f"{r['2018–2020']['ac']:.2f}   ·   2025: committee {r['2025']['rating']:.2f}, "
+        f"reviewers {r['2025']['mean_rating']:.2f}, area chairs {r['2025']['ac']:.2f}")
+
+    handles = [plt.Line2D([], [], color=fs.MUTED, ls=s, lw=lw, label=lbl)
+               for _, lbl, s, lw in SELECTORS]
+    fig.legend(handles=handles, loc="upper right", ncol=3, fontsize="small",
+               bbox_to_anchor=(0.985, 1.0))
+    fig.subplots_adjust(left=0.045, right=0.975, top=0.745, bottom=0.13, wspace=0.34)
 
     os.makedirs("outputs", exist_ok=True)
     fig.savefig(OUT_PNG, dpi=200)
     fig.savefig(OUT_PDF)
-    print(f"wrote {OUT_PNG}  rho {rho1:.3f} / {rho2:.3f}  (n={len(d1):,} / {len(d2):,})")
+    print(f"wrote {OUT_PNG}  (n={len(d1):,} / {len(d2):,})")
+    for e, v in r.items():
+        print(f"  {e}: " + "  ".join(f"{k} {x:.3f}" for k, x in v.items()))
 
 
 if __name__ == "__main__":
