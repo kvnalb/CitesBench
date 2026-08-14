@@ -302,11 +302,15 @@ def assign_tiers(df, ev):
     return d
 
 
-def report():
+def report(eval_table="outputs/eval_table.csv"):
+    # ponytail: tiered/report paths derive from OUT_CSV so a 2025 report cannot
+    # clobber the 2018-2020 one. Both were hardcoded.
+    tiered = OUT_CSV.replace(".csv", "_tiered.csv")
+    report_md = OUT_CSV.replace(".csv", "_attribution.md")
     df = pd.read_csv(OUT_CSV)
-    ev = pd.read_csv("outputs/eval_table.csv")[["paper_id", "year", "decision"]]
+    ev = pd.read_csv(eval_table, low_memory=False)[["paper_id", "year", "decision"]]
     d = assign_tiers(df, ev)
-    d.to_csv("outputs/s2_citations_v2_tiered.csv", index=False)
+    d.to_csv(tiered, index=False)
 
     import numpy as np
     tier_by_dec = pd.crosstab(d["tier"], d["accepted"], normalize="columns").round(3)
@@ -352,9 +356,9 @@ def report():
           f"- papers with no S2 record at all: **{int(d['tier'].eq('none').sum()):,}**",
           f"- author-overlap check possible for **{int((d['n_known_authors'] > 0).sum()):,}** papers "
           f"({100 * (d['n_known_authors'] > 0).mean():.0f}%)", ""]
-    open(REPORT, "w").write("\n".join(L))
+    open(report_md, "w").write("\n".join(L))
     print("\n".join(L))
-    print(f"\nWrote {REPORT} and outputs/s2_citations_v2_tiered.csv")
+    print(f"\nWrote {report_md} and {tiered}")
 
 
 if __name__ == "__main__":
@@ -367,4 +371,6 @@ if __name__ == "__main__":
                     help="fetch only papers with an arXiv/DOI id (works without an API key); "
                          "skip title matching and stub probes until the key arrives")
     a = ap.parse_args()
-    report() if a.report else fetch(a.limit, a.ids_only, a.eval_table, a.out)
+    if a.out:
+        OUT_CSV = a.out
+    report(a.eval_table) if a.report else fetch(a.limit, a.ids_only, a.eval_table, a.out)
