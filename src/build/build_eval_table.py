@@ -8,6 +8,7 @@ Computes: field×year citation percentile rank, N accepts per year
 Output: outputs/eval_table.csv
 """
 import os
+import sys
 import sqlite3
 import numpy as np
 import pandas as pd
@@ -52,9 +53,26 @@ llm_scores["llm_mean_rating"] = llm_scores[
     ["llm_neutral_rating", "llm_positive_rating", "llm_negative_rating"]
 ].mean(axis=1)
 
-citations = pd.read_csv("output/citations_2018_2020.csv")[
-    ["paper_id", "openalex_citations", "status"]
+# Canonical citation table (src/build/build_citations.py) — S2, tiered, one rule
+# for both eras. Replaces the old OpenAlex pull, whose coverage was 89.0% for
+# accepted papers and 62.7% for rejected: a 26.3 point differential on the very
+# axis this project measures. S2 tier A+B runs 0.8. Unmatched papers stay NaN and
+# are never imputed as zero.
+#
+# The column keeps the name `openalex_citations` for now. That is a lie the repo
+# already tells (dashboard.py has been assigning S2 counts to it since July), and
+# renaming it touches 121 references across 22 files including the leakage probes
+# — a separate mechanical PR. `citation_source` records the truth meanwhile.
+CITATIONS_CSV = "outputs/citations.csv"
+if not os.path.exists(CITATIONS_CSV):
+    sys.exit(f"{CITATIONS_CSV} missing — run python src/build/build_citations.py first")
+_cit = pd.read_csv(CITATIONS_CSV)
+citations = _cit.rename(columns={"citations": "openalex_citations",
+                                 "source": "citation_source",
+                                 "tier": "citation_tier"})[
+    ["paper_id", "openalex_citations", "citation_source", "citation_tier"]
 ]
+citations["status"] = "found"     # the table only carries matched papers
 
 fields_path = "outputs/paper_fields.csv"
 if os.path.exists(fields_path):
@@ -84,7 +102,8 @@ df = (
     .merge(decision_head, on="paper_id", how="left")
 )
 
-# Only use citations where OpenAlex found the paper
+# The canonical table only contains matched papers, so a missing row means
+# "no usable match" and must stay NaN — never zero.
 df.loc[df["status"] != "found", "openalex_citations"] = np.nan
 
 # field×year citation percentile rank (0–1) among papers with citations
@@ -104,3 +123,10 @@ print(n_accepts.to_string())
 print("\nField distribution:")
 print(df["field"].value_counts().to_string())
 print(f"\nCitation coverage: {df['openalex_citations'].notna().sum():,} / {len(df):,} papers")
+print(f"Citation source: {df['citation_source'].dropna().unique()}")
+print("Tier mix:", df["citation_tier"].value_counts(dropna=False).to_dict())
+_acc = df["decision"].str.startswith("Accept", na=False)
+_cov = df.groupby(_acc)["openalex_citations"].apply(lambda x: x.notna().mean())
+if len(_cov) == 2:
+    print(f"Coverage by decision: accepted {_cov[True]:.1%}  rejected {_cov[False]:.1%}"
+          f"  differential {abs(_cov[True]-_cov[False])*100:.1f} pp  (OpenAlex was 26.3)")
