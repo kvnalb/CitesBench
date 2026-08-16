@@ -142,7 +142,8 @@ def load_inputs(min_cos=0.70, eval_table="outputs/eval_table.csv"):
     # precisely the population reaching the title-match path, so without it every
     # 2025 title match scores author_overlap=0 and assign_tiers demotes it to C.
     for pa_path in ("outputs/paper_author_ids.csv",
-                    "outputs/paper_author_names_reviewarena.csv"):
+                    "outputs/paper_author_names_reviewarena.csv",
+                    "outputs/paper_author_names_openreview.csv"):   # 2018/2019
         if os.path.exists(pa_path):
             pa = pd.read_csv(pa_path)
             for pid, g in pa.groupby("paper_id")["author_name"]:
