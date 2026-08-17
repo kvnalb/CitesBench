@@ -61,61 +61,83 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── Data ─────────────────────────────────────────────────────────────────────
-@st.cache_data
-def load_results(): return pd.read_csv("outputs/eval_results.csv")
+# Ground truth is outputs/citations.csv, reached through eval_table.csv, which
+# build_eval_table.py joins against it. There is deliberately no second definition
+# of the outcome in this file: the old sidebar toggle rebuilt it in-app from
+# s2_citations_full.csv (S2 v1, a 0.9 similarity gate, no tier rule), which by the
+# end did the opposite of what its label said — the option marked "OpenAlex" was
+# already serving canonical S2 counts, and choosing "Semantic Scholar" *overwrote*
+# them with the weaker v1 numbers. See build_citations.py for why one table wins.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_abs = lambda rel: os.path.join(REPO, rel)
 
-S2_CSV = "outputs/s2_citations_full.csv"
+EVAL_TABLE = _abs("outputs/eval_table.csv")
+CITATIONS_CSV = _abs("outputs/citations.csv")
+
 
 @st.cache_data
-def load_eval_table(source="OpenAlex", sz=0, _v=3):  # sz = S2 file size, busts cache as fetch grows
-    et = pd.read_csv("outputs/eval_table.csv")
-    rej_path = "outputs/outlier_reviews.csv"
+def load_results(): return pd.read_csv(_abs("outputs/eval_results.csv"))
+
+
+@st.cache_data
+def load_eval_table(_v=4):
+    et = pd.read_csv(EVAL_TABLE, low_memory=False)
+    rej_path = _abs("outputs/outlier_reviews.csv")
     if os.path.exists(rej_path):
         rej = pd.read_csv(rej_path)[["title", "rejection_tags"]].drop_duplicates("title")
         et = et.merge(rej, on="title", how="left")
     else:
         et["rejection_tags"] = pd.NA
-    if source == "Semantic Scholar" and os.path.exists(S2_CSV):
-        s2 = pd.read_csv(S2_CSV)
-        # arXiv-ID matches are exact; title matches need the similarity gate
-        ok = s2[s2["s2_citations"].notna() &
-                ((s2["method"] == "arxiv_batch") | (s2["title_sim"].fillna(0) >= 0.9))]
-        et = et.merge(ok[["paper_id", "s2_citations"]].drop_duplicates("paper_id"),
-                      on="paper_id", how="left")
-        # keep the original column name so every downstream consumer works unchanged
-        et["openalex_citations"] = et["s2_citations"]
-        et = et.drop(columns=["s2_citations"])
-        et["citation_pct_rank"] = et.groupby(["field", "year"])["openalex_citations"] \
-                                    .rank(pct=True)
     return et
 
-def _et(src):
-    sz = os.path.getsize(S2_CSV) if (src == "Semantic Scholar" and os.path.exists(S2_CSV)) else 0
-    return load_eval_table(src, sz)
+
+def _et(*_ignored):
+    return load_eval_table()
+
+
+def _provenance(et):
+    """(source string, tier mix, coverage) read off the table — never asserted here."""
+    src = et["citation_source"].dropna()
+    src = src.iloc[0] if len(src) else "unknown"
+    tiers = et["citation_tier"].value_counts().to_dict()
+    n = int(et["openalex_citations"].notna().sum())
+    return src, tiers, n
+
 
 st.sidebar.markdown("## Controls")
-_s2_ready = os.path.exists(S2_CSV)
-citation_source = st.sidebar.radio(
-    "Citation source (ground truth)",
-    ["OpenAlex", "Semantic Scholar"] if _s2_ready else ["OpenAlex"],
-    help="OpenAlex matched ~99% of the corpus to arXiv-preprint records and misses citations "
-         "to the published versions — median 2.9× undercount, and differential by acceptance "
-         "(3.5× accepted vs 2.0× rejected). Semantic Scholar merges preprint + published "
-         "versions and also indexes OpenReview-only submissions. "
-         "See outputs/citation_source_comparison.md.")
 
 try:
     df_static = load_results()
-    eval_table = _et(citation_source)
+    eval_table = _et()
 except FileNotFoundError:
     st.error("Run `python src/analysis/run_eval.py` first.")
     st.stop()
 
-BASELINE_CACHE = "outputs/baselines_cache.csv"
+# eval_table is a derived file. If the canonical table has moved underneath it the
+# numbers on this page are silently from the previous build, so say so rather than
+# rendering them straight.
+if os.path.exists(CITATIONS_CSV) and \
+        os.path.getmtime(CITATIONS_CSV) > os.path.getmtime(EVAL_TABLE):
+    st.sidebar.error(
+        "`outputs/citations.csv` is newer than `outputs/eval_table.csv`. The figures "
+        "below are from the previous build. Re-run:\n\n"
+        "```bash\npython src/build/build_eval_table.py\n```")
+
+_src, _tiers, _cov = _provenance(eval_table)
+
+BASELINE_CACHE = _abs("outputs/baselines_cache.csv")
+
+# The cached random/ideal baselines are only valid for the citation numbers they were
+# computed against, and the old keys ("2018_raw_0_0") did not record which those were.
+# When eval_table swapped from OpenAlex to S2 the pre-existing rows kept matching, so
+# S2 outcomes were being scored against OpenAlex-era baselines and every lift and
+# drawdown on this page was wrong. The source is part of the key now, which strands
+# the stale rows instead of hitting them.
+_BASELINE_SRC = str(_src)
 
 @st.cache_data
-def prepare_pool(year, mode, impute_zeros, exclude_top_decile=False, src="OpenAlex"):
-    et = _et(src)
+def prepare_pool(year, mode, impute_zeros, exclude_top_decile=False):
+    et = _et()
     pool = et[et["year"] == year].copy()
     if impute_zeros:
         pool["openalex_citations"] = pool["openalex_citations"].fillna(0)
@@ -130,10 +152,8 @@ def prepare_pool(year, mode, impute_zeros, exclude_top_decile=False, src="OpenAl
     return pool
 
 @st.cache_data
-def get_baselines(year, mode, impute_zeros, exclude_top_decile=False, src="OpenAlex"):
-    key = f"{year}_{mode}_{int(impute_zeros)}_{int(exclude_top_decile)}"
-    if src != "OpenAlex":
-        key += "_s2"
+def get_baselines(year, mode, impute_zeros, exclude_top_decile=False):
+    key = f"{year}_{mode}_{int(impute_zeros)}_{int(exclude_top_decile)}_{_BASELINE_SRC}"
     if os.path.exists(BASELINE_CACHE):
         cached = pd.read_csv(BASELINE_CACHE)
         hit = cached[cached["key"] == key]
@@ -142,7 +162,7 @@ def get_baselines(year, mode, impute_zeros, exclude_top_decile=False, src="OpenA
             ideal = dict(zip(hit[hit["which"]=="ideal"]["metric"],  hit[hit["which"]=="ideal"]["value"]))
             n     = int(hit["n"].values[0])
             return rand, ideal, n
-    pool = prepare_pool(year, mode, impute_zeros, exclude_top_decile, src)
+    pool = prepare_pool(year, mode, impute_zeros, exclude_top_decile)
     n = pool[pool["decision"].str.startswith("Accept", na=False)].shape[0]
     rand  = random_baseline(pool, n, mode)
     ideal = ideal_baseline(pool, n, mode)
@@ -158,9 +178,9 @@ def get_baselines(year, mode, impute_zeros, exclude_top_decile=False, src="OpenA
     new_df.to_csv(BASELINE_CACHE, index=False)
     return rand, ideal, n
 
-def compute_live(regime, year, mode, impute_zeros, exclude_top_decile=False, src="OpenAlex"):
-    pool = prepare_pool(year, mode, impute_zeros, exclude_top_decile, src)
-    rand, ideal_vals, n = get_baselines(year, mode, impute_zeros, exclude_top_decile, src)
+def compute_live(regime, year, mode, impute_zeros, exclude_top_decile=False):
+    pool = prepare_pool(year, mode, impute_zeros, exclude_top_decile)
+    rand, ideal_vals, n = get_baselines(year, mode, impute_zeros, exclude_top_decile)
     selected = regime.select(pool, n)
     metrics = compute_metrics(selected, pool, mode)
     rows = []
@@ -181,7 +201,9 @@ st.sidebar.markdown("---")
 lam = st.sidebar.slider("λ (disagreement weight)", -3.0, 3.0, 1.0, 0.25,
     help="score = mean_rating + λ × rating_std  |  λ > 0: boost contested  |  λ < 0: prefer consensus")
 impute_zeros = st.sidebar.checkbox("Impute 0 citations for unmatched papers", value=False,
-    help="~37% of papers have no OpenAlex match. Off: exclude from metrics. On: count as 0.")
+    help=f"{len(eval_table)-_cov:,} of {len(eval_table):,} papers have no tier A/B match. "
+         "Off: exclude from metrics. On: count as 0. Leave off — a paper we could not "
+         "find is not a paper with no citations.")
 show_drawdown = st.sidebar.checkbox("Show drawdown from ideal", value=False,
     help="Off: % of gap closed (higher = better). On: % left on table vs ideal (lower = better).")
 exclude_top_decile = st.sidebar.checkbox("Exclude top-10% by citations (leakage-robust)", value=False,
@@ -190,16 +212,16 @@ exclude_top_decile = st.sidebar.checkbox("Exclude top-10% by citations (leakage-
          "the signal survives without memorisation of high-impact work.")
 
 st.sidebar.markdown("---")
-if citation_source == "OpenAlex":
-    st.sidebar.caption("⚠️ Median/mean citations computed over OpenAlex-matched papers only "
-                       "(accepts ~89%, rejects ~63%). Recall metrics unaffected. "
-                       "Note: OpenAlex undercounts (median 2.9× vs S2) and undercounts accepted "
-                       "papers more — see the citation-source toggle above.")
-else:
-    _s2n = int(eval_table["openalex_citations"].notna().sum())
-    st.sidebar.caption(f"⚠️ Semantic Scholar counts active: {_s2n:,}/{len(eval_table):,} papers "
-                       f"matched ({_s2n/len(eval_table):.0%}). Counts merge preprint + published "
-                       "versions. Field-normalized percentile ranks recomputed from S2 counts.")
+st.sidebar.caption(
+    f"**Ground truth:** `outputs/citations.csv` → `eval_table.csv`.  \n"
+    f"Source `{_src}`. Matched {_cov:,}/{len(eval_table):,} ({_cov/len(eval_table):.1%}) — "
+    f"tier A {_tiers.get('A', 0):,} (arXiv/DOI id), tier B {_tiers.get('B', 0):,} "
+    f"(title ≥0.95 + year window + shared author). Unmatched papers are dropped, "
+    f"never imputed as zero.  \n"
+    "Coverage by decision is 98.9% accepted vs 95.0% rejected — a 3.9 pp differential, "
+    "against 26.3 pp under OpenAlex. That gap is why this is the outcome variable; the "
+    "residual 3.9 pp is real and belongs in the robustness table."
+)
 st.sidebar.markdown("---")
 st.sidebar.caption(
     "ℹ️ **LLM regimes** use a two-stage pipeline: Gemma-4-31B committee (4 reviewer "
@@ -220,7 +242,7 @@ live_rows = []
 for year in years:
     for regime in all_regimes:
         try:
-            live_rows.extend(compute_live(regime, year, mode, impute_zeros, exclude_top_decile, citation_source))
+            live_rows.extend(compute_live(regime, year, mode, impute_zeros, exclude_top_decile))
         except Exception:
             pass
 
@@ -343,12 +365,12 @@ def get_regime(name):
 dive_regime = get_regime(dive_regime_name)
 
 @st.cache_data
-def compute_quadrants(regime_name, lam, years_tuple, mode, impute_zeros, exclude_top_decile=False, src="OpenAlex"):
+def compute_quadrants(regime_name, lam, years_tuple, mode, impute_zeros, exclude_top_decile=False):
     """Returns pool_df with 'quadrant' column and sets of IDs."""
     pools, regime_ids, ideal_ids, ac_ids = [], set(), set(), set()
     for year in years_tuple:
-        pool = prepare_pool(year, mode, impute_zeros, exclude_top_decile, src)
-        _, _, n = get_baselines(year, mode, impute_zeros, exclude_top_decile, src)
+        pool = prepare_pool(year, mode, impute_zeros, exclude_top_decile)
+        _, _, n = get_baselines(year, mode, impute_zeros, exclude_top_decile)
         regime = get_regime(regime_name)
         try:
             sel = set(regime.select(pool, n))
@@ -379,7 +401,7 @@ def compute_quadrants(regime_name, lam, years_tuple, mode, impute_zeros, exclude
 
 with st.spinner("Computing quadrants..."):
     pool_df, regime_ids, ideal_ids, ac_ids = compute_quadrants(
-        dive_regime_name, lam, tuple(dive_years), mode, impute_zeros, exclude_top_decile, citation_source)
+        dive_regime_name, lam, tuple(dive_years), mode, impute_zeros, exclude_top_decile)
 
 quad_order = ["regime ∩ ideal", "ideal only", "regime only", "neither"]
 
@@ -639,17 +661,17 @@ _COV_PATH = "outputs/paper_author_covariates.csv"
 _ET_PATH  = "outputs/eval_table.csv"
 
 @st.cache_data
-def _load_hetero_full(src="OpenAlex", _v=3):
+def _load_hetero_full(_v=4):
     cov_path = "outputs/paper_author_covariates.csv"
     if not os.path.exists(cov_path):
         return None
-    et  = _et(src)
+    et  = _et()
     cov = pd.read_csv(cov_path)
     df  = et.merge(cov, on="paper_id", how="left")
     df["log_cites"] = np.log1p(df["openalex_citations"].fillna(0))
     return df
 
-_het_df = _load_hetero_full(citation_source)
+_het_df = _load_hetero_full()
 
 if _het_df is None:
     st.info("Run `python src/build/build_author_covariates.py` to enable this section.")
@@ -715,11 +737,11 @@ else:
                 'driven by that covariate.</p>', unsafe_allow_html=True)
 
     @st.cache_data
-    def _recall_by_subgroup(years_tuple, mode_key, impute, excl, src="OpenAlex"):
+    def _recall_by_subgroup(years_tuple, mode_key, impute, excl):
         llm = LLMCommittee(); ac = HumanActual()
         rows = []
         base_df = pd.concat([
-            prepare_pool(yr, mode_key, impute, excl, src) for yr in years_tuple
+            prepare_pool(yr, mode_key, impute, excl) for yr in years_tuple
         ], ignore_index=True)
         cov = pd.read_csv("outputs/paper_author_covariates.csv")
         base_df = base_df.merge(cov, on="paper_id", how="left")
@@ -751,7 +773,7 @@ else:
                 })
         return pd.DataFrame(rows)
 
-    _sub_df = _recall_by_subgroup(tuple(years), mode, impute_zeros, exclude_top_decile, citation_source)
+    _sub_df = _recall_by_subgroup(tuple(years), mode, impute_zeros, exclude_top_decile)
 
     if not _sub_df.empty:
         # Plot field separately (categorical, not binary)
@@ -824,13 +846,13 @@ else:
                 'slope actually differs by field.</p>', unsafe_allow_html=True)
 
     @st.cache_data
-    def _field_recall(years_tuple, mode_key, impute, excl, src="OpenAlex"):
+    def _field_recall(years_tuple, mode_key, impute, excl):
         rows = []
         _regs = [LLMCommittee(), HumanActual(), HumanScore()]
         et_sub = _et(src)
         for field in et_sub["field"].dropna().unique():
             for yr in years_tuple:
-                pf = prepare_pool(yr, mode_key, impute, excl, src)
+                pf = prepare_pool(yr, mode_key, impute, excl)
                 pf = pf[pf["field"] == field].copy()
                 n_acc = int(pf["decision"].str.startswith("Accept", na=False).sum())
                 if n_acc < 3: continue
@@ -844,7 +866,7 @@ else:
                         pass
         return pd.DataFrame(rows)
 
-    _fc_df = _field_recall(tuple(years), mode, impute_zeros, exclude_top_decile, citation_source)
+    _fc_df = _field_recall(tuple(years), mode, impute_zeros, exclude_top_decile)
 
     if not _fc_df.empty:
         # Grouped bar: recall@10% by field, three regimes
@@ -1038,8 +1060,13 @@ st.markdown('<p class="explainer">'
             unsafe_allow_html=True)
 
 @st.cache_data
-def _load_rdd_sample(src="OpenAlex", _v=3):
-    rdd_path = "data/OpenAlex/openalex_rdd_dashboard.csv"
+def _load_rdd_sample(_v=4):
+    """The RDD running variable and bandwidths come from the OpenAlex sample file, but
+    the OUTCOME is taken from citations.csv like everything else on this page — the
+    sample definition and the thing being measured are separate concerns. Previously
+    this swapped in S2 v1 counts behind the sidebar toggle, which left the RDD on a
+    different outcome from the rest of the dashboard whenever the toggle was OpenAlex."""
+    rdd_path = _abs("data/OpenAlex/openalex_rdd_dashboard.csv")
     if not os.path.exists(rdd_path):
         return None
     raw = pd.read_csv(rdd_path)
@@ -1048,24 +1075,20 @@ def _load_rdd_sample(src="OpenAlex", _v=3):
         & raw["in_year_specific_rdd_sample"].astype(bool)
         & raw["openalex_matched"].astype(bool)
     ].copy()
-    if src == "Semantic Scholar" and os.path.exists(S2_CSV):
-        # same RDD sample, outcome swapped to S2 counts; papers without an
-        # S2 match (~7%) are dropped rather than imputed
-        s2 = pd.read_csv(S2_CSV)
-        ok = s2[s2["s2_citations"].notna() &
-                ((s2["method"] == "arxiv_batch") | (s2["title_sim"].fillna(0) >= 0.9))]
-        dm = dm.merge(ok[["paper_id", "s2_citations"]].drop_duplicates("paper_id"),
-                      on="paper_id", how="inner")
-        dm["openalex_cited_by_count"] = dm["s2_citations"]
+    if os.path.exists(CITATIONS_CSV):
+        # inner join: a paper with no tier A/B match is dropped, not imputed as zero
+        cit = pd.read_csv(CITATIONS_CSV)[["paper_id", "citations"]].drop_duplicates("paper_id")
+        dm = dm.merge(cit, on="paper_id", how="inner")
+        dm["openalex_cited_by_count"] = dm["citations"]
     dm["lcites"] = np.log1p(dm["openalex_cited_by_count"].fillna(0))
     dm["accepted"] = dm["accepted"].astype(int)
-    _field = pd.read_csv("outputs/eval_table.csv")[["paper_id", "field"]]
+    _field = pd.read_csv(EVAL_TABLE, low_memory=False)[["paper_id", "field"]]
     dm = dm.merge(_field, on="paper_id", how="left")
     return dm
 
 @st.cache_data
-def _rdd_year_bscatter(yr, n_bins=16, src="OpenAlex"):
-    dm = _load_rdd_sample(src)
+def _rdd_year_bscatter(yr, n_bins=16):
+    dm = _load_rdd_sample()
     if dm is None: return None, None
     sub = dm[dm["year"] == yr].copy()
     bw = sub["bandwidth"].iloc[0]
@@ -1080,8 +1103,8 @@ def _rdd_year_bscatter(yr, n_bins=16, src="OpenAlex"):
     return bs, bw
 
 @st.cache_data
-def _rdd_all_specs(src="OpenAlex"):
-    dm = _load_rdd_sample(src)
+def _rdd_all_specs():
+    dm = _load_rdd_sample()
     if dm is None: return [], [], []
     from analysis.fuzzy_rdd import run_specs_constant, run_specs
     pooled_lc = [r for h in [0.5, 0.75, 1.0]
@@ -1096,11 +1119,11 @@ def _rdd_all_specs(src="OpenAlex"):
         if r: yr_lc.append({**r, "year": yr})
     return pooled_lc, yr_lc, pooled_field_lc
 
-_rdd_dm = _load_rdd_sample(citation_source)
+_rdd_dm = _load_rdd_sample()
 if _rdd_dm is None:
     st.info("RDD data not found.")
 else:
-    _pooled_specs, _yr_specs, _pooled_field_specs = _rdd_all_specs(citation_source)
+    _pooled_specs, _yr_specs, _pooled_field_specs = _rdd_all_specs()
 
     # ── 4a. SCORE DISTRIBUTION — heaping diagnostic ─────────────────────────
     st.markdown("#### 4a. Score distribution by year — masspoints diagnostic")
@@ -1148,7 +1171,7 @@ else:
 
     _yr_cols = st.columns(3)
     for i, yr in enumerate([2018, 2019, 2020]):
-        bs, bw = _rdd_year_bscatter(yr, src=citation_source)
+        bs, bw = _rdd_year_bscatter(yr)
         with _yr_cols[i]:
             st.markdown(f"**{yr}** (h={bw:.2f})")
             if bs is None or bs.empty:
@@ -1264,7 +1287,9 @@ else:
         unsafe_allow_html=True)
 
     st.caption(
-        f"Sample: {len(_rdd_dm):,} papers (ICLR 2018–2020, OpenAlex-matched, within year-specific bandwidth). "
+        f"Sample: {len(_rdd_dm):,} papers (ICLR 2018–2020, within year-specific bandwidth). "
+        f"Sample membership and bandwidths come from the OpenAlex RDD file; the citation "
+        f"outcome is `outputs/citations.csv`. "
         f"Pooled bandwidth h = {_rdd_dm['bandwidth'].median():.2f} (median). "
         "McCrary density test: no significant manipulation (β≈0.0, p>0.05)."
     )
@@ -1521,7 +1546,9 @@ else:
         st.markdown("---")
 
     # ── 5d. LEAKAGE-EXCLUDED HEADLINE ────────────────────────────────────────
-    _use_s2_excl = citation_source == "Semantic Scholar" and _leak["exclusion_s2"] is not None
+    # One ground truth now, so the S2 exclusion arm is the only arm — it is used
+    # whenever it has been built, rather than following a sidebar toggle.
+    _use_s2_excl = _leak["exclusion_s2"] is not None
     if _use_s2_excl:
         _leak = dict(_leak, exclusion=_leak["exclusion_s2"])
     if _leak["exclusion"] is not None:
@@ -1618,14 +1645,14 @@ else:
                 f"is the measured leakage tax. Probe coverage: {len(_probed_ids):,}/{len(_pool_ids):,} "
                 f"papers ({len(_probed_ids) / len(_pool_ids):.1%}); {len(_excluded_ids):,} excluded as "
                 f"memorized (LAP or FAME ≥ 0.5). "
-                + ("Semantic Scholar ground truth (follows the sidebar toggle; "
+                + ("Semantic Scholar ground truth ("
                    "src/analysis/leakage_exclusion_eval.py --citation-source s2). Under S2, exclusion "
                    "helps every regime — famous excluded papers carry even more of the citation "
                    "mass — but helps humans far more: the LLM Committee's full-pool edge over "
                    "Human AC nearly vanishes on the leakage-excluded pool."
                    if _use_s2_excl else
-                   "OpenAlex ground truth. LLM regimes shrink the most; human regimes are ~flat. "
-                   "Toggle the sidebar citation source to see the S2 version.")
+                   "Legacy OpenAlex ground truth — the S2 exclusion arm has not been built. "
+                   "Run src/analysis/leakage_exclusion_eval.py --citation-source s2.")
             )
 
         if _leak["threshold_sweep"] is not None and len(_leak["threshold_sweep"]):
