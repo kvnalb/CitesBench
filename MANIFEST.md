@@ -253,12 +253,12 @@ _shared modules imported by the above_
 | `outputs/arxiv_resolution.log` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/arxiv_resolution_report.md` | `src/fetch/resolve_arxiv_ids.py` | `src/app/provenance_tab.py` |
 | `outputs/author_stats.csv` | `src/fetch/fetch_author_stats.py` | `src/app/provenance_tab.py`, `src/audit/data_audit.py`, `src/build/build_author_covariates.py` |
-| `outputs/baselines_cache.csv` | `src/app/dashboard.py` | `src/app/provenance_tab.py` |
+| `outputs/baselines_cache.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/dashboard.py`, `src/app/provenance_tab.py` |
 | `outputs/breakthrough_bubble.png` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/breakthrough_top_decile.png` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/citation_source_comparison.csv` | `src/analysis/compare_citation_sources.py` | `src/app/provenance_tab.py` |
 | `outputs/citation_source_comparison.md` | `src/analysis/compare_citation_sources.py` | `src/app/provenance_tab.py`, `src/audit/data_audit.py` |
-| `outputs/citations.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/build/build_citations.py`, `src/build/build_eval_table.py` |
+| `outputs/citations.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/dashboard.py`, `src/build/build_citations.py`, `src/build/build_eval_table.py` |
 | `outputs/cite_hist.png` | `src/analysis/cite_hist.py` | `src/app/provenance_tab.py` |
 | `outputs/committee_ratings_2025.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/analysis/compare_eras.py`, `src/build/build_committee_ratings_2025.py` |
 | `outputs/data_audit.html` | `src/audit/data_audit.py` | `src/app/provenance_tab.py` |
@@ -372,7 +372,7 @@ _shared modules imported by the above_
 | `outputs/s2_citations_2025.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py`, `src/build/build_citations.py`, `src/build/build_oos_samples.py` |
 | `outputs/s2_citations_2025_attribution.md` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | — |
 | `outputs/s2_citations_2025_tiered.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/analysis/compare_eras.py` |
-| `outputs/s2_citations_full.csv` | `src/fetch/fetch_citations_s2_full.py` | `src/analysis/leakage_exclusion_bootstrap.py`, `src/analysis/leakage_exclusion_eval.py`, `src/analysis/table1_summary_stats.py`, `src/app/dashboard.py`, `src/app/provenance_tab.py`, `src/audit/data_audit.py` |
+| `outputs/s2_citations_full.csv` | `src/fetch/fetch_citations_s2_full.py` | `src/analysis/leakage_exclusion_bootstrap.py`, `src/analysis/leakage_exclusion_eval.py`, `src/analysis/table1_summary_stats.py`, `src/app/provenance_tab.py`, `src/audit/data_audit.py` |
 | `outputs/s2_citations_v2.csv` | `src/fetch/fetch_citations_s2_v2.py` | `src/app/provenance_tab.py`, `src/build/backfill_author_overlap.py`, `src/build/build_citations.py`, `src/probes/qualitative_check.py` |
 | `outputs/s2_citations_v2_authored.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/build/build_citations.py` |
 | `outputs/s2_citations_v2_authored_attribution.md` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | — |
