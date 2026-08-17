@@ -42,7 +42,10 @@ SEV_COLOR = {
     "info":    "#64748B",
 }
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# src/app/provenance_tab.py -> src/app -> src -> repo root. Three levels, not two:
+# two landed on src/, so every _abs() below silently missed and the page reported the
+# DB and data_audit.md as "missing or unreadable" on a checkout where both were present.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DB_PATH = "data/gen_review.db"
 
 # Files whose row count we do not attempt (binary, or line count would be a lie).

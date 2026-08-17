@@ -37,7 +37,15 @@ import streamlit as st
 # Any directory matching the archive layout, wherever it lives: data/ holds runs that
 # arrived from elsewhere (the 2018-2020 Dropbox logs), outputs/runs/ holds ours. Globbed
 # rather than hardcoded so a new run appears without a code change.
-RUN_GLOBS = ["data/*/run_manifest.json", "outputs/runs/*/run_manifest.json"]
+#
+# Anchored to the repo, not the cwd. As bare relative globs these matched nothing
+# whenever Streamlit was launched from anywhere but the repo root, and the page then
+# reported "no run directories found" with four of them sitting on disk.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_abs = lambda rel: os.path.join(REPO, rel)
+_rel = lambda p: os.path.relpath(p, REPO)      # for display: paths stay readable
+
+RUN_GLOBS = [_abs("data/*/run_manifest.json"), _abs("outputs/runs/*/run_manifest.json")]
 
 # This page is for reading ONE paper closely, not for browsing a corpus. The 2025 run
 # holds 3,632 papers and a dropdown of that length is slow and useless. So the default
@@ -49,17 +57,17 @@ RUN_GLOBS = ["data/*/run_manifest.json", "outputs/runs/*/run_manifest.json"]
 # collaborator's Dropbox).
 EXAMPLES = [
     ("2018-2020 · RDD bandwidth sample",
-     "data/rdd_bandwidth_2018_2020_gemma4_gptoss20b", None),
+     _abs("data/rdd_bandwidth_2018_2020_gemma4_gptoss20b"), None),
     ("2018-2020 · remaining (non-RDD) sample",
-     "data/full_2018_2020_remaining_gemma4_gptoss20b_smoke", "r1AMITFaW"),
+     _abs("data/full_2018_2020_remaining_gemma4_gptoss20b_smoke"), "r1AMITFaW"),
     # These two are the SAME paper on two models, so the pair is a direct comparison:
     # gemma skips contribution_extraction (8 calls), gpt-oss-120b does not (9).
     ("2025 · ICLR accepted — gemma (8 calls)",
-     "outputs/runs/iclr2025_gemma_pilot", "b0WpXBABdu"),
+     _abs("outputs/runs/iclr2025_gemma_pilot"), "b0WpXBABdu"),
     ("2025 · same paper — gpt-oss-120b (9 calls)",
-     "outputs/runs/smoke_oss120_1", "b0WpXBABdu"),
+     _abs("outputs/runs/smoke_oss120_1"), "b0WpXBABdu"),
     ("2025 · full run (3,632 papers) — first paper",
-     "outputs/runs/iclr2025_gemma_full", None),
+     _abs("outputs/runs/iclr2025_gemma_full"), None),
 ]
 
 SCORE_FIELDS = ["rating", "confidence", "soundness", "presentation", "contribution"]
@@ -144,7 +152,7 @@ def render():
     runs = _find_runs()
     if not runs:
         st.warning("No run directories found matching " +
-                   " or ".join(f"`{g}`" for g in RUN_GLOBS) +
+                   " or ".join(f"`{_rel(g)}`" for g in RUN_GLOBS) +
                    ". A run folder needs a `run_manifest.json` at its root.")
         return
 
@@ -171,7 +179,7 @@ def render():
     else:
         run_dir = st.selectbox(
             "Run", runs,
-            format_func=lambda p: f"{os.path.basename(p)}  ({p.split(os.sep)[0]}/)")
+            format_func=lambda p: f"{os.path.basename(p)}  ({_rel(p).split(os.sep)[0]}/)")
         papers = sorted(os.path.basename(p) for p in
                         glob.glob(os.path.join(run_dir, "papers", "*")) if os.path.isdir(p))
         if not papers:
@@ -179,7 +187,7 @@ def render():
             return
         paper_id = st.selectbox(f"Paper ({len(papers)} in this run)", papers)
 
-    st.caption(f"`{run_dir}/papers/{paper_id}`")
+    st.caption(f"`{_rel(run_dir)}/papers/{paper_id}`")
     pdir = os.path.join(run_dir, "papers", paper_id)
 
     manifest = _load(os.path.join(run_dir, "run_manifest.json"), {})

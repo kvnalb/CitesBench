@@ -10,12 +10,17 @@ import os
 import pandas as pd
 import streamlit as st
 
-METRICS_CSV = "outputs/metric_suite.csv"
-DID_CSV = "outputs/metric_suite_did.csv"
-SUITE_MD = "outputs/metric_suite.md"
-DID_MD = "outputs/did_leakage.md"
-ERA_PNG = "outputs/era_comparison.png"
-AIVH_PNG = "outputs/ai_vs_human_2025.png"
+# Anchored to the repo, not the cwd: Streamlit is not always launched from the repo
+# root, and a bare "outputs/..." made every file below look unbuilt when it wasn't.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_abs = lambda rel: os.path.join(REPO, rel)
+
+METRICS_CSV = _abs("outputs/metric_suite.csv")
+DID_CSV = _abs("outputs/metric_suite_did.csv")
+SUITE_MD = _abs("outputs/metric_suite.md")
+DID_MD = _abs("outputs/did_leakage.md")
+ERA_PNG = _abs("outputs/era_comparison.png")
+AIVH_PNG = _abs("outputs/ai_vs_human_2025.png")
 
 PRETTY = {
     "spearman_rho": "Spearman ρ", "kendall_tau_b": "Kendall τ-b",
@@ -61,7 +66,7 @@ def render():
         st.warning(
             "Results not built yet. Run:\n\n"
             "```bash\npython src/analysis/metric_suite.py --tier-a-only\n```\n\n"
-            f"Missing: {', '.join(gone)}"
+            f"Missing: {', '.join(os.path.relpath(p, REPO) for p in gone)}"
         )
         return
 
