@@ -7,6 +7,7 @@ src/fetch/      pulls from an external API or dump; incremental and resumable
 src/build/      builds the analysis tables and frozen samples from fetched data
 src/probes/     sends prompts to a model (leakage / recall / review probes)
 src/analysis/   reads tables, computes results, writes reports and figures
+src/figures/    the paper's figures and tables -> outputs/figures/; figstyle.py lives here
 src/app/        Streamlit dashboard + pages/ (reads only, never writes results)
 src/audit/      audits the repo itself: data quality, prompt export, MANIFEST
 src/*.py        shared modules imported by the above: prompts, metrics, baselines
@@ -19,7 +20,12 @@ MANIFEST.md     generated: every script, and which script produced each output
 ```
 
 A script goes in the directory matching what it does, not what it is about. New
-group only when a file fits none of the six.
+group only when a file fits none of the seven.
+
+Adding a group means registering it in `GROUPS` in `src/audit/build_manifest.py`.
+Without that the whole directory is invisible to the manifest and everything it
+writes is reported as an orphan — the script count going DOWN after adding scripts
+is the symptom.
 
 ## MANIFEST.md must never be stale
 
