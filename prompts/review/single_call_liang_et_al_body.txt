@@ -1,0 +1,8 @@
+Title: {title}
+
+{paper_text}
+
+======
+Your task: compose a high-quality peer review of the ML paper above, submitted
+to a top-tier ML conference on OpenReview. Follow the review outline and return
+only the JSON object.
