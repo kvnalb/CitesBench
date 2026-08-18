@@ -31,7 +31,7 @@ import pandas as pd
 from scipy import stats
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import figstyle as fs
+from figures import figstyle as fs
 import compare_eras as ce
 import did_leakage as dl
 
