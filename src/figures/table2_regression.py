@@ -30,6 +30,8 @@ Unmatched papers (170 of 4,567) are dropped, never imputed as zero.
 
 Run: python src/figures/table2_regression.py
 """
+import argparse
+import hashlib
 import os
 import sys
 
@@ -43,6 +45,7 @@ from regimes.llm_ensemble import LLMEnsemble
 
 EVAL_TABLE = "outputs/eval_table.csv"
 OUT_CSV = "outputs/figures/table2_regression.csv"
+DRAWS_CSV = "outputs/figures/table2_bootstrap_draws.csv"
 OUT_TEX = "outputs/figures/table2_regression.tex"
 
 YEARS = [2018, 2019, 2020]
@@ -84,14 +87,31 @@ def select_all(pool):
     return out
 
 
-def build():
-    os.makedirs("outputs/figures", exist_ok=True)
-    et = pd.read_csv(EVAL_TABLE, low_memory=False)
-    et = et[et.year.isin(YEARS)].copy()
-    et["accepted"] = et.decision.str.startswith("Accept", na=False)
+def fingerprint():
+    """What the cached draws are only valid for.
 
-    point = {k: fit(et, v) for k, v in select_all(et).items()}
+    Everything the draws depend on: the input bytes, the draw count, the seed, the
+    year set and which regimes were run. A cache keyed on less than this is the
+    baselines_cache.csv failure — that file kept its rows valid-looking after the
+    citation column was swapped underneath it, and served OpenAlex-era baselines
+    against S2 outcomes without a word.
+    """
+    h = hashlib.sha1(open(EVAL_TABLE, "rb").read())
+    h.update(repr((N_BOOT, SEED, YEARS, [r[0].name for r in REGIMES])).encode())
+    return h.hexdigest()[:16]
 
+
+def load_draws(fp):
+    """Cached per-draw coefficients, or None if they are for something else."""
+    if not os.path.exists(DRAWS_CSV):
+        return None
+    d = pd.read_csv(DRAWS_CSV)
+    if d.get("fingerprint", pd.Series([None])).iloc[0] != fp or len(d) != N_BOOT:
+        return None
+    return d
+
+
+def compute_draws(et, fp):
     rng = np.random.default_rng(SEED)
     draws = {r[0].name: [] for r in REGIMES}
     contrasts = []
@@ -106,6 +126,31 @@ def build():
         for k, v in vals.items():
             draws[k].append(v)
         contrasts.append(vals[LLMCommittee().name] - vals[HumanActual().name])
+
+    d = pd.DataFrame(draws)
+    d["contrast"] = contrasts
+    d["fingerprint"] = fp
+    d.to_csv(DRAWS_CSV, index=False)
+    return d
+
+
+def build(refresh=False):
+    os.makedirs("outputs/figures", exist_ok=True)
+    et = pd.read_csv(EVAL_TABLE, low_memory=False)
+    et = et[et.year.isin(YEARS)].copy()
+    et["accepted"] = et.decision.str.startswith("Accept", na=False)
+
+    point = {k: fit(et, v) for k, v in select_all(et).items()}
+
+    fp = fingerprint()
+    d = None if refresh else load_draws(fp)
+    if d is None:
+        print(f"computing {N_BOOT} bootstrap draws -> {DRAWS_CSV}")
+        d = compute_draws(et, fp)
+    else:
+        print(f"reusing {len(d):,} cached draws from {DRAWS_CSV} (fingerprint {fp})")
+    draws = {r[0].name: d[r[0].name].tolist() for r in REGIMES}
+    contrasts = d["contrast"].tolist()
 
     rows = []
     for regime, label, tie in REGIMES:
@@ -148,11 +193,16 @@ def build():
     return t
 
 
-def demo():
-    t = build().set_index("regime")
+def demo(refresh=False):
+    t = build(refresh).set_index("regime")
     for r in ("Human (AC decisions)", "LLM Committee (Gemma)", "LLM2 (ensemble)"):
         assert t.loc[r, "ci_lo"] > 0, f"{r} should beat the papers it passes over"
     assert t.loc["LLM Committee (Gemma)", "coef"] > t.loc["LLM2 (ensemble)", "coef"]
+    # the cache must exist and be stamped for THIS input after a build, or a later
+    # run would silently reuse draws belonging to different data
+    cached = pd.read_csv(DRAWS_CSV)
+    assert cached.fingerprint.iloc[0] == fingerprint(), "cache stamped for other data"
+    assert len(cached) == N_BOOT
     con = t.loc["contrast"]
     verdict = ("distinguishable from zero" if con.ci_lo > 0 or con.ci_hi < 0
                else "NOT distinguishable from zero")
@@ -162,4 +212,7 @@ def demo():
 
 
 if __name__ == "__main__":
-    demo()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--refresh", action="store_true",
+                    help="recompute the draws even if the cache is still valid")
+    demo(ap.parse_args().refresh)
