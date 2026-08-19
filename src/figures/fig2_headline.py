@@ -42,7 +42,6 @@ import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from figures import spec, figstyle as fs   # noqa: E402
-from metrics import compute_metrics        # noqa: E402
 from baselines import random_baseline      # noqa: E402
 
 OUT_PDF = "outputs/figures/fig2_headline.pdf"
@@ -59,30 +58,6 @@ WRAP = {"Human (area chairs)": "Human\n(area chairs)",
         "LLM single call (1 call)": "LLM single call\n(1 call)"}
 
 
-def metric_over_orderings(et, regime, metric):
-    """Point, interval and resolution for one regime on one metric.
-
-    Each of N_SHUFFLE orderings produces a slate per year; the metric is averaged
-    across years within an ordering, so the spread reported is the spread of the
-    year-averaged headline rather than of any single year.
-    """
-    per_year_streams = []
-    for year in spec.YEARS:
-        pool = et[et["year"] == year]
-        n = spec.n_for(et, year)
-        vals = [compute_metrics(sel, pool, spec.MODE)[metric]
-                for sel in spec.select_with_ties(pool, regime, n)]
-        per_year_streams.append(vals)
-
-    # A decision-based regime yields one slate, not N_SHUFFLE of them.
-    width = min(len(v) for v in per_year_streams)
-    across = np.array([v[:width] for v in per_year_streams], dtype=float).mean(axis=0)
-    point, lo, hi = spec.point_and_interval(across)
-    if width == 1:                      # no ties to be indifferent over
-        lo = hi = np.nan
-    return point, lo, hi
-
-
 def build():
     os.makedirs("outputs/figures", exist_ok=True)
     et = spec.read_eval_table()
@@ -95,7 +70,7 @@ def build():
     recs = []
     for metric, _ in METRICS:
         for r in spec.HEADLINE:
-            point, lo, hi = metric_over_orderings(et, r, metric)
+            point, lo, hi = spec.metric_over_orderings(et, r, metric)
             # resolution, averaged over years, so the caption can quote it
             sup = np.mean([spec.resolution(et[et.year == y][r.score],
                                            spec.n_for(et, y))[1] / spec.n_for(et, y)

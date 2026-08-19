@@ -233,6 +233,60 @@ def point_and_interval(values):
     return float(v.mean()), float(v.min()), float(v.max())
 
 
+def metric_over_orderings(et, regime, metric, n_shuffle=N_SHUFFLE):
+    """Point, interval and resolution for one regime on one metric.
+
+    THE AGGREGATION RULE LIVES HERE, and every exhibit calls this rather than
+    reimplementing it. Two decisions it fixes:
+
+    1. Mean of the per-year values, never a pooled statistic over the three years
+       stacked together. They differ materially — pooling the median gives 111.0
+       where the mean of per-year medians gives 123.2 — because the years differ
+       in size and in citation age.
+
+    2. Mean over tie orderings of the per-ordering metric, NOT the metric of a
+       probability-weighted pool. For a metric linear in the selection indicator
+       (recall, mean log) the two are identical; for the median they are not,
+       because E[median] is not the median of the expectation. Computing the
+       median the weighted way gave 123.0 against this function's 123.2 with no
+       error raised, which is the kind of quiet disagreement spec.py exists to
+       prevent.
+
+    Returns (point, lo, hi). A regime with no score yields one slate, so its
+    interval is NaN rather than a fabricated width.
+    """
+    from metrics import compute_metrics       # local: avoids a circular import
+
+    streams = []
+    for year in YEARS:
+        pool = et[et["year"] == year]
+        n = n_for(et, year)
+        streams.append([compute_metrics(sel, pool, MODE)[metric]
+                        for sel in select_with_ties(pool, regime, n, n_shuffle)])
+
+    width = min(len(v) for v in streams)
+    across = np.array([v[:width] for v in streams], dtype=float).mean(axis=0)
+    point, lo, hi = point_and_interval(across)
+    return (point, np.nan, np.nan) if width == 1 else (point, lo, hi)
+
+
+def recall_at(et, prob, k):
+    """Expected recall of the true top-k fraction, mean of the per-year values.
+
+    Recall is linear in the selection indicator, so weighting papers by their
+    selection probability is exactly equal to averaging over tie orderings, and
+    far cheaper. That equivalence does not hold for the median — see
+    metric_over_orderings.
+    """
+    per_year = []
+    for year in YEARS:
+        d = et[et["year"] == year].dropna(subset=[OUTCOME])
+        m = max(1, int(round(k * len(d))))
+        top = d.nlargest(m, OUTCOME)["paper_id"]
+        per_year.append(prob.reindex(top).fillna(0).sum() / m)
+    return float(np.mean(per_year))
+
+
 def fingerprint():
     """Everything a cached artifact must be invalidated on."""
     return repr((YEARS, SEED, N_SHUFFLE, N_BOOT, MODE, TIERS, OUTCOME,
