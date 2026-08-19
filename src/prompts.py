@@ -43,6 +43,8 @@ def demo():
         "review/paraphrase_abstract": dict(abstract="A"),
         "review/title_abstract_body": dict(title="T", abstract="A"),
         "review/abstract_only_body": dict(abstract="A"),
+        "review/single_call_liang_et_al": dict(year=2020),
+        "review/single_call_liang_et_al_body": dict(title="T", paper_text="X"),
     }
     for name, kw in filled.items():
         out = load(name, **kw)
