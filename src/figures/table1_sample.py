@@ -114,8 +114,7 @@ def render(t):
         align="lrrrrrrrr",
         colw=[0.8, 1.0, 0.9, 0.9, 0.95, 0.95, 1.0, 1.0, 0.85],
         rules=(len(body) - 1,),        # rule above the pooled row
-        note="Outcome: Semantic Scholar citations, tier "
-             f"{'+'.join(spec.TIERS)}. Unmatched papers are dropped, never zero.")
+        note="Outcome: Semantic Scholar citations by title + author matching.")
     fig.savefig(OUT_PDF)
     fig.savefig(OUT_PNG, dpi=220)
     plt.close(fig)
