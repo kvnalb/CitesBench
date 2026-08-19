@@ -108,6 +108,22 @@ def main():
         for p in pat:
             patterns.setdefault(p, []).append(s["path"])
 
+    # A pattern like "outputs/eval_table_{year}.csv" does name a real file — resolve it
+    # by regex so those files get their producer instead of reading as orphans.
+    pat_re = []
+    for pat, owners in patterns.items():
+        rx = re.escape(pat)
+        rx = re.sub(r"\\\{[^}]*\\\}", "[^/]+", rx).replace(r"\%s", "[^/]+")
+        pat_re.append((re.compile(f"^{rx}$"), pat, owners))
+
+    def producers(p):
+        if writes.get(p):
+            return sorted(set(writes[p])), "literal"
+        for rx, pat, owners in pat_re:
+            if rx.match(p):
+                return sorted(set(owners)), f"pattern `{pat}`"
+        return [], ""
+
     # Cache directories hold thousands of API-response files whose provenance is the
     # directory, not the file. Roll each up to one row so real outputs stay legible.
     #
@@ -134,7 +150,16 @@ def main():
     present = []
     for d, files in bydir.items():
         # never roll up outputs/ or data/ themselves — only nested cache dirs
-        if d not in ("outputs", "data") and len(files) >= ROLLUP_MIN:
+        #
+        # ...and never roll up a directory whose files are individually
+        # attributable. The threshold exists for cache dirs, where provenance
+        # belongs to the directory and the per-file rows are noise. outputs/figures/
+        # crossed 20 files and collapsed into a single row marked ORPHAN, losing the
+        # per-file provenance for every paper exhibit — in the one directory where
+        # it matters most. Count first, then decide.
+        named = sum(1 for f in files if producers(f)[0])
+        if (d not in ("outputs", "data") and len(files) >= ROLLUP_MIN
+                and named < len(files) / 2):
             rolled[d] = len(files)
         else:
             present += files
@@ -176,22 +201,6 @@ def main():
           "`consumed by` lists scripts that read the file — that is the blast radius "
           "if it changes.", "",
           "| file | produced by | consumed by |", "|---|---|---|"]
-    # A pattern like "outputs/eval_table_{year}.csv" does name a real file — resolve it
-    # by regex so those files get their producer instead of reading as orphans.
-    pat_re = []
-    for pat, owners in patterns.items():
-        rx = re.escape(pat)
-        rx = re.sub(r"\\\{[^}]*\\\}", "[^/]+", rx).replace(r"\%s", "[^/]+")
-        pat_re.append((re.compile(f"^{rx}$"), pat, owners))
-
-    def producers(p):
-        if writes.get(p):
-            return sorted(set(writes[p])), "literal"
-        for rx, pat, owners in pat_re:
-            if rx.match(p):
-                return sorted(set(owners)), f"pattern `{pat}`"
-        return [], ""
-
     orphans, shell_logs = [], []
     for p in present:
         prod, how = producers(p)

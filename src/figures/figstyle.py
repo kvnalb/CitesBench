@@ -214,6 +214,100 @@ def clean(ax, xgrid=False):
     ax.tick_params(length=0)
 
 
+def table(header, body, align, colw=None, rules=(), width_in=TEXT_WIDTH_IN,
+          note=None):
+    """A booktabs-style table drawn as a figure.
+
+    There is no LaTeX on this machine, so the .tex each table script writes cannot
+    be compiled here to be looked at. This renders the same numbers to PDF/PNG in
+    the figure style, so a table can be checked without a TeX install. The .tex
+    remains the artifact that goes into the paper; this is for reading.
+
+    Booktabs rules only — a top rule, one under the header, one at the bottom, and
+    whatever `rules` asks for. No verticals, no row shading: the column gaps do
+    that work, and lines between every row are noise.
+
+    header: list of header rows. A row is either a list of strings, one per
+            column, or a list of (text, first_col, last_col) spans.
+    body:   list of row lists of strings.
+    align:  one of "l" / "r" / "c" per column.
+    colw:   relative column widths, default equal.
+    rules:  body-row indices to draw a rule ABOVE.
+    note:   small line under the table, e.g. a units or spec line.
+    """
+    ncol = len(align)
+    colw = list(colw or [1.0] * ncol)
+    colw = [c / sum(colw) for c in colw]
+    edges = [0.0]
+    for c in colw:
+        edges.append(edges[-1] + c)
+
+    base = plt.rcParams["font.size"]
+    row_h = base * 1.85 / 72                      # inches
+    n_rows = len(header) + len(body)
+    height = row_h * (n_rows + 1.2) + (row_h * 1.5 if note else 0)
+
+    fig, ax = plt.subplots(figsize=(width_in, height))
+    ax.set_xlim(0, 1)
+    ax.set_ylim(-1.0 if note else 0, n_rows + 1.2)
+    ax.axis("off")
+
+    def x_of(col, how):
+        lo, hi = edges[col], edges[col + 1]
+        pad = 0.008
+        return {"l": lo + pad, "r": hi - pad, "c": (lo + hi) / 2}[how]
+
+    def cell(text, col, y, how, weight="normal", size=None, span_to=None):
+        # U+2212 MINUS, not the hyphen Python's formatter emits. At table sizes a
+        # hyphen sits too high and too short to read as a sign.
+        text = str(text).replace("-", "\u2212")
+        if span_to is not None and span_to != col:
+            x = (edges[col] + edges[span_to + 1]) / 2
+            how = "c"
+        else:
+            x = x_of(col, how)
+        ax.text(x, y, text, ha={"l": "left", "r": "right", "c": "center"}[how],
+                va="center", fontsize=size or base, fontweight=weight, color=INK)
+
+    def rule(y, lo=0.0, hi=1.0, lw=1.0):
+        ax.plot([lo, hi], [y, y], color=INK, lw=lw, clip_on=False,
+                solid_capstyle="butt")
+
+    top = n_rows + 0.55
+    rule(top, lw=1.1)                                            # toprule
+
+    y = n_rows
+    for hrow in header:
+        for i, item in enumerate(hrow):
+            if isinstance(item, tuple):
+                text, c0, c1 = item
+                if text:
+                    # A one-column "span" is just a header cell and takes its
+                    # column's own alignment; only a real span gets centred.
+                    cell(text, c0, y, "c" if c1 > c0 else align[c0], span_to=c1)
+                    if c1 > c0:                                  # cmidrule
+                        rule(y - 0.42, edges[c0] + 0.01, edges[c1 + 1] - 0.01, lw=0.6)
+            elif item:
+                cell(item, i, y, align[i])
+        y -= 1
+    rule(y + 0.55, lw=0.8)                                       # midrule
+
+    for r, brow in enumerate(body):
+        if r in rules:
+            rule(y + 0.55, lw=0.8)
+        for i, text in enumerate(brow):
+            cell(text, i, y, align[i])
+        y -= 1
+    rule(y + 0.55, lw=1.1)                                       # bottomrule
+
+    if note:
+        ax.text(0.0, y + 0.25, note, ha="left", va="top",
+                fontsize=base * 0.8, color=MUTED)
+
+    fig.subplots_adjust(left=0.005, right=0.995, top=0.995, bottom=0.005)
+    return fig
+
+
 def label_ends(ax, ends, x, min_gap, pad="  "):
     """Direct-label series at their right end, nudging apart any that collide.
     ends: list of [y, text, color]. Replaces a legend box."""

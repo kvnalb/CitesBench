@@ -35,14 +35,17 @@ import hashlib
 import os
 import sys
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from figures import spec  # noqa: E402
+from figures import spec, figstyle as fs  # noqa: E402
 
 EVAL_TABLE = spec.EVAL_TABLE
 OUT_CSV = "outputs/figures/table2_regression.csv"
+OUT_PDF = "outputs/figures/table2_regression.pdf"
+OUT_PNG = "outputs/figures/table2_regression.png"
 DRAWS_CSV = "outputs/figures/table2_bootstrap_draws.csv"
 OUT_TEX = "outputs/figures/table2_regression.tex"
 
@@ -194,9 +197,23 @@ def build(refresh=False):
         f"% dependent variable log1p(citations), year FE, {N_BOOT} stratified "
         "bootstrap draws that re-run selection\n")
 
+    fs.apply()
+    fig = fs.table(
+        header=[["", "Coef.", "(SE)", "95% CI"]],
+        body=[[r.regime, f"{r.coef:.3f}", f"({r.se:.3f})",
+               f"[{r.ci_lo:.3f}, {r.ci_hi:.3f}]"] for r in t.itertuples()],
+        align="lrrr",
+        colw=[1.7, 0.8, 0.8, 1.3],
+        rules=(len(t) - 1,),           # rule above the contrast row
+        note=f"Dependent variable log(1+citations), year FE, {N_BOOT} stratified "
+             "bootstrap draws that re-run selection.")
+    fig.savefig(OUT_PDF)
+    fig.savefig(OUT_PNG, dpi=220)
+    plt.close(fig)
+
     with pd.option_context("display.width", 200):
         print(t.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
-    print(f"\n-> {OUT_CSV}\n-> {OUT_TEX}")
+    print(f"\n-> {OUT_CSV}\n-> {OUT_TEX}\n-> {OUT_PDF}\n-> {OUT_PNG}")
     return t
 
 

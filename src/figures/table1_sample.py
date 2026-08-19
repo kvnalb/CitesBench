@@ -21,14 +21,17 @@ Run: python src/figures/table1_sample.py
 import os
 import sys
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from figures import spec  # noqa: E402
+from figures import spec, figstyle as fs  # noqa: E402
 
 OUT_CSV = "outputs/figures/table1_sample.csv"
 OUT_TEX = "outputs/figures/table1_sample.tex"
+OUT_PDF = "outputs/figures/table1_sample.pdf"
+OUT_PNG = "outputs/figures/table1_sample.png"
 
 YEARS = list(spec.YEARS)
 
@@ -92,12 +95,39 @@ def to_tex(t):
     )
 
 
+def render(t):
+    """The same numbers as the .tex, drawn so they can be read without LaTeX."""
+    def r(x):
+        yr = "All" if x.year == "all" else str(int(x.year))
+        return [yr, f"{x.submissions:,}", f"{x.accepts:,}", f"{x.accept_rate:.1%}",
+                f"{x.median_cites_accepted:.0f}", f"{x.median_cites_rejected:.0f}",
+                f"{x.coverage_accepted:.1%}", f"{x.coverage_rejected:.1%}",
+                f"{x.coverage_differential_pp:.1f}"]
+
+    body = [r(x) for x in t.itertuples()]
+    fs.apply()
+    fig = fs.table(
+        header=[[("Year", 0, 0), ("Subs.", 1, 1), ("Acc.", 2, 2), ("Rate", 3, 3),
+                 ("Median cites", 4, 5), ("Coverage", 6, 7), ("Diff.", 8, 8)],
+                ["", "", "", "", "Acc.", "Rej.", "Acc.", "Rej.", "(pp)"]],
+        body=body,
+        align="lrrrrrrrr",
+        colw=[0.8, 1.0, 0.9, 0.9, 0.95, 0.95, 1.0, 1.0, 0.85],
+        rules=(len(body) - 1,),        # rule above the pooled row
+        note="Outcome: Semantic Scholar citations, tier "
+             f"{'+'.join(spec.TIERS)}. Unmatched papers are dropped, never zero.")
+    fig.savefig(OUT_PDF)
+    fig.savefig(OUT_PNG, dpi=220)
+    plt.close(fig)
+
+
 def build():
     os.makedirs("outputs/figures", exist_ok=True)
     et = load()
     t = rows(et)
     t.to_csv(OUT_CSV, index=False)
     open(OUT_TEX, "w").write(to_tex(t))
+    render(t)
 
     show = t[["year", "submissions", "accepts", "accept_rate",
               "median_cites_accepted", "median_cites_rejected",
@@ -109,7 +139,7 @@ def build():
                           "coverage_accepted": "{:.1%}".format,
                           "coverage_rejected": "{:.1%}".format,
                           "coverage_differential_pp": "{:.1f}".format}))
-    print(f"\n-> {OUT_CSV}\n-> {OUT_TEX}")
+    print(f"\n-> {OUT_CSV}\n-> {OUT_TEX}\n-> {OUT_PDF}\n-> {OUT_PNG}")
     return t
 
 
