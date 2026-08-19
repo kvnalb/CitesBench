@@ -19,6 +19,7 @@ os.makedirs("outputs", exist_ok=True)
 DB = "data/gen_review.db"
 OUT = "outputs/eval_table.csv"
 DECISION_HEAD_CSV = "outputs/all_paper_results_consistent_gptoss20b.csv"
+SINGLE_CALL_CSV = "outputs/single_call_iclr1820_gemma.csv"
 
 con = sqlite3.connect(DB)
 
@@ -93,14 +94,30 @@ else:
           "src/build/build_consistent_decision_head.py first. "
           "committee_rating/deepseek_p_accept will be empty.")
 
+# Single-call baseline (src/probes/run_single_call_baseline.py): the 1-call control
+# for the 9-call council. The runner appends, so a paper that failed and later
+# succeeded has both rows — keep the last successful row per paper, never a mean.
+if os.path.exists(SINGLE_CALL_CSV):
+    _sc = pd.read_csv(SINGLE_CALL_CSV, low_memory=False)
+    _sc = _sc[_sc["rating"].notna()].drop_duplicates("paper_id", keep="last")
+    single_call = _sc[["paper_id", "rating"]].rename(
+        columns={"rating": "single_call_rating"})
+else:
+    single_call = pd.DataFrame(columns=["paper_id", "single_call_rating"])
+    print(f"Warning: {SINGLE_CALL_CSV} not found — single_call_rating will be empty.")
+
+
 df = (
     papers
-    .merge(reviews, on="paper_id", how="left")
-    .merge(citations, on="paper_id", how="left")
-    .merge(fields, on="paper_id", how="left")
-    .merge(llm_scores, on="paper_id", how="left")
-    .merge(decision_head, on="paper_id", how="left")
+    .merge(reviews, on="paper_id", how="left", validate="1:1")
+    .merge(citations, on="paper_id", how="left", validate="1:1")
+    .merge(fields, on="paper_id", how="left", validate="1:1")
+    .merge(llm_scores, on="paper_id", how="left", validate="1:1")
+    .merge(decision_head, on="paper_id", how="left", validate="1:1")
+    .merge(single_call, on="paper_id", how="left", validate="1:1")
 )
+assert len(df) == len(papers), (
+    f"merge fanned the table out: {len(papers)} papers in, {len(df)} rows out")
 
 # The canonical table only contains matched papers, so a missing row means
 # "no usable match" and must stay NaN — never zero.
