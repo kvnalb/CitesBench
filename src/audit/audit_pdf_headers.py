@@ -24,8 +24,17 @@ looked for on the first non-empty line, and separately anywhere in the first
 SCAN_LINES lines — a title page that put the title first would otherwise read as
 "no header" when the giveaway is still one line down.
 
+Two text sources, because the leak is a property of the PDFs rather than of one
+extractor, and showing that requires checking both:
+
+    --source archive       data/OpenReview/*/fulltext/<paper_id>.txt, 2018-2020
+    --source reviewarena   the ReviewArena parquet, 2020 and 2025
+
+2020 appears in both, which makes it a replication rather than a second opinion.
+
 Run: python src/audit/audit_pdf_headers.py
      python src/audit/audit_pdf_headers.py --years 2018 2019 2020
+     python src/audit/audit_pdf_headers.py --source reviewarena --years 2020 2025
 """
 import argparse
 import glob
@@ -44,6 +53,8 @@ TEXT_DIRS = [
 ]
 OUT_CSV = "outputs/audits/pdf_header_leakage.csv"
 OUT_MD = "outputs/audits/pdf_header_leakage.md"
+OUT_CSV_RA = "outputs/audits/pdf_header_leakage_reviewarena.csv"
+OUT_MD_RA = "outputs/audits/pdf_header_leakage_reviewarena.md"
 
 SCAN_LINES = 5
 
@@ -75,8 +86,7 @@ def classify(line):
     return "other"
 
 
-def read_head(path):
-    """(first non-empty line, best label found in the first SCAN_LINES lines)."""
+def _head_lines(path):
     lines = []
     with open(path, errors="replace") as f:
         for _ in range(SCAN_LINES * 4):          # blank lines are cheap, read past them
@@ -87,6 +97,32 @@ def read_head(path):
                 lines.append(ln.strip())
             if len(lines) >= SCAN_LINES:
                 break
+    return lines
+
+
+def heads_archive(years):
+    """paper_id -> first SCAN_LINES non-empty lines, from the archive .txt files."""
+    return {pid: _head_lines(path) for pid, path in text_index(TEXT_DIRS).items()}
+
+
+def heads_reviewarena(years):
+    """Same, from the ReviewArena parquet. Its `markdown` column is OCR'd PDF, so the
+    running header survives there too if it survived the PDF."""
+    import glob as _glob
+    files = sorted(_glob.glob("data/ReviewArena/raw/data/*.parquet"))
+    if not files:
+        sys.exit("no ReviewArena parquet found")
+    d = pd.concat([pd.read_parquet(f, columns=["forum_id", "year", "markdown"])
+                   for f in files], ignore_index=True)
+    d = d[d.year.isin(years) & d.markdown.notna()]
+    out = {}
+    for pid, md in zip(d.forum_id, d.markdown):
+        out[pid] = [l.strip() for l in str(md).split("\n") if l.strip()][:SCAN_LINES]
+    return out
+
+
+def head_verdict(lines):
+    """(first non-empty line, its class, best class within SCAN_LINES lines)."""
     if not lines:
         return "", "empty", "empty"
     first = lines[0]
@@ -94,22 +130,40 @@ def read_head(path):
     return first, classify(first), within
 
 
-def build(years, out_csv=OUT_CSV, out_md=OUT_MD):
-    os.makedirs("outputs/audits", exist_ok=True)
+def _decisions(years, source):
+    """Papers and decisions. eval_table only covers 2018-2020, so ReviewArena's own
+    decision column carries the later years."""
     ev = pd.read_csv(EVAL_TABLE, low_memory=False)
-    ev = ev[ev.year.isin(years)][["paper_id", "year", "decision"]].copy()
-    ev["accepted"] = ev.decision.str.startswith("Accept", na=False)
+    ev = ev[ev.year.isin(years)][["paper_id", "year", "decision"]]
+    missing = [y for y in years if y not in set(ev.year)]
+    if missing and source == "reviewarena":
+        import glob as _glob
+        files = sorted(_glob.glob("data/ReviewArena/raw/data/*.parquet"))
+        d = pd.concat([pd.read_parquet(f, columns=["forum_id", "year", "decision"])
+                       for f in files], ignore_index=True)
+        d = d[d.year.isin(missing)].rename(columns={"forum_id": "paper_id"})
+        ev = pd.concat([ev, d[["paper_id", "year", "decision"]]], ignore_index=True)
+    ev = ev.copy()
+    ev["accepted"] = ev.decision.astype(str).str.startswith("Accept")
+    return ev
 
-    idx = text_index(TEXT_DIRS)
+
+def build(years, source="archive", out_csv=None, out_md=None):
+    os.makedirs("outputs/audits", exist_ok=True)
+    out_csv = out_csv or (OUT_CSV if source == "archive" else OUT_CSV_RA)
+    out_md = out_md or (OUT_MD if source == "archive" else OUT_MD_RA)
+    ev = _decisions(years, source)
+    heads = (heads_archive if source == "archive" else heads_reviewarena)(years)
+
     rows = []
     for r in ev.itertuples(index=False):
-        path = idx.get(r.paper_id)
-        if not path:
+        lines = heads.get(r.paper_id)
+        if lines is None:
             rows.append({"paper_id": r.paper_id, "year": r.year, "decision": r.decision,
                          "accepted": r.accepted, "first_line": "", "header": "no_text",
                          "header_in_head": "no_text"})
             continue
-        first, head, within = read_head(path)
+        first, head, within = head_verdict(lines)
         rows.append({"paper_id": r.paper_id, "year": r.year, "decision": r.decision,
                      "accepted": r.accepted, "first_line": first[:200],
                      "header": head, "header_in_head": within})
@@ -118,7 +172,7 @@ def build(years, out_csv=OUT_CSV, out_md=OUT_MD):
 
     have = df[df.header != "no_text"]
     L = ["# Does the first line give away the decision?", "",
-         f"`{EVAL_TABLE}` x archive fulltext, years {', '.join(map(str, years))}. "
+         f"Source: **{source}**. Years {', '.join(map(str, years))}. "
          f"{len(have):,} of {len(df):,} papers have extracted text.", "",
          "Generated by `python src/audit/audit_pdf_headers.py` — do not hand-edit.", ""]
 
@@ -171,5 +225,6 @@ def demo():
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--years", type=int, nargs="+", default=[2018])
+    ap.add_argument("--source", choices=["archive", "reviewarena"], default="archive")
     a = ap.parse_args()
-    demo() if len(sys.argv) == 1 else build(a.years)
+    demo() if len(sys.argv) == 1 else build(a.years, a.source)
