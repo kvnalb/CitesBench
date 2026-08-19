@@ -52,13 +52,15 @@ OUT_CSV = "outputs/figures/fig2_headline.csv"
 # Axis labels only. No title, deck or source line: captions belong in the LaTeX
 # document where the author controls them, not baked into the PDF.
 METRICS = [("median_citations", "Median citations"),
-           ("mean_log_citations", "Mean log(1 + citations)")]
+           ("mean_log_citations", "Mean log(1 + citations)"),
+           ("recall_at_1", "Recall @ top 1%"),
+           ("recall_at_10", "Recall @ top 10%")]
 
 # Display may wrap a label across two lines; the CSV always carries spec's
 # canonical string, so exhibits stay joinable on `regime`.
-WRAP = {"Human (area chairs)": "Human\n(area chairs)",
-        "LLM council (9 calls)": "LLM council\n(9 calls)",
-        "LLM single call (1 call)": "LLM single call\n(1 call)"}
+WRAP = {"Human (area chairs)": "Human\nReviewers",
+        "LLM council (9 calls)": "LLM\nCouncil",
+        "LLM single call (1 call)": "Single LLM\nCall"}
 
 
 def build():
@@ -86,9 +88,9 @@ def build():
     res = pd.DataFrame(recs)
     res.to_csv(OUT_CSV, index=False)
 
-    fs.apply(ncols=2)
-    fig, axes = plt.subplots(1, 2, figsize=(5.5, 2.2))
-    for ax, (metric, unit) in zip(axes, METRICS):
+    fs.apply(nrows=2, ncols=2)
+    fig, axes = plt.subplots(2, 2, figsize=(5.5, 4.4))
+    for ax, (metric, unit) in zip(axes.ravel(), METRICS):
         sub = res[res.metric == metric].set_index("key").loc[[r.key for r in spec.HEADLINE]]
         x = np.arange(len(spec.HEADLINE))
         ax.bar(x, sub.value, width=0.62, color=[r.color for r in spec.HEADLINE], zorder=3)
@@ -101,18 +103,10 @@ def build():
                 ax.hlines([row.tie_lo, row.tie_hi], xi - 0.11, xi + 0.11,
                           color=fs.INK, lw=1.6, zorder=5)
 
+        # The random baseline, unlabelled: the dashed line stays, the caption
+        # names it.
         rnd = sub["random"].iloc[0]
         ax.axhline(rnd, color=fs.MUTED, ls=(0, (4, 3)), lw=1.2, zorder=4)
-        # axes fraction, not data coords: at x = n_regimes - 0.45 the label sat
-        # past the right spine and was clipped away without warning.
-        # The baseline crosses the bars, so this label lands on whichever colour
-        # happens to be underneath it. A thin halo keeps it legible on all three.
-        ax.annotate("random", (0.99, rnd), xycoords=("axes fraction", "data"),
-                    xytext=(0, 4), textcoords="offset points", va="bottom",
-                    ha="right", fontsize=plt.rcParams["font.size"] * 0.8,
-                    color=fs.INK, zorder=6,
-                    path_effects=[patheffects.withStroke(linewidth=2.2,
-                                                         foreground="white")])
 
         ax.set_xticks(x)
         ax.set_xticklabels([WRAP.get(r.label, r.label) for r in spec.HEADLINE],
@@ -121,17 +115,25 @@ def build():
         fs.clean(ax)
         # Two decimals on the log panel: at 4.79 vs 4.79 the point IS that they
         # are the same number.
-        fmt = ((lambda v: f"{v:.2f}") if metric == "mean_log_citations"
-               else (lambda v: f"{v:,.0f}"))
+        if metric.startswith("recall_at_"):
+            fmt = lambda v: f"{v:.0%}"
+            ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
+        elif metric == "mean_log_citations":
+            fmt = lambda v: f"{v:.2f}"
+        else:
+            fmt = lambda v: f"{v:,.0f}"
         for xi, (_, row) in zip(x, sub.iterrows()):
             top = row.value if np.isnan(row.tie_hi) else max(row.value, row.tie_hi)
             ax.annotate(fmt(row.value), (xi, top), xytext=(0, 7),
                         textcoords="offset points", ha="center", fontsize="small",
                         fontweight="bold", color=fs.INK)
-        ax.set_ylim(0, np.nanmax([sub.value.max(), sub.tie_hi.max()]) * 1.22)
+        top = np.nanmax([sub.value.max(), sub.tie_hi.max()]) * 1.22
+        # a recall axis past 100% is meaningless — cap it and let the value
+        # labels sit inside
+        ax.set_ylim(0, min(top, 1.14) if metric.startswith("recall_at_") else top)
 
-    fs.frame(fig, top_in=0.10, bottom_in=0.42, left=0.09, right=0.99,
-             wspace=0.32)
+    fs.frame(fig, top_in=0.10, bottom_in=0.40, left=0.09, right=0.99,
+             wspace=0.32, hspace=0.42)
     fig.savefig(OUT_PDF)
     fig.savefig(OUT_PNG, dpi=200)
     plt.close(fig)
