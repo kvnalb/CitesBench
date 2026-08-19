@@ -1,10 +1,12 @@
 """
-Contact sheet: every candidate panel, drawn small, on two pages.
+The candidate panels, one standalone figure each.
 
-This exists to be chosen from, not published. Page 1 characterises the sample.
-Page 2 carries the candidate main analyses and the robustness cuts. Nothing here
-is a new analysis — every panel reads outputs/eval_table.csv through spec.py, so
-a panel promoted to a paper exhibit will not move when it is redrawn at full size.
+Every panel reads outputs/eval_table.csv through spec.py and is drawn at ICLR's
+5.5in text width in the same style as the numbered exhibits, so any panel can be
+promoted into the paper without being redrawn.
+
+No titles, decks or source lines. Axis labels and legends only; the filename
+carries the panel's identity and the caption is written in the LaTeX document.
 
 WHY SELECTION PROBABILITY RATHER THAN A SLATE. Every panel that depends on which
 papers a regime picked uses each paper's probability of selection over
@@ -17,7 +19,8 @@ the same estimand Figure 2's brackets report.
 The one exception is the overlap panel: expected overlap is not the product of
 two marginal probabilities, so that panel resamples slates jointly.
 
-Run: python src/figures/contact_sheet.py
+Run: python src/figures/panels.py            (all panels)
+     python src/figures/panels.py capture    (one panel)
 """
 import os
 import sys
@@ -29,14 +32,13 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from figures import spec, figstyle as fs   # noqa: E402
 
-OUT_P1_PDF = "outputs/figures/contact_sheet_p1_sample.pdf"
-OUT_P1_PNG = "outputs/figures/contact_sheet_p1_sample.png"
-OUT_P2_PDF = "outputs/figures/contact_sheet_p2_analysis.pdf"
-OUT_P2_PNG = "outputs/figures/contact_sheet_p2_analysis.png"
-OUT_CSV = "outputs/figures/contact_sheet_panels.csv"
+PANEL_DIR = "outputs/figures/panels"
+OUT_CSV = "outputs/figures/panels_metrics.csv"
 
 N_JOINT = 50          # joint slate resamples for the overlap panel
-SMALL = "x-small"
+# At 5.5in the bundle's own 7pt tick size is already small; "x-small" was for the
+# oversized contact sheet and is unreadable at a single-panel width.
+SMALL = "small"
 
 
 # --------------------------------------------------------------- computation
@@ -95,9 +97,8 @@ def p1_pool(ax, et):
                     color=fs.INK, fontweight="bold")
     ax.set_xticks(x); ax.set_xticklabels(spec.YEARS, fontsize=SMALL)
     ax.legend(frameon=False, fontsize=SMALL, loc="upper left")
-    ax.set_title("1. Pool composition (n pinned to accepts)", fontsize=SMALL,
-                 color=fs.INK, fontweight="bold")
 
+    ax.set_ylabel("Submissions", fontsize=SMALL, color=fs.MUTED)
 
 def p2_outcome_dist(ax, et):
     for lab, sub, col in [("accepted", et[et.accepted], fs.BLUE),
@@ -106,9 +107,8 @@ def p2_outcome_dist(ax, et):
         ax.hist(v, bins=45, color=col, alpha=0.75, label=lab, zorder=3)
     ax.set_xlabel("log(1 + citations)", fontsize=SMALL, color=fs.MUTED)
     ax.legend(frameon=False, fontsize=SMALL)
-    ax.set_title("2. The outcome is heavy-tailed in both arms", fontsize=SMALL,
-                 color=fs.INK, fontweight="bold")
 
+    ax.set_ylabel("Papers", fontsize=SMALL, color=fs.MUTED)
 
 def p3_coverage(ax, et):
     x = np.arange(len(spec.YEARS)); w = 0.36
@@ -127,10 +127,10 @@ def p3_coverage(ax, et):
     ax.set_xticklabels(spec.YEARS, fontsize=SMALL)
     ax.set_yticks([0.85, 0.90, 0.95, 1.00])   # else 0.875 renders as "88%"
     ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
-    ax.legend(frameon=False, fontsize=SMALL, loc="lower left")
-    ax.set_title("3. Outcome coverage, by decision (the differential)",
-                 fontsize=SMALL, color=fs.INK, fontweight="bold")
+    ax.legend(frameon=False, fontsize=SMALL, loc="upper center",
+              bbox_to_anchor=(0.5, 1.16), ncol=2)
 
+    ax.set_ylabel("Share with a citation match", fontsize=SMALL, color=fs.MUTED)
 
 def p4_score_profile(ax, et):
     """Sorted score, min-max scaled. Flat runs are ties; the cutoff is marked."""
@@ -148,9 +148,8 @@ def p4_score_profile(ax, et):
                 textcoords="offset points", color=fs.INK)
     ax.set_xlabel("paper rank (share of the 2020 pool)", fontsize=SMALL, color=fs.MUTED)
     ax.legend(frameon=False, fontsize=SMALL, loc="lower left")
-    ax.set_title("4. Score profile — flat runs are ties", fontsize=SMALL,
-                 color=fs.INK, fontweight="bold")
 
+    ax.set_ylabel("Score (min–max scaled)", fontsize=SMALL, color=fs.MUTED)
 
 def p5_completeness(ax, et):
     cols = [("citations", spec.OUTCOME), ("field label", "field"),
@@ -167,12 +166,11 @@ def p5_completeness(ax, et):
         ax.annotate(f"{d:.1f}pp", (1.02, yi), fontsize=SMALL, va="center",
                     color=fs.INK if d > 5 else fs.MUTED,
                     fontweight="bold" if d > 5 else "normal")
+    ax.legend(frameon=False, fontsize=SMALL, loc="upper center",
+              bbox_to_anchor=(0.5, 1.16), ncol=2)
     ax.set_yticks(y); ax.set_yticklabels([c[0] for c in cols], fontsize=SMALL)
     ax.set_xlim(0, 1.18); ax.invert_yaxis()
     ax.xaxis.set_major_formatter(lambda v, _: f"{v:.0%}" if v <= 1 else "")
-    ax.legend(frameon=False, fontsize=SMALL, loc="lower left")
-    ax.set_title("5. Completeness by decision — field is the outlier",
-                 fontsize=SMALL, color=fs.INK, fontweight="bold")
 
 
 def p6_score_vs_cites(ax, et):
@@ -182,11 +180,10 @@ def p6_score_vs_cites(ax, et):
     b = d.groupby(d.mean_rating.round())[spec.OUTCOME].median()
     ax.plot(b.index, np.log1p(b.values), color=fs.VERMILLION, lw=2, marker="o", ms=3)
     ax.set_xlabel("mean human review score", fontsize=SMALL, color=fs.MUTED)
-    ax.set_title("6. Raw signal: human score vs outcome", fontsize=SMALL,
-                 color=fs.INK, fontweight="bold")
 
 
-# ---------------------------------------------------- page 2: main + robustness
+# ---------------------------------------------------- page 2: main + robustness    ax.set_ylabel("log(1 + citations)", fontsize=SMALL, color=fs.MUTED)
+
 def pA_recall_curve(ax, et, probs):
     ks = np.geomspace(0.004, 1.0, 90)
     rows = []
@@ -201,11 +198,9 @@ def pA_recall_curve(ax, et, probs):
                                         color=fs.MUTED)
     ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
     ax.xaxis.set_major_formatter(lambda v, _: f"{v:.0%}" if v >= 0.01 else f"{v*100:g}%")
-    ax.legend(frameon=False, fontsize=SMALL, loc="lower right")
-    ax.set_title("A. Recall@k — the metric-choice problem, removed",
-                 fontsize=SMALL, color=fs.INK, fontweight="bold")
     return rows
 
+    ax.set_ylabel("Recall of the true top k%", fontsize=SMALL, color=fs.MUTED)
 
 def pB_survival(ax, et, probs):
     grid = np.geomspace(1, 3000, 60)
@@ -218,9 +213,8 @@ def pB_survival(ax, et, probs):
     ax.set_xscale("log"); ax.set_yscale("log")
     ax.set_xlabel("citations", fontsize=SMALL, color=fs.MUTED)
     ax.legend(frameon=False, fontsize=SMALL, loc="lower left")
-    ax.set_title("B. Survival of the selected set — overlap, then split",
-                 fontsize=SMALL, color=fs.INK, fontweight="bold")
 
+    ax.set_ylabel("P(citations > x)", fontsize=SMALL, color=fs.MUTED)
 
 def pC_capture(ax, et, probs):
     d = et.dropna(subset=[spec.OUTCOME]).sort_values(spec.OUTCOME, ascending=False)
@@ -232,12 +226,10 @@ def pC_capture(ax, et, probs):
     ax.set_xlabel("papers admitted (ordered by true citations)", fontsize=SMALL,
                   color=fs.MUTED)
     ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
-    ax.legend(frameon=False, fontsize=SMALL, loc="lower right")
-    ax.set_title("C. Share of all citations captured", fontsize=SMALL,
-                 color=fs.INK, fontweight="bold")
 
+    ax.set_ylabel("Share of all citations captured", fontsize=SMALL, color=fs.MUTED)
 
-def pDE_rate_by_bin(ax, et, probs, col, q, xlab, title):
+def pDE_rate_by_bin(ax, et, probs, col, q, xlab):
     b = bins_within_year(et, col, q)
     base = et.accepted.mean()
     ax.axhline(base, color=fs.MUTED, ls=(0, (4, 3)), lw=1.1, zorder=2)
@@ -246,9 +238,9 @@ def pDE_rate_by_bin(ax, et, probs, col, q, xlab, title):
         ax.plot(range(1, q + 1), [p[(b == i).to_numpy()].mean() for i in range(1, q + 1)],
                 marker="o", ms=3, lw=1.8, color=r.color, label=r.label.split(" (")[0])
     ax.set_xlabel(xlab, fontsize=SMALL, color=fs.MUTED)
+    ax.set_ylabel("Selection rate", fontsize=SMALL, color=fs.MUTED)
     ax.set_xticks(range(1, q + 1)); ax.set_ylim(-0.03, 1.03)
     ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
-    ax.set_title(title, fontsize=SMALL, color=fs.INK, fontweight="bold")
 
 
 def pF_overlap(ax, et):
@@ -274,9 +266,8 @@ def pF_overlap(ax, et):
     ax.set_xticks(range(7))
     ax.set_xticklabels([regions[i] for i in order], fontsize=SMALL, rotation=35,
                        ha="right")
-    ax.set_title("F. Who picked what (ac / coun / sing)", fontsize=SMALL,
-                 color=fs.INK, fontweight="bold")
 
+    ax.set_ylabel("Papers", fontsize=SMALL, color=fs.MUTED)
 
 def pG_metric_sensitivity(ax, res):
     """Lift over the area chairs, metric by metric. The ordering IS the finding."""
@@ -294,9 +285,8 @@ def pG_metric_sensitivity(ax, res):
     ax.set_xticks(x); ax.set_xticklabels(labels, fontsize=SMALL, rotation=25, ha="right")
     ax.yaxis.set_major_formatter(lambda v, _: f"{v:+.0%}")
     ax.legend(frameon=False, fontsize=SMALL)
-    ax.set_title("G. Lift over the area chairs, by metric", fontsize=SMALL,
-                 color=fs.INK, fontweight="bold")
 
+    ax.set_ylabel("Lift over the area chairs", fontsize=SMALL, color=fs.MUTED)
 
 def pH_per_year(ax, et, probs):
     """The fragility cut: the council's mean-log edge lives in 2018 alone."""
@@ -312,9 +302,8 @@ def pH_per_year(ax, et, probs):
     ax.set_xticks(x); ax.set_xticklabels(spec.YEARS, fontsize=SMALL)
     ax.set_ylim(4.0, 5.45)               # headroom for the legend
     ax.legend(frameon=False, fontsize=SMALL, ncol=3, loc="upper center")
-    ax.set_title("H. Mean log by year — where the edge lives", fontsize=SMALL,
-                 color=fs.INK, fontweight="bold")
 
+    ax.set_ylabel("Mean log(1 + citations)", fontsize=SMALL, color=fs.MUTED)
 
 def pI_resolution(ax, et):
     x = np.arange(len(spec.YEARS)); w = 0.26
@@ -329,90 +318,77 @@ def pI_resolution(ax, et):
     ax.set_yticks([0, 0.25, 0.5, 0.75, 1.0])
     ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
     ax.legend(frameon=False, fontsize=SMALL, ncol=3, loc="upper center")
-    ax.set_title("I. Share of the slate decided by the tie-break", fontsize=SMALL,
-                 color=fs.INK, fontweight="bold")
 
 
 # ------------------------------------------------------------------- assembly
-def build():
-    os.makedirs("outputs/figures", exist_ok=True)
+# Panel key -> (callable taking one Axes, height in inches). Height varies because
+# a horizontal bar chart with five categories needs less than a scatter.    ax.set_ylabel("Share of slate set by tie-break", fontsize=SMALL, color=fs.MUTED)
+
+def panel_specs(et, probs, g):
+    return {
+        "pool":            (lambda ax: p1_pool(ax, et), 2.8),
+        "outcome_dist":    (lambda ax: p2_outcome_dist(ax, et), 2.8),
+        "coverage":        (lambda ax: p3_coverage(ax, et), 3.0, 0.13, 0.52, 0.34),
+        "score_profile":   (lambda ax: p4_score_profile(ax, et), 3.0),
+        "completeness":    (lambda ax: p5_completeness(ax, et), 2.9, 0.24, 0.45, 0.34),
+        "score_vs_cites":  (lambda ax: p6_score_vs_cites(ax, et), 3.0),
+        "recall_curve":    (lambda ax: pA_recall_curve(ax, et, probs), 3.0),
+        "survival":        (lambda ax: pB_survival(ax, et, probs), 3.0),
+        "capture":         (lambda ax: pC_capture(ax, et, probs), 3.0),
+        "rate_by_citation_decile":
+            (lambda ax: pDE_rate_by_bin(ax, et, probs, spec.OUTCOME, 10,
+                                        "True citation decile (within year)"), 3.0),
+        "rate_by_score_quintile":
+            (lambda ax: pDE_rate_by_bin(ax, et, probs, "mean_rating", 5,
+                                        "Human score quintile (within year)"), 3.0),
+        "overlap":         (lambda ax: pF_overlap(ax, et), 3.1, 0.13),
+        "metric_lift":     (lambda ax: pG_metric_sensitivity(ax, g), 3.2, 0.15, 0.85),
+        "mean_log_by_year": (lambda ax: pH_per_year(ax, et, probs), 2.8),
+        "tie_share":       (lambda ax: pI_resolution(ax, et), 2.8),
+    }
+
+
+def build(only=None):
+    os.makedirs(PANEL_DIR, exist_ok=True)
     et = spec.read_eval_table()
     probs = {r.key: selection_probability(et, r) for r in spec.HEADLINE}
-    t1 = spec.read_table1()
-    allrow = t1[t1.year.astype(str) == "all"].iloc[0]
-    # 15 panels on a 15in review page, not a paper exhibit — the type scales
-    # with the width so it reads at the size it is actually viewed.
-    fs.apply(width_in=15, nrows=2, ncols=3)
 
-    # ------------------------------------------------------------- page 1
-    fig1, ax = plt.subplots(2, 3, figsize=(15, 8.6))
-    p1_pool(ax[0, 0], et); p2_outcome_dist(ax[0, 1], et); p3_coverage(ax[0, 2], et)
-    p4_score_profile(ax[1, 0], et); p5_completeness(ax[1, 1], et)
-    p6_score_vs_cites(ax[1, 2], et)
-    for a in ax.ravel():
-        fs.clean(a)
-    fs.title_block(
-        fig1, "Contact sheet 1 of 2 — the sample",
-        f"ICLR 2018-2020, all {int(allrow.submissions):,} submissions, accepts and "
-        f"rejects. Outcome: Semantic Scholar citations, tier {'+'.join(spec.TIERS)}, "
-        f"{allrow.cite_coverage:.1%} coverage.\nPanels are candidates, drawn small to "
-        "be chosen from. Nothing here is a new analysis.")
-    fs.source(fig1, text=(
-        "Source: outputs/eval_table.csv via src/figures/spec.py. Panel 5 is the "
-        "reason field normalization is excluded: the field label is 40% missing and "
-        "its gap by decision is 6.0 pp, against 3.9 pp for the outcome itself."))
-    fs.frame(fig1, top_in=0.35 + fs.deck_height(fig1, 2), bottom_in=0.95,
-             left=0.05, right=0.97, wspace=0.30, hspace=0.42)
-    fig1.savefig(OUT_P1_PDF); fig1.savefig(OUT_P1_PNG, dpi=170); plt.close(fig1)
+    # Panel G's metrics come from spec.metric_over_orderings — the same weights and
+    # the same per-year-then-average rule Figure 2 uses, so the two cannot disagree.
+    g = pd.DataFrame([{"regime": r.label, "metric": m,
+                       "value": spec.metric_over_orderings(et, r, m)[0]}
+                      for r in spec.HEADLINE
+                      for m in ["recall_at_1", "recall_at_5", "recall_at_10",
+                                "median_citations", "mean_log_citations"]])
+    g.to_csv(OUT_CSV, index=False)
 
-    # ------------------------------------------------------------- page 2
-    # eval_results predates the single-call regime being registered, so panel G's
-    # numbers come from spec.weighted_metric — the same weights and the same
-    # per-year-then-average rule every other panel and Figure 2 use.
-    rows = [{"regime": r.label, "metric": m,
-             "value": spec.metric_over_orderings(et, r, m)[0]}
-            for r in spec.HEADLINE
-            for m in ["recall_at_1", "recall_at_5", "recall_at_10",
-                      "median_citations", "mean_log_citations"]]
-    g = pd.DataFrame(rows)
+    specs = panel_specs(et, probs, g)
+    if only:
+        missing = [k for k in only if k not in specs]
+        if missing:
+            raise SystemExit(f"unknown panel(s) {missing}; known: {sorted(specs)}")
+        specs = {k: specs[k] for k in only}
 
-    fig2, ax = plt.subplots(3, 3, figsize=(15, 12.4))
-    panel_rows = pA_recall_curve(ax[0, 0], et, probs)
-    pB_survival(ax[0, 1], et, probs)
-    pC_capture(ax[0, 2], et, probs)
-    pDE_rate_by_bin(ax[1, 0], et, probs, spec.OUTCOME, 10,
-                    "true citation decile (within year)",
-                    "D. Selection rate by true citation decile")
-    pDE_rate_by_bin(ax[1, 1], et, probs, "mean_rating", 5,
-                    "human score quintile (within year)",
-                    "E. Selection rate by human score quintile")
-    pF_overlap(ax[1, 2], et)
-    pG_metric_sensitivity(ax[2, 0], g)
-    pH_per_year(ax[2, 1], et, probs)
-    pI_resolution(ax[2, 2], et)
-    for a in ax.ravel():
-        fs.clean(a)
-    fs.title_block(
-        fig2, "Contact sheet 2 of 2 — main analyses (A-F) and robustness (G-I)",
-        "Every panel weights papers by their probability of selection over 200 tie "
-        "orderings, so no curve depends on one arbitrary ordering.\nF resamples "
-        "slates jointly, because expected overlap is not the product of two "
-        "marginal probabilities.")
-    fs.source(fig2, text=(
-        "Source: outputs/eval_table.csv via src/figures/spec.py, mode=raw. "
-        "G recomputes its metrics from the same weights as every other panel: "
-        "eval_results.csv predates the single-call regime being registered.\n"
-        "H is the uncomfortable one — pooling hides that the council's mean-log "
-        "edge sits in 2018 alone."))
-    fs.frame(fig2, top_in=0.35 + fs.deck_height(fig2, 2), bottom_in=0.95,
-             left=0.05, right=0.97, wspace=0.30, hspace=0.55)
-    fig2.savefig(OUT_P2_PDF); fig2.savefig(OUT_P2_PNG, dpi=170); plt.close(fig2)
+    written = []
+    for key, sp in specs.items():
+        draw, height = sp[0], sp[1]
+        left = sp[2] if len(sp) > 2 else 0.13
+        bottom = sp[3] if len(sp) > 3 else 0.52
+        top = sp[4] if len(sp) > 4 else 0.12
+        fs.apply()                       # 5.5in, ICLR type sizes
+        fig, ax = plt.subplots(figsize=(fs.TEXT_WIDTH_IN, height))
+        draw(ax)
+        fs.clean(ax, xgrid=(key in ("score_vs_cites", "capture")))
+        fs.frame(fig, top_in=top, bottom_in=bottom, left=left, right=0.98)
+        base = os.path.join(PANEL_DIR, key)
+        fig.savefig(base + ".pdf")
+        fig.savefig(base + ".png", dpi=200)
+        plt.close(fig)
+        written.append(base + ".pdf")
 
-    out = pd.concat([pd.DataFrame(panel_rows),
-                     g.assign(panel="G")], ignore_index=True)
-    out.to_csv(OUT_CSV, index=False)
-    print(g.pivot(index="regime", columns="metric", values="value").to_string())
-    print(f"\n-> {OUT_P1_PNG}\n-> {OUT_P2_PNG}\n-> {OUT_CSV}")
+    for w in written:
+        print(f"-> {w}")
+    print(f"-> {OUT_CSV}")
     return g
 
 
@@ -420,26 +396,30 @@ def demo():
     g = build()
     p = g.pivot(index="regime", columns="metric", values="value")
     AC, CO = spec.BY_KEY["human_ac"].label, spec.BY_KEY["llm_council"].label
-    # The metric ordering is what panel A and panel G exist to show. If the
-    # council's edge stops shrinking as k widens, both panels lose their point.
+
+    # The metric ordering is what the recall curve and the lift panel exist to
+    # show. If the council's edge stops shrinking as k widens, both lose their point.
     assert (p.loc[CO, "recall_at_1"] - p.loc[AC, "recall_at_1"]
             > p.loc[CO, "recall_at_10"] - p.loc[AC, "recall_at_10"]), \
         "council edge should be largest at the top of the distribution"
-    for f in (OUT_P1_PNG, OUT_P2_PNG):
-        assert os.path.getsize(f) > 50_000, f"{f} looks empty"
 
-    # Panel G and Figure 2 must agree to the last decimal. They are computed by
-    # different code paths on the same data, and an earlier version of this file
-    # pooled the years where Figure 2 averaged them, giving a median of 111.0
-    # against 123.2 without any error. That is the drift spec.py exists to stop.
+    # Panel metrics and Figure 2 come from different code paths over the same data
+    # and must agree exactly — an earlier version pooled the years where Figure 2
+    # averaged them, giving a median of 111.0 against 123.2 with no error raised.
     f2 = pd.read_csv("outputs/figures/fig2_headline.csv")
     for _, row in f2.iterrows():
         got = p.loc[row.regime, row.metric]
         assert abs(got - row.value) < 1e-6, (
-            f"panel G disagrees with Figure 2 on {row.regime}/{row.metric}: "
+            f"panel metrics disagree with Figure 2 on {row.regime}/{row.metric}: "
             f"{got} vs {row.value}")
-    print("\nok — 15 panels on 2 pages; panel G matches Figure 2 exactly")
+
+    n = len([f for f in os.listdir(PANEL_DIR) if f.endswith(".pdf")])
+    assert n == 15, f"expected 15 panels, found {n}"
+    print(f"\nok — {n} panels, each 5.5in; metrics match Figure 2")
 
 
 if __name__ == "__main__":
-    demo()
+    if len(sys.argv) > 1:
+        build(sys.argv[1:])
+    else:
+        demo()
