@@ -60,8 +60,15 @@ def build():
     yrs = "   ".join(f"{int(r.year)}: {r.submissions:,} / {r.accepts:,}"
                      for r in per.itertuples())
 
+    # One hue for all three boxes: these are pipeline steps, not regimes, and the
+    # categorical slots mean "area chairs / council / single call" everywhere else
+    # in the paper. The step numbers carry the sequence.
+    #
+    # No headline, deck or source line anywhere in this module. Every figure here
+    # emits marks and axis labels only; the caption is written in the LaTeX
+    # document, by the author, from the CSV each script writes beside its PDF.
     fs.apply()
-    fig, ax = plt.subplots(figsize=(11.5, 4.2))
+    fig, ax = plt.subplots(figsize=(5.5, 1.9))
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
 
     w, h, y = 0.28, 0.78, 0.08
@@ -69,22 +76,14 @@ def build():
         "ICLR 2018-2020, every submission",
         f"{a.submissions:,} papers",
         f"{a.accepts:,} accepted   {a.submissions - a.accepts:,} rejected",
-        "",
-        "accepts AND rejects, because a",
-        "selector must be judged on what",
-        "it passes over as well as what",
-        "it takes",
     ], fs.BLUE)
 
     box(ax, 0.36, y, w, h, "2.  Each regime selects n", [
         "select(pool, n) -> exactly n ids",
         "",
-        "n = that year's real accept count",
+        "n = that year's accept count",
         yrs.replace("   ", "\n"),
-        "",
-        "pinned, so no regime can win by",
-        "simply accepting more",
-    ], fs.AQUA)
+    ], fs.BLUE)
 
     box(ax, 0.69, y, w, h, "3.  Score against outcome", [
         "Semantic Scholar citations",
@@ -92,22 +91,13 @@ def build():
         f"accepted {a.coverage_accepted:.1%} / rejected {a.coverage_rejected:.1%}",
         f"differential {a.coverage_differential_pp:.1f} pp",
         "",
-        "median cites, mean log(1+cites),",
-        "recall@k, vs random and ideal",
-    ], fs.ORANGE)
+        "median, mean log(1+c), recall@k",
+    ], fs.BLUE)
 
     arrow(ax, 0.317, 0.353, y + h / 2)
     arrow(ax, 0.647, 0.683, y + h / 2)
 
-    fs.title_block(fig, "How the evaluation works",
-                   "Peer review as a selection function: each regime picks n papers "
-                   "from the same pool, and is scored on what those papers went on to do.")
-    fs.source(fig, y=0.012, text=(
-        "Regimes compared: human area-chair decisions, human score top-N, the 9-call "
-        "LLM council, a naive single-prompt LLM.\n"
-        "Numbers read from outputs/figures/table1_sample.csv. Unmatched papers "
-        f"({a.unmatched:,} of {a.submissions:,}) are dropped, never imputed as zero."))
-    fig.subplots_adjust(left=0.0, right=1.0, top=0.84, bottom=0.10)
+    fs.frame(fig, top_in=0.06, bottom_in=0.06, left=0.0, right=1.0)
     fig.savefig(OUT_PDF)
     fig.savefig(OUT_PNG, dpi=200)
     plt.close(fig)

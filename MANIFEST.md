@@ -127,7 +127,7 @@ _builds the paper's figures and tables, plus the shared chart style_
 | `src/figures/fig1_design.py` | Figure 1: how the evaluation works |
 | `src/figures/fig2_headline.py` | Figure 2: the headline comparison — the 9-call council against a 1-call baseline |
 | `src/figures/fig3_heterogeneity.py` | Figure 3: where each regime's selection comes from |
-| `src/figures/figstyle.py` | One borrowed chart style, shared by the plot scripts |
+| `src/figures/figstyle.py` | One chart style for the paper's exhibits: tueplots for the geometry, Okabe-Ito |
 | `src/figures/spec.py` | Every design choice the paper's exhibits depend on, declared once |
 | `src/figures/table1_sample.py` | Table 1: what the sample is |
 | `src/figures/table2_regression.py` | Table 2: the regression behind Figure 2 |

@@ -87,7 +87,7 @@ def p1_pool(ax, et):
     acc = [int(((et.year == y) & et.accepted).sum()) for y in spec.YEARS]
     rej = [int(((et.year == y) & ~et.accepted).sum()) for y in spec.YEARS]
     x = np.arange(len(spec.YEARS))
-    ax.bar(x, rej, 0.6, color="#d8d8d3", label="rejected", zorder=3)
+    ax.bar(x, rej, 0.6, color=fs.NEUTRAL, label="rejected", zorder=3)
     ax.bar(x, acc, 0.6, bottom=rej, color=fs.BLUE, label="accepted", zorder=3)
     for xi, (a, r) in enumerate(zip(acc, rej)):
         ax.annotate(f"{a/(a+r):.0%}", (xi, a + r), xytext=(0, 4),
@@ -101,7 +101,7 @@ def p1_pool(ax, et):
 
 def p2_outcome_dist(ax, et):
     for lab, sub, col in [("accepted", et[et.accepted], fs.BLUE),
-                          ("rejected", et[~et.accepted], "#b9b9b3")]:
+                          ("rejected", et[~et.accepted], fs.NEUTRAL)]:
         v = np.log1p(sub[spec.OUTCOME].dropna())
         ax.hist(v, bins=45, color=col, alpha=0.75, label=lab, zorder=3)
     ax.set_xlabel("log(1 + citations)", fontsize=SMALL, color=fs.MUTED)
@@ -113,7 +113,7 @@ def p2_outcome_dist(ax, et):
 def p3_coverage(ax, et):
     x = np.arange(len(spec.YEARS)); w = 0.36
     for i, (lab, mask, col) in enumerate([("accepted", et.accepted, fs.BLUE),
-                                          ("rejected", ~et.accepted, "#b9b9b3")]):
+                                          ("rejected", ~et.accepted, fs.NEUTRAL)]):
         v = [et[(et.year == y) & mask][spec.OUTCOME].notna().mean()
              for y in spec.YEARS]
         ax.bar(x + (i - 0.5) * w, v, w, color=col, label=lab, zorder=3)
@@ -158,7 +158,7 @@ def p5_completeness(ax, et):
             ("single-call score", "single_call_rating")]
     y = np.arange(len(cols)); h = 0.36
     for i, (lab, mask, col) in enumerate([("accepted", et.accepted, fs.BLUE),
-                                          ("rejected", ~et.accepted, "#b9b9b3")]):
+                                          ("rejected", ~et.accepted, fs.NEUTRAL)]):
         ax.barh(y + (i - 0.5) * h, [et[mask][c].notna().mean() for _, c in cols],
                 h, color=col, label=lab, zorder=3)
     for yi, (_, c) in enumerate(cols):
@@ -180,7 +180,7 @@ def p6_score_vs_cites(ax, et):
     ax.hexbin(d.mean_rating, np.log1p(d[spec.OUTCOME]), gridsize=28,
               cmap="Blues", mincnt=1, linewidths=0)
     b = d.groupby(d.mean_rating.round())[spec.OUTCOME].median()
-    ax.plot(b.index, np.log1p(b.values), color=fs.ORANGE, lw=2, marker="o", ms=3)
+    ax.plot(b.index, np.log1p(b.values), color=fs.VERMILLION, lw=2, marker="o", ms=3)
     ax.set_xlabel("mean human review score", fontsize=SMALL, color=fs.MUTED)
     ax.set_title("6. Raw signal: human score vs outcome", fontsize=SMALL,
                  color=fs.INK, fontweight="bold")
@@ -340,7 +340,9 @@ def build():
     probs = {r.key: selection_probability(et, r) for r in spec.HEADLINE}
     t1 = spec.read_table1()
     allrow = t1[t1.year.astype(str) == "all"].iloc[0]
-    fs.apply("paper")
+    # 15 panels on a 15in review page, not a paper exhibit — the type scales
+    # with the width so it reads at the size it is actually viewed.
+    fs.apply(width_in=15, nrows=2, ncols=3)
 
     # ------------------------------------------------------------- page 1
     fig1, ax = plt.subplots(2, 3, figsize=(15, 8.6))
@@ -354,13 +356,13 @@ def build():
         f"ICLR 2018-2020, all {int(allrow.submissions):,} submissions, accepts and "
         f"rejects. Outcome: Semantic Scholar citations, tier {'+'.join(spec.TIERS)}, "
         f"{allrow.cite_coverage:.1%} coverage.\nPanels are candidates, drawn small to "
-        "be chosen from. Nothing here is a new analysis.", y=0.975)
-    fs.source(fig1, y=0.012, text=(
+        "be chosen from. Nothing here is a new analysis.")
+    fs.source(fig1, text=(
         "Source: outputs/eval_table.csv via src/figures/spec.py. Panel 5 is the "
         "reason field normalization is excluded: the field label is 40% missing and "
         "its gap by decision is 6.0 pp, against 3.9 pp for the outcome itself."))
-    fig1.subplots_adjust(left=0.05, right=0.97, top=0.85, bottom=0.09,
-                         wspace=0.26, hspace=0.36)
+    fs.frame(fig1, top_in=0.35 + fs.deck_height(fig1, 2), bottom_in=0.95,
+             left=0.05, right=0.97, wspace=0.30, hspace=0.42)
     fig1.savefig(OUT_P1_PDF); fig1.savefig(OUT_P1_PNG, dpi=170); plt.close(fig1)
 
     # ------------------------------------------------------------- page 2
@@ -395,15 +397,15 @@ def build():
         "Every panel weights papers by their probability of selection over 200 tie "
         "orderings, so no curve depends on one arbitrary ordering.\nF resamples "
         "slates jointly, because expected overlap is not the product of two "
-        "marginal probabilities.", y=0.985)
-    fs.source(fig2, y=0.010, text=(
+        "marginal probabilities.")
+    fs.source(fig2, text=(
         "Source: outputs/eval_table.csv via src/figures/spec.py, mode=raw. "
         "G recomputes its metrics from the same weights as every other panel: "
         "eval_results.csv predates the single-call regime being registered.\n"
         "H is the uncomfortable one — pooling hides that the council's mean-log "
         "edge sits in 2018 alone."))
-    fig2.subplots_adjust(left=0.05, right=0.97, top=0.86, bottom=0.06,
-                         wspace=0.26, hspace=0.48)
+    fs.frame(fig2, top_in=0.35 + fs.deck_height(fig2, 2), bottom_in=0.95,
+             left=0.05, right=0.97, wspace=0.30, hspace=0.55)
     fig2.savefig(OUT_P2_PDF); fig2.savefig(OUT_P2_PNG, dpi=170); plt.close(fig2)
 
     out = pd.concat([pd.DataFrame(panel_rows),

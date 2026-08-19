@@ -69,11 +69,17 @@ def rows(et):
 
 
 def to_tex(t):
+    # `%` starts a comment in LaTeX, so a bare "36.0%" silently swallows the rest
+    # of the row — including the \\ that ends it — and the table renders with
+    # columns missing and no error. Every percent is escaped.
+    def pct(v):
+        return f"{v:.1%}".replace("%", "\\%")
+
     def f(r):
         yr = "All" if r.year == "all" else int(r.year)
-        return (f"{yr} & {r.submissions:,} & {r.accepts:,} & {r.accept_rate:.1%} & "
+        return (f"{yr} & {r.submissions:,} & {r.accepts:,} & {pct(r.accept_rate)} & "
                 f"{r.median_cites_accepted:.0f} & {r.median_cites_rejected:.0f} & "
-                f"{r.coverage_accepted:.1%} & {r.coverage_rejected:.1%} & "
+                f"{pct(r.coverage_accepted)} & {pct(r.coverage_rejected)} & "
                 f"{r.coverage_differential_pp:.1f} \\\\")
     body = "\n".join(f(r) for r in t.itertuples())
     return (

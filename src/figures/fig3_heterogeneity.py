@@ -50,10 +50,12 @@ OUT_CSV = "outputs/figures/fig3_heterogeneity.csv"
 
 YEARS = list(spec.YEARS)
 SERIES = spec.HEADLINE
+# Axis labels only. No title, deck or source line: captions belong in the LaTeX
+# document where the author controls them, not baked into the PDF.
 PANELS = [("score_q", "mean_rating", 5, "Human score quintile (within year)",
-           "Share of papers selected, by what the humans scored them"),
+           "Selection rate"),
           ("cite_d", spec.OUTCOME, 10, "True citation decile (within year)",
-           "Share of papers selected, by how the paper actually did")]
+           "Selection rate")]
 
 
 def bins_within_year(et, col, q):
@@ -103,45 +105,27 @@ def build():
     res.to_csv(OUT_CSV, index=False)
     base = et.accepted.mean()
 
-    fs.apply()
-    fig, axes = plt.subplots(1, 2, figsize=(11.5, 5.4))
+    fs.apply(ncols=2)
+    fig, axes = plt.subplots(1, 2, figsize=(5.5, 2.3))
     for ax, (key, _, q, xlab, note) in zip(axes, PANELS):
         sub = res[res.panel == key]
         ax.axhline(base, color=fs.MUTED, ls=(0, (4, 3)), lw=1.2, zorder=2)
         for r in SERIES:
             ax.plot(sub.bin, sub[r.label], marker="o", ms=5, lw=2,
                     color=r.color, label=r.label, zorder=3)
-        ax.annotate(f"accept rate ({base:.0%})", (q, base), xytext=(0, -14),
+        ax.annotate(f"accept rate ({base:.0%})", (q, base), xytext=(0, -4),
                     textcoords="offset points", ha="right", va="top",
-                    fontsize="x-small", color=fs.MUTED)
+                    fontsize=plt.rcParams["font.size"] * 0.8, color=fs.MUTED)
         ax.set_xlabel(xlab, fontsize="small", color=fs.MUTED)
         ax.set_xticks(range(1, q + 1))
         ax.set_ylim(-0.03, 1.03)
         ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
-        fs.axis_note(ax, note)
+        ax.set_ylabel(note)
         fs.clean(ax)
     axes[0].legend(frameon=False, fontsize="small", loc="upper left")
 
-    # Every number in the caption is read back from the data just plotted, so a
-    # redraw cannot leave a stale claim in the prose.
-    t1 = spec.read_table1()
-    allrow = t1[t1.year.astype(str) == "all"].iloc[0]
-    cd = res[res.panel == "cite_d"].set_index("bin")
-    AC, CO = spec.BY_KEY["human_ac"].label, spec.BY_KEY["llm_council"].label
-    fs.title_block(
-        fig, "The area chairs hold the middle; the council catches the top decile",
-        f"ICLR 2018-2020, all {int(allrow.submissions):,} submissions. Each regime "
-        "selects exactly n papers per year, n = that year's accept count.\n"
-        f"In the top citation decile the council reaches {cd.loc[10, CO]:.0%} against "
-        f"the area chairs' {cd.loc[10, AC]:.0%}; from deciles 6 to 9 the area chairs "
-        "are ahead.\nThe two cancel, which is why the average contrast in Table 2 is "
-        "indistinguishable from zero. Bins are within year, and each curve is a "
-        "selection probability over 200 tie orderings.")
-    fs.source(fig, y=0.012, text=(
-        "Source: outputs/eval_table.csv. Outcome: Semantic Scholar citations, tier A+B.\n"
-        "Author covariates are deliberately not used as a cut: they resolve for 71% of "
-        "papers, and that 71% has a 41.6% accept rate against 12.9% for the rest."))
-    fig.subplots_adjust(left=fs.LEFT, right=0.98, top=0.76, bottom=0.16, wspace=0.20)
+    fs.frame(fig, top_in=0.10, bottom_in=0.46, left=0.09, right=0.99,
+             wspace=0.32)
     fig.savefig(OUT_PDF)
     fig.savefig(OUT_PNG, dpi=200)
     plt.close(fig)

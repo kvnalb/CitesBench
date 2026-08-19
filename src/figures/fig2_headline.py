@@ -48,7 +48,9 @@ OUT_PDF = "outputs/figures/fig2_headline.pdf"
 OUT_PNG = "outputs/figures/fig2_headline.png"
 OUT_CSV = "outputs/figures/fig2_headline.csv"
 
-METRICS = [("median_citations", "Median citations of the selected papers"),
+# Axis labels only. No title, deck or source line: captions belong in the LaTeX
+# document where the author controls them, not baked into the PDF.
+METRICS = [("median_citations", "Median citations"),
            ("mean_log_citations", "Mean log(1 + citations)")]
 
 # Display may wrap a label across two lines; the CSV always carries spec's
@@ -83,8 +85,8 @@ def build():
     res = pd.DataFrame(recs)
     res.to_csv(OUT_CSV, index=False)
 
-    fs.apply()
-    fig, axes = plt.subplots(1, 2, figsize=(11, 5.2))
+    fs.apply(ncols=2)
+    fig, axes = plt.subplots(1, 2, figsize=(5.5, 2.2))
     for ax, (metric, unit) in zip(axes, METRICS):
         sub = res[res.metric == metric].set_index("key").loc[[r.key for r in spec.HEADLINE]]
         x = np.arange(len(spec.HEADLINE))
@@ -100,13 +102,17 @@ def build():
 
         rnd = sub["random"].iloc[0]
         ax.axhline(rnd, color=fs.MUTED, ls=(0, (4, 3)), lw=1.2, zorder=4)
-        ax.annotate("random baseline", (len(spec.HEADLINE) - 0.45, rnd), va="bottom",
-                    ha="right", fontsize="x-small", color=fs.MUTED)
+        # axes fraction, not data coords: at x = n_regimes - 0.45 the label sat
+        # past the right spine and was clipped away without warning.
+        ax.annotate("random", (0.99, rnd), xycoords=("axes fraction", "data"),
+                    xytext=(0, 4), textcoords="offset points", va="bottom",
+                    ha="right", fontsize=plt.rcParams["font.size"] * 0.8,
+                    color=fs.MUTED)
 
         ax.set_xticks(x)
         ax.set_xticklabels([WRAP.get(r.label, r.label) for r in spec.HEADLINE],
                            fontsize="small")
-        fs.axis_note(ax, unit)
+        ax.set_ylabel(unit)
         fs.clean(ax)
         # Two decimals on the log panel: at 4.79 vs 4.79 the point IS that they
         # are the same number.
@@ -119,27 +125,8 @@ def build():
                         fontweight="bold", color=fs.INK)
         ax.set_ylim(0, np.nanmax([sub.value.max(), sub.tie_hi.max()]) * 1.22)
 
-    t1 = spec.read_table1()
-    allrow = t1[t1.year.astype(str) == "all"].iloc[0]
-    single = res[res.key == "llm_single"].iloc[0]
-
-    fs.title_block(
-        fig, "The council resolves the decision; one call mostly does not",
-        f"ICLR 2018-2020, all {int(allrow.submissions):,} submissions. Every regime "
-        "selects exactly n papers, n = that year's actual accept count.\n"
-        "Bars are the mean across years and across 200 tie-break orderings; brackets "
-        "span the full range of those orderings.\nBrackets are the identified set, "
-        "NOT confidence intervals — a wide one means the regime was indifferent.")
-    fs.source(
-        fig, y=0.012,
-        text=f"Source: outputs/eval_table.csv via src/figures/spec.py (mode={spec.MODE}). "
-             f"Outcome: Semantic Scholar citations, tier {'+'.join(spec.TIERS)}, "
-             f"{allrow.cite_coverage:.1%} of the pool, "
-             f"{allrow.coverage_differential_pp:.1f} pp accept/reject differential.\n"
-             f"The single-call baseline has {single.share_tie_broken:.0%} of its slate "
-             "supplied by the tie-break rather than by its own score; the council has "
-             f"{res[res.key == 'llm_council'].iloc[0].share_tie_broken:.0%}.")
-    fig.subplots_adjust(left=fs.LEFT, right=0.98, top=0.72, bottom=0.20, wspace=0.22)
+    fs.frame(fig, top_in=0.10, bottom_in=0.42, left=0.09, right=0.99,
+             wspace=0.32)
     fig.savefig(OUT_PDF)
     fig.savefig(OUT_PNG, dpi=200)
     plt.close(fig)

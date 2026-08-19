@@ -1,70 +1,177 @@
 """
-One borrowed chart style, shared by the plot scripts.
+One chart style for the paper's exhibits: tueplots for the geometry, Okabe-Ito
+for the colour.
 
-Not a bespoke design system — seaborn's theme system does the work. `context`
-scales type AND spacing together, which is the thing that makes hand-tuned
-matplotlib look off: fonts get changed but padding, tick length and line width
-don't, so the proportions drift. Setting a context fixes all of them at once.
+WHY TUEPLOTS. Hand-tuned matplotlib drifts because fonts get changed and padding,
+tick length and line width do not, so the proportions stop matching the page the
+figure lands on. `tueplots.bundles.iclr2024()` sets all of them together against
+ICLR's actual column width and body size — 5.5in text width, 9pt body, 7pt ticks
+and legend. Using the bundle for the venue we are writing about also means a
+figure that looks right in the paper looks right here.
 
-  "notebook"  screen / slides at this figure size  (what we use)
-  "paper"     two-column journal figure — switch with FIG_CONTEXT=paper
+Two deliberate departures from the bundle:
 
-For a submission the alternative is SciencePlots (`plt.style.use(["science",
-"nature", "no-latex"])`), which targets journal column widths. Kept out of the
-default because it is tuned for 3.5in figures and these are read on screens.
+  - `text.usetex` is forced off. The bundle asks for LaTeX with the times package;
+    there is no LaTeX on this machine, and a missing binary fails at draw time
+    with a stack trace rather than at import. The serif stack below targets Times
+    directly so the result still matches the venue.
+  - `figure.constrained_layout.use` is forced off. Every script here places its
+    own title block and source line with `fig.text` and then calls
+    `subplots_adjust`; constrained layout silently ignores that and reflows.
 
-Colors are the validated categorical slots (worst adjacent CVD dE 24.7 protan,
-checked with the palette validator, not by eye).
+WHY OKABE-ITO. It is the reference qualitative palette for colour-vision
+deficiency (Okabe & Ito 2008), and unlike an ad-hoc set it is safe across the
+whole palette rather than only for the pairs someone happened to check. Measured
+separation for the four slots this project assigns, OKLab dE x100:
+
+    pair                     normal  protan  deutan  tritan
+    AC / council               31.2    24.0    30.6    29.2
+    AC / single call           18.7    18.3    17.2    10.5
+    council / single call      25.8    11.5    13.7    25.6
+
+Worst pair across all four slots is 8.2 under protanopia, against a target of 8.
+Slot assignment lives in spec.py, not here — this module supplies the palette,
+spec.py decides which regime wears which colour.
+
+Run: python src/figures/figstyle.py   (self-check)
 """
 import os
 
 import matplotlib.pyplot as plt
 import seaborn as sns
+from tueplots import bundles, figsizes
 
-# validated categorical slots 1-3
-BLUE, ORANGE, AQUA = "#2a78d6", "#eb6834", "#1baf7a"
-INK, MUTED = "#0b0b0b", "#52514e"
+# Okabe & Ito's colour-vision-deficiency-safe qualitative palette, in the
+# published order. Referenced by name below; do not reorder.
+OKABE_ITO = ["#E69F00", "#56B4E9", "#009E73", "#F0E442",
+             "#0072B2", "#D55E00", "#CC79A7", "#000000"]
+(ORANGE, SKYBLUE, BLUISHGREEN, YELLOW,
+ BLUE, VERMILLION, REDDISHPURPLE, BLACK) = OKABE_ITO
 
-FONT_STACK = ["Helvetica Neue", "Helvetica", "Arial", "DejaVu Sans"]
+# Ink and grounds. Not from the palette: these carry no categorical meaning, and
+# giving a reference line or an axis label a palette colour would read as a
+# fourth series.
+INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e2e2df"
+NEUTRAL = "#bdbdb8"          # reference bars, "rejected" arm, anything not a regime
+
+# ICLR sets Times; without LaTeX, name it directly and leave real fallbacks.
+SERIF_STACK = ["Times New Roman", "Nimbus Roman", "Liberation Serif",
+               "STIX Two Text", "DejaVu Serif"]
+
+BUNDLE = "iclr2024"
 
 
-def apply(context=None):
-    """Set the theme. Call once, before creating a figure."""
-    sns.set_theme(
-        context=context or os.environ.get("FIG_CONTEXT", "notebook"),
-        style="whitegrid",
-        font=FONT_STACK[0],
-        rc={
-            "font.sans-serif": FONT_STACK,
-            "figure.facecolor": "white",
-            "axes.facecolor": "white",
-            "axes.edgecolor": "#cfcfca",
-            "axes.labelcolor": MUTED,
-            "text.color": INK,
-            "xtick.color": MUTED, "ytick.color": MUTED,
-            "grid.color": "#e5e5e1",
-            "axes.titlelocation": "left",
-            "axes.titlepad": 12,
-        },
-    )
+def rc(nrows=1, ncols=1, rel_width=1.0):
+    """The bundle's rcParams, with this project's two departures applied.
+
+    Pass nrows/ncols to get the figure size tueplots would choose for a grid of
+    that shape at ICLR's column width; scripts that size their own figure can
+    ignore the returned `figure.figsize`.
+    """
+    params = dict(bundles.iclr2024(usetex=False))
+    params.update(figsizes.iclr2024(nrows=nrows, ncols=ncols, rel_width=rel_width))
+    params.update({
+        "text.usetex": False,               # no LaTeX on this machine — see docstring
+        "figure.constrained_layout.use": False,   # scripts lay themselves out
+        "figure.autolayout": False,
+        "font.family": "serif",
+        "font.serif": SERIF_STACK,
+        "figure.facecolor": "white",
+        "axes.facecolor": "white",
+        "axes.edgecolor": "#cfcfca",
+        "axes.labelcolor": MUTED,
+        "text.color": INK,
+        "xtick.color": MUTED,
+        "ytick.color": MUTED,
+        "grid.color": GRID,
+        "axes.titlelocation": "left",
+        "axes.titlepad": 8,
+        "axes.prop_cycle": plt.cycler(color=OKABE_ITO),
+    })
+    return params
+
+
+TEXT_WIDTH_IN = 5.5          # ICLR's text width, per tueplots
+
+
+def apply(width_in=TEXT_WIDTH_IN, nrows=1, ncols=1):
+    """Set the theme for a figure that will be drawn `width_in` inches wide.
+
+    THIS IS THE ARGUMENT THAT MATTERS. tueplots sizes type for a figure drawn at
+    ICLR's 5.5in text width, where 9pt body type renders as 9pt on the page. A
+    figure drawn at 11in and then placed at \textwidth is scaled to 0.5x by
+    LaTeX, so that same 9pt lands on the page as 4.5pt and the bundle's whole
+    point is lost.
+
+    Drawing at width W and scaling the type by W/5.5 produces output identical to
+    drawing at 5.5in, while leaving room for the title block and source line this
+    project puts inside the figure rather than in the LaTeX caption. So callers
+    declare the width they will actually use and the type follows it, instead of
+    a magic number that drifts away from the figsize above it.
+    """
+    sns.set_palette(sns.color_palette(OKABE_ITO))
+    params = rc(nrows, ncols)
+    scale = width_in / TEXT_WIDTH_IN
+    if scale != 1.0:
+        for k in ("font.size", "axes.labelsize", "axes.titlesize",
+                  "legend.fontsize", "xtick.labelsize", "ytick.labelsize"):
+            params[k] = params[k] * scale
+    sns.set_theme(style="whitegrid", rc=params)
+    plt.rcParams.update(params)          # seaborn's own defaults must not win
+    return scale
+
+
+def figsize(nrows=1, ncols=1, rel_width=1.0):
+    """ICLR-correct figure size for a grid of this shape."""
+    return figsizes.iclr2024(nrows=nrows, ncols=ncols,
+                             rel_width=rel_width)["figure.figsize"]
 
 
 # every text element and the plot area share this left edge
 LEFT = 0.055
 
+# Layout below is specified in INCHES, not axes fractions. A fraction that looks
+# right at 9pt on a 5.5in figure overlaps its own axis labels at 19pt on an 11.5in
+# one, because the text grows and the fraction does not. Inches are invariant to
+# both the figure size and the type scale, so a caller sets the margin once.
+LINE = 1.45          # line height as a multiple of font size
 
-def title_block(fig, title, deck=None, y=0.965):
-    """Left-aligned headline + deck, on the shared left edge."""
-    fig.suptitle(title, x=LEFT, y=y, ha="left", fontsize="large",
-                 fontweight="bold", color=INK)
+
+def _in(fig, pt):
+    """Points to a fraction of this figure's height."""
+    return pt / 72 / fig.get_figheight()
+
+
+def title_block(fig, title, deck=None, top_in=0.30):
+    """Left-aligned headline + deck, `top_in` inches below the top edge."""
+    base = plt.rcParams["font.size"]
+    title_pt = base * 1.2                       # matplotlib's "large"
+    y = 1 - _in(fig, top_in * 72)
+    fig.suptitle(title, x=LEFT, y=y, ha="left", fontsize=title_pt,
+                 fontweight="bold", color=INK, va="top")
     if deck:
-        fig.text(LEFT, y - 0.055, deck, ha="left", va="top",
-                 fontsize="small", color=MUTED, linespacing=1.5)
+        fig.text(LEFT, y - _in(fig, title_pt * LINE), deck, ha="left", va="top",
+                 fontsize=base * 0.85, color=MUTED, linespacing=1.5)
 
 
-def source(fig, text, y=0.018):
-    fig.text(LEFT, y, text, ha="left", va="bottom", fontsize="x-small",
-             color=MUTED, linespacing=1.5)
+def source(fig, text, bottom_in=0.12):
+    fig.text(LEFT, _in(fig, bottom_in * 72), text, ha="left", va="bottom",
+             fontsize=plt.rcParams["font.size"] * 0.75, color=MUTED,
+             linespacing=1.5)
+
+
+def deck_height(fig, n_lines):
+    """Inches the title block occupies for a deck of `n_lines`."""
+    base = plt.rcParams["font.size"]
+    return (base * 1.2 * LINE + base * 0.85 * LINE * n_lines) / 72
+
+
+def frame(fig, top_in, bottom_in, left=None, right=0.98, wspace=0.22, hspace=0.4):
+    """subplots_adjust in inches, so margins survive a change of type scale."""
+    h = fig.get_figheight()
+    fig.subplots_adjust(left=left if left is not None else LEFT, right=right,
+                        top=1 - top_in / h, bottom=bottom_in / h,
+                        wspace=wspace, hspace=hspace)
 
 
 def axis_note(ax, text):
@@ -96,15 +203,30 @@ def label_ends(ax, ends, x, min_gap, pad="  "):
 
 
 def demo():
-    apply("talk")
-    fig, ax = plt.subplots(figsize=(6, 4))
-    ax.plot([0, 1], [0, 1], color=BLUE)
+    scale = apply()
+    assert scale == 1.0, "5.5in is the reference width and must not be scaled"
+    assert apply(11.0) == 2.0, "type must scale with the drawn width"
+    apply()
+    assert plt.rcParams["axes.prop_cycle"].by_key()["color"][:3] == OKABE_ITO[:3], \
+        "seaborn overrode the Okabe-Ito cycle"
+    assert plt.rcParams["text.usetex"] is False, "usetex must stay off — no LaTeX here"
+    assert plt.rcParams["figure.constrained_layout.use"] is False, \
+        "constrained layout fights the manual title blocks"
+    assert plt.rcParams["axes.titlelocation"] == "left"
+    assert len(set(OKABE_ITO)) == 8, "palette has a duplicate"
+
+    fig, ax = plt.subplots(figsize=figsize())
+    for i, c in enumerate(OKABE_ITO[:4]):
+        ax.plot([0, 1], [0, i], color=c)
     title_block(fig, "Title", "Deck")
     source(fig, "Source: test")
-    assert plt.rcParams["font.sans-serif"][0] == FONT_STACK[0]
-    assert plt.rcParams["axes.titlelocation"] == "left"
+    clean(ax)
     plt.close(fig)
-    print("ok")
+
+    w, h = figsize(nrows=2, ncols=3)
+    assert abs(w - 5.5) < 0.01, f"ICLR text width should be 5.5in, got {w}"
+    print(f"ok — tueplots {BUNDLE}, Okabe-Ito x{len(OKABE_ITO)}, "
+          f"1x1 figsize {figsize()[0]:.2f}x{figsize()[1]:.2f}in")
 
 
 if __name__ == "__main__":

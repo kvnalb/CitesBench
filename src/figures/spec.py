@@ -105,18 +105,26 @@ class Regime:
 # CSV output always uses `.label`. A figure may wrap it across two lines for
 # layout; the data never carries a different string. This is the rule that
 # stops fig2 and fig3 from disagreeing about what a regime is called.
-# figstyle carries three validated categorical slots and the headline set is
-# exactly three, so each headline regime gets one. `human_score` is a diagnostic
-# that never shares a panel with the headline three; it takes MUTED rather than a
-# fourth hue, which would have to be invented and revalidated for CVD separation.
+#
+# Colour: Okabe-Ito slots, assigned here rather than in figstyle so the palette
+# and its use stay separable. Measured OKLab dE x100 for these four, worst case
+# across protan/deutan/tritan simulation:
+#
+#     AC / council            24.0        council / single call   11.5
+#     AC / single call        10.5        AC / diagnostic         12.1
+#
+# Worst pair overall is 8.2 (single call vs the diagnostic purple, protan),
+# against a target of 8. The three headline regimes are the canonical
+# blue/vermillion/bluish-green trio, which is the best-separated triple in the
+# palette and the one Okabe & Ito recommend when only three are needed.
 REGIMES = [
     Regime("human_ac", "Human (area chairs)", fs.BLUE, None,
            "the decision actually made; no score, so no ties"),
-    Regime("llm_council", "LLM council (9 calls)", fs.ORANGE, "committee_rating",
+    Regime("llm_council", "LLM council (9 calls)", fs.VERMILLION, "committee_rating",
            "Gemma-4-31B, 9-call slim_coarse pipeline"),
-    Regime("llm_single", "LLM single call (1 call)", fs.AQUA, "single_call_rating",
+    Regime("llm_single", "LLM single call (1 call)", fs.BLUISHGREEN, "single_call_rating",
            "same model, same schema, one call — the council's control"),
-    Regime("human_score", "Human (mean review score)", fs.MUTED, "mean_rating",
+    Regime("human_score", "Human (mean review score)", fs.REDDISHPURPLE, "mean_rating",
            "top-n by mean reviewer rating, ignoring the AC; diagnostic only"),
 ]
 

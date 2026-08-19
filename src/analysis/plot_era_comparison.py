@@ -40,9 +40,10 @@ OUT_PDF = "outputs/era_comparison.pdf"
 
 KGRID = np.arange(0.02, 0.51, 0.02)
 # colour = selector, and nothing else
-SELECTORS = [("rating", "LLM committee", fs.BLUE),
-             ("mean_rating", "Human reviewers", fs.ORANGE),
-             ("ac", "Area chairs", fs.AQUA)]
+# Same entity, same colour as the 2018-2020 exhibits (src/figures/spec.py):
+SELECTORS = [("rating", "LLM committee", fs.VERMILLION),
+             ("mean_rating", "Human reviewers", fs.REDDISHPURPLE),
+             ("ac", "Area chairs", fs.BLUE)]
 ERA_1820, ERA_2025 = "2018–2020", "2025"
 
 
@@ -117,7 +118,7 @@ def panel_advantage(ax, control="human reviewers"):
     for yy, a, b in zip(y, d["adv_1820"], d["adv_2025"]):
         ax.plot([b, a], [yy, yy], color="#c9c9c4", lw=2.4, zorder=1,
                 solid_capstyle="round")
-    ax.scatter(d["adv_2025"], y, s=68, color="white", edgecolor=fs.ORANGE,
+    ax.scatter(d["adv_2025"], y, s=68, color="white", edgecolor=fs.VERMILLION,
                linewidth=2.2, zorder=3)
     ax.scatter(d["adv_1820"], y, s=68, color=fs.BLUE, edgecolor="white",
                linewidth=1.2, zorder=3)
@@ -128,7 +129,7 @@ def panel_advantage(ax, control="human reviewers"):
     ax.set_xlabel("committee's lead over human reviewers")
     ax.annotate("2018–2020", (d["adv_1820"].max(), len(d) - 0.35), color=fs.BLUE,
                 fontsize="small", fontweight="bold", ha="center", va="bottom")
-    ax.annotate("2025", (d["adv_2025"].min(), len(d) - 0.35), color=fs.ORANGE,
+    ax.annotate("2025", (d["adv_2025"].min(), len(d) - 0.35), color=fs.VERMILLION,
                 fontsize="small", fontweight="bold", ha="center", va="bottom")
     ax.set_title("The lead shrinks on every measure", pad=34)
     fs.clean(ax)
