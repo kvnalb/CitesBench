@@ -84,7 +84,12 @@ AFFIL = re.compile(
     r"google|deepmind|microsoft|facebook|meta\s+ai|fair\b|openai|nvidia|amazon|"
     r"ibm|intel|adobe|apple|baidu|tencent|alibaba|huawei|samsung|bosch|"
     r"mit\b|cmu\b|eth\b|inria|mila\b)", re.I)
-ABSTRACT = re.compile(r"^\s*abstract\b", re.I)
+# One definition, imported, not copied. A prefix match here truncated the front matter
+# of any paper whose TITLE starts with "Abstract" — e.g. "Abstract Diagrammatic
+# Reasoning with Multiplex Graph Networks" — reporting its author block as absent when
+# the names were right there. The same bug in the anonymizer let that paper's authors
+# survive anonymization.
+from build.anonymize_fulltext import ABSTRACT
 
 
 def text_index(dirs):

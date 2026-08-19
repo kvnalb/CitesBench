@@ -76,6 +76,18 @@ NORMALIZATION. to_archive_text() strips markdown heading markers so ReviewArena 
 matches the archive's shape. The archive .txt files carry zero such markers, so it is
 a no-op on them — one code path, and both regimes read the same bytes.
 
+ANONYMIZATION IS MANDATORY, not a flag. The extracted text hands over the decision
+twice: the running header ("Published as a conference paper at ICLR 2018" vs "Under
+review as ...") predicts acceptance 99.5-99.9% of the time from one line, and the
+author block names real authors on 1,476 of 1,517 accepted papers while 2,923 of
+2,980 rejected ones say "Anonymous authors". See outputs/audits/ and #41. Sending
+that text would measure whether the model can read line 1.
+
+So every paper goes through anonymize() before the call, and a paper it cannot
+anonymize is DROPPED rather than sent unchanged. No second corpus is written: the
+transform is a pure function applied in-flight, and the trace file already records the
+verbatim messages, so what the model actually saw stays recoverable per call.
+
 Everything is traced: one JSONL line per call with the verbatim messages, the untouched
 reply, token counts and latency. Both outputs are append-only and a restart skips
 paper_ids that already SUCCEEDED, so a crash costs nothing already paid for.
@@ -112,6 +124,7 @@ from prompts import load as load_prompt
 from llm import MODELS
 from build.build_slim_2025_papers import MIN_CHARS, SEED
 from build.normalize_paper_markdown import to_archive_text
+from build.anonymize_fulltext import anonymize
 from probes.slim_pipeline import (SlimConferenceReview, _complete_structured,
                                  resolve_base_model)
 
@@ -271,10 +284,16 @@ def build_messages(title, markdown, year):
     returns one untyped blob. Passing raw markdown here would quietly make this a
     different measurement from the council.
     """
+    text = anonymize(to_archive_text(markdown), title or "", year)
+    if text is None:
+        # never fall back to the raw text: the whole point is that a paper we cannot
+        # anonymize is one that would leak its own answer
+        raise ValueError("cannot anonymize: no standalone ABSTRACT heading, "
+                         "or the extraction is unusable")
     return [
         {"role": "system", "content": load_prompt(SYSTEM_TEMPLATE, year=year)},
         {"role": "user", "content": load_prompt(BODY_TEMPLATE, title=title or "",
-                                                paper_text=to_archive_text(markdown))},
+                                                paper_text=text)},
     ]
 
 
@@ -428,12 +447,24 @@ def demo():
     wrong scale, so what is worth asserting cheaply is the schema and the parity
     constants.
     """
-    msgs = build_messages("A Test Paper", "# Intro\nWe propose a thing.\n", 2020)
+    # long enough to clear the mojibake guard, which wants real English in the head
+    body = ("Published as a conference paper at ICLR 2020\nSOME TITLE\n"
+            "Jane Roe & John Doe\nUniversity of Somewhere\njane@ex.edu\n"
+            "ABSTRACT\n"
+            "We propose a method for the task of ranking, and we show that it is "
+            "useful in practice. The approach is simple to implement and works with "
+            "the standard setup. We evaluate on the usual benchmarks and find that "
+            "the results are consistent with the theory of the method.\n")
+    msgs = build_messages("A Test Paper", body, 2020)
+    sent = msgs[1]["content"]
+    assert "Published as a conference paper" not in sent, "header survived"
+    assert "Jane Roe" not in sent and "jane@ex.edu" not in sent, "authors survived"
+    assert "Anonymous authors" in sent and "Under review" in sent
+    assert "propose a method" in sent, "body was lost"
     assert len(msgs) == 2 and msgs[0]["role"] == "system" and msgs[1]["role"] == "user"
     assert "ICLR 2020" in msgs[0]["content"], "year placeholder never filled"
     assert "{" + "year}" not in msgs[0]["content"], "unfilled placeholder"
-    assert "A Test Paper" in msgs[1]["content"] and "======" in msgs[1]["content"]
-    assert "propose a thing" in msgs[1]["content"], "paper text missing from body"
+    assert "A Test Paper" in sent and "======" in sent
 
     # the schema this must land in is the council's, imported not redeclared
     r = SlimConferenceReview(rating=6.0, confidence=3.0, soundness=3.0, presentation=3.0,
@@ -471,7 +502,7 @@ def demo():
                 os.remove(sample_path(run))
 
     for yr in (2018, 2019, 2020):
-        m = build_messages("T", "body", yr)
+        m = build_messages("T", body, yr)
         assert f"ICLR {yr}" in m[0]["content"], f"prompt year not {yr}"
 
     print("ok — prompts assemble per-paper year, schema is the council's, "
