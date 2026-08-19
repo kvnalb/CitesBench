@@ -123,7 +123,22 @@ assert len(df) == len(papers), (
 # "no usable match" and must stay NaN — never zero.
 df.loc[df["status"] != "found", "openalex_citations"] = np.nan
 
-# field×year citation percentile rank (0–1) among papers with citations
+# field×year citation percentile rank (0–1) among papers with citations.
+#
+# COMPUTED BUT NOT USED AS A HEADLINE OUTCOME. `paper_fields.csv` covers 2,726 of
+# 4,567 papers, and the coverage is not independent of the decision: 63.7% of
+# accepted papers carry a label against 57.7% of rejected ones. That leaves this
+# column defined for 57.7% of the pool with an 8.1 pp accept/reject gap of its own,
+# on the same axis the benchmark measures. 1,749 of the 2,726 labels are
+# `theory_methods`, so most of the normalization happens inside one catch-all.
+#
+# The column stays because the leakage scripts read it. Every paper exhibit goes
+# through src/figures/spec.py, which pins MODE = "raw"; run_eval.py no longer
+# writes the normalized arm unless asked. Fixing this means classifying the 1,841
+# unlabeled papers, which is a project, not a patch.
+#
+# `groupby` drops NaN keys, so unlabeled papers keep NaN here rather than landing
+# in a bucket they do not belong to.
 df["citation_pct_rank"] = np.nan
 for (field, year), grp in df.groupby(["field", "year"]):
     mask = df["field"].eq(field) & df["year"].eq(year) & df["openalex_citations"].notna()

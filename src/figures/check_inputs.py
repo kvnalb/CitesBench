@@ -117,6 +117,14 @@ def main():
 
     print("\nderived tables")
     if os.path.exists(spec.EVAL_RESULTS):
+        # One scale in one column. run_eval.py no longer writes the field-normalized
+        # arm by default (its labels cover 59.7% of the pool with a 6.0 pp
+        # accept/reject differential), so a second mode appearing here means someone
+        # ran --include-normalized and left the output in place.
+        modes = set(pd.read_csv(spec.EVAL_RESULTS)["mode"].unique())
+        check("eval_results holds one mode only", modes == {spec.MODE},
+              f"found {sorted(modes)}; rerun python src/analysis/run_eval.py"
+              if modes != {spec.MODE} else "")
         res = spec.read_eval_results()
         dup = res.duplicated(subset=["regime", "year", "metric"]).sum()
         # More than one row per key is exactly the shape that let a mean over two
