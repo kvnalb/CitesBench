@@ -19,6 +19,12 @@ Two deliberate departures from the bundle:
     own title block and source line with `fig.text` and then calls
     `subplots_adjust`; constrained layout silently ignores that and reflows.
 
+The bundle asks for Times because that is ICLR's body face. Figures here are set
+in Helvetica instead: sans in the figures against serif in the running text is the
+convention across NeurIPS, ICML and ICLR, and it keeps axis labels legible at the
+6-7pt tick sizes the bundle specifies, where a Times numeral gets thin. See
+`resolved_font()` — a silent fallback to DejaVu is a failure, not a default.
+
 WHY OKABE-ITO. It is the reference qualitative palette for colour-vision
 deficiency (Okabe & Ito 2008), and unlike an ad-hoc set it is safe across the
 whole palette rather than only for the pairs someone happened to check. Measured
@@ -54,11 +60,29 @@ OKABE_ITO = ["#E69F00", "#56B4E9", "#009E73", "#F0E442",
 INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e2e2df"
 NEUTRAL = "#bdbdb8"          # reference bars, "rejected" arm, anything not a regime
 
-# ICLR sets Times; without LaTeX, name it directly and leave real fallbacks.
-SERIF_STACK = ["Times New Roman", "Nimbus Roman", "Liberation Serif",
-               "STIX Two Text", "DejaVu Serif"]
+# Sans, the convention for figures in ML papers even where the body text is Times:
+# Helvetica is what \usepackage{helvet} resolves to (phv), Arial is its Windows
+# metric equivalent, Nimbus Sans and Liberation Sans are the free clones that stand
+# in on Linux and CI. DejaVu Sans is matplotlib's own default and only catches a
+# box with none of the above.
+SANS_STACK = ["Helvetica", "Arial", "Nimbus Sans", "Liberation Sans", "DejaVu Sans"]
 
 BUNDLE = "iclr2024"
+
+
+def resolved_font():
+    """The face matplotlib will actually use, not the one we asked for.
+
+    A missing family falls back silently and the figure just looks slightly wrong,
+    which is the hardest kind of style bug to notice in a PDF. demo() asserts on
+    this so a machine without Helvetica says so instead of shipping DejaVu.
+    """
+    from matplotlib import font_manager
+    have = {f.name for f in font_manager.fontManager.ttflist}
+    for name in SANS_STACK:
+        if name in have:
+            return name
+    return None
 
 
 def rc(nrows=1, ncols=1, rel_width=1.0):
@@ -74,8 +98,8 @@ def rc(nrows=1, ncols=1, rel_width=1.0):
         "text.usetex": False,               # no LaTeX on this machine — see docstring
         "figure.constrained_layout.use": False,   # scripts lay themselves out
         "figure.autolayout": False,
-        "font.family": "serif",
-        "font.serif": SERIF_STACK,
+        "font.family": "sans-serif",
+        "font.sans-serif": SANS_STACK,
         "figure.facecolor": "white",
         "axes.facecolor": "white",
         "axes.edgecolor": "#cfcfca",
@@ -214,6 +238,11 @@ def demo():
         "constrained layout fights the manual title blocks"
     assert plt.rcParams["axes.titlelocation"] == "left"
     assert len(set(OKABE_ITO)) == 8, "palette has a duplicate"
+    face = resolved_font()
+    assert face is not None, f"none of {SANS_STACK} is installed — figures would " \
+                             "fall back to whatever matplotlib finds, silently"
+    assert face != "DejaVu Sans", ("only DejaVu Sans is available; install Helvetica, "
+                                   "Arial or Nimbus Sans before building exhibits")
 
     fig, ax = plt.subplots(figsize=figsize())
     for i, c in enumerate(OKABE_ITO[:4]):
@@ -225,7 +254,7 @@ def demo():
 
     w, h = figsize(nrows=2, ncols=3)
     assert abs(w - 5.5) < 0.01, f"ICLR text width should be 5.5in, got {w}"
-    print(f"ok — tueplots {BUNDLE}, Okabe-Ito x{len(OKABE_ITO)}, "
+    print(f"ok — tueplots {BUNDLE}, {face}, Okabe-Ito x{len(OKABE_ITO)}, "
           f"1x1 figsize {figsize()[0]:.2f}x{figsize()[1]:.2f}in")
 
 

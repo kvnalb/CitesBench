@@ -40,6 +40,7 @@ import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib import patheffects
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from figures import spec, figstyle as fs
@@ -115,7 +116,9 @@ def build():
                     color=r.color, label=r.label, zorder=3)
         ax.annotate(f"accept rate ({base:.0%})", (q, base), xytext=(0, -4),
                     textcoords="offset points", ha="right", va="top",
-                    fontsize=plt.rcParams["font.size"] * 0.8, color=fs.MUTED)
+                    fontsize=plt.rcParams["font.size"] * 0.8, color=fs.INK, zorder=6,
+                    path_effects=[patheffects.withStroke(linewidth=2.2,
+                                                         foreground="white")])
         ax.set_xlabel(xlab, fontsize="small", color=fs.MUTED)
         ax.set_xticks(range(1, q + 1))
         ax.set_ylim(-0.03, 1.03)

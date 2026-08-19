@@ -39,6 +39,7 @@ import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib import patheffects
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from figures import spec, figstyle as fs   # noqa: E402
@@ -104,10 +105,14 @@ def build():
         ax.axhline(rnd, color=fs.MUTED, ls=(0, (4, 3)), lw=1.2, zorder=4)
         # axes fraction, not data coords: at x = n_regimes - 0.45 the label sat
         # past the right spine and was clipped away without warning.
+        # The baseline crosses the bars, so this label lands on whichever colour
+        # happens to be underneath it. A thin halo keeps it legible on all three.
         ax.annotate("random", (0.99, rnd), xycoords=("axes fraction", "data"),
                     xytext=(0, 4), textcoords="offset points", va="bottom",
                     ha="right", fontsize=plt.rcParams["font.size"] * 0.8,
-                    color=fs.MUTED)
+                    color=fs.INK, zorder=6,
+                    path_effects=[patheffects.withStroke(linewidth=2.2,
+                                                         foreground="white")])
 
         ax.set_xticks(x)
         ax.set_xticklabels([WRAP.get(r.label, r.label) for r in spec.HEADLINE],
