@@ -1,31 +1,35 @@
 """
-Figure 2: the headline comparison — council vs a naive single-prompt LLM vs the
-area chairs, on median citations and mean log(1+citations).
+Figure 2: the headline comparison — the 9-call council against a 1-call baseline
+and the area chairs, on median citations and mean log(1 + citations).
 
-Point estimates come from outputs/eval_results.csv, which run_eval.py writes. That
-file keys two incommensurable scales off one `value` column — mode='raw' holds
-citation counts (184.0) and mode='normalized' holds percentiles (0.75) — so reading
-it without filtering silently averages them into plausible nonsense (their mean,
-92.4, looks like a real citation count). We filter to raw and then ASSERT that only
-one mode survived, because that averaging already cost one wrong conclusion during
-planning and produced no error when it did.
+Everything is computed here from outputs/eval_table.csv. The earlier version read
+its point estimates from outputs/eval_results.csv while computing its intervals
+itself, which had two consequences worth naming:
 
-WHY THE ERROR BARS ARE NOT CONFIDENCE INTERVALS. They are tie-break intervals, and
-they exist because the naive LLM scores take six distinct values across 4,508
-papers. In 2020 exactly TWO papers sit strictly above its selection cutoff; the
-other 685 of 687 are drawn from a 1,330-way tie at the cutoff. So its "selection"
-is mostly whatever order the rows happened to be in — shuffling ties moves its 2018
-median citations from 63.0 to 109.5, a 74% swing from nothing but sort order.
+  1. `eval_results.csv` keys two incommensurable scales off one `value` column —
+     mode='raw' holds citation counts (184.0), mode='normalized' holds percentile
+     ranks (0.75) — so an unfiltered read averages them into plausible nonsense.
+     That already cost one wrong conclusion during planning, silently.
+  2. The point came from ONE arbitrary tie ordering while the bracket spanned 200,
+     so the point did not sit inside its own interval in any principled place.
 
-A bare bar would hide that behind a single confident number. Each bar therefore
-carries the min-max over N_SHUFFLE tie orderings. The council's interval is tight
-(178-200 on the same test) and the naive one is wide, which is the honest picture:
-one of these is a measurement and the other is close to a coin flip.
+Both go away by computing the point and the interval from the same 200 orderings.
+The figure now depends on one input, and spec.py declares what that input means.
 
-The naive bar is a PLACEHOLDER. LLM2 (ensemble, 13 distinct values, ~50% of its
-slate tie-broken) is the least bad of three weak options — LLM1 is ~100% tie-broken
-— and it should be replaced by the single-call baseline from #34, which produces a
-real score distribution on the council's own schema.
+WHY THE BARS ARE NOT CONFIDENCE INTERVALS. They are the identified set. When a
+regime's scores are coarse, it does not pick out one slate — it picks out every
+slate consistent with its ranking, and it is indifferent between them. In 2020 the
+single-call baseline ranks 147 papers strictly above its cutoff and is indifferent
+over 813 more, from which the harness must draw the remaining 540. Reporting a
+single number there would read that indifference as a decision the model made.
+
+So: the point is the mean over N_SHUFFLE orderings, and the bracket is the full
+range. The council's bracket is narrow because the council actually resolves the
+decision; the single call's is wide because it mostly does not. That contrast is
+the finding, not a nuisance to be averaged away.
+
+Rejected: a deterministic tie-break on paper_id or a secondary score. It makes a
+false attribution reproducible, which is worse than leaving it visible.
 
 Run: python src/figures/fig2_headline.py
 """
@@ -37,135 +41,129 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from figures import figstyle as fs
-from regimes.human_actual import HumanActual
-from regimes.llm_committee import LLMCommittee
-from regimes.llm_ensemble import LLMEnsemble
+from figures import spec, figstyle as fs   # noqa: E402
+from metrics import compute_metrics        # noqa: E402
+from baselines import random_baseline      # noqa: E402
 
-EVAL_RESULTS = "outputs/eval_results.csv"
-EVAL_TABLE = "outputs/eval_table.csv"
 OUT_PDF = "outputs/figures/fig2_headline.pdf"
 OUT_PNG = "outputs/figures/fig2_headline.png"
 OUT_CSV = "outputs/figures/fig2_headline.csv"
 
-YEARS = [2018, 2019, 2020]
-N_SHUFFLE = 200
-SEED = 0
-
-# (regime object, label, score column or None for a decision-based regime, colour)
-PANEL = [
-    (HumanActual(), "Human\n(area chairs)", None, fs.BLUE),
-    (LLMCommittee(), "LLM council\n(9 calls)", "committee_rating", fs.AQUA),
-    (LLMEnsemble(), "Naive LLM\n(1 prompt)", "llm_mean_rating", fs.ORANGE),
-]
 METRICS = [("median_citations", "Median citations of the selected papers"),
            ("mean_log_citations", "Mean log(1 + citations)")]
 
-
-def load_points():
-    """Per-regime, per-metric point estimate and baselines, averaged over years."""
-    d = pd.read_csv(EVAL_RESULTS)
-    d = d[(d["mode"] == "raw") & d.year.isin(YEARS)]
-    assert d["mode"].nunique() == 1, "raw filter failed — see the docstring"
-    return d.groupby(["regime", "metric"])[
-        ["value", "random_value", "ideal_value"]].mean().reset_index()
+# Display may wrap a label across two lines; the CSV always carries spec's
+# canonical string, so exhibits stay joinable on `regime`.
+WRAP = {"Human (area chairs)": "Human\n(area chairs)",
+        "LLM council (9 calls)": "LLM council\n(9 calls)",
+        "LLM single call (1 call)": "LLM single call\n(1 call)"}
 
 
-def tie_interval(regime, col, metric, et, rng):
-    """min-max of the metric over N_SHUFFLE tie orderings, averaged across years.
+def metric_over_orderings(et, regime, metric):
+    """Point, interval and resolution for one regime on one metric.
 
-    A decision-based regime (the area chairs) has no score to tie on — its selected
-    set is fixed — so it gets a degenerate interval rather than a fake one.
+    Each of N_SHUFFLE orderings produces a slate per year; the metric is averaged
+    across years within an ordering, so the spread reported is the spread of the
+    year-averaged headline rather than of any single year.
     """
-    if col is None:
-        return None
-    vals = []
-    for _ in range(N_SHUFFLE):
-        per_year = []
-        for yr in YEARS:
-            pool = et[et.year == yr]
-            n = int(pool.accepted.sum())
-            shuffled = pool.sample(frac=1.0, random_state=int(rng.integers(1 << 30)))
-            sel = regime.select(shuffled, n)
-            c = pool[pool.paper_id.isin(sel)].openalex_citations.dropna()
-            per_year.append(c.median() if metric == "median_citations"
-                            else np.log1p(c).mean())
-        vals.append(np.mean(per_year))
-    return float(np.min(vals)), float(np.max(vals))
+    per_year_streams = []
+    for year in spec.YEARS:
+        pool = et[et["year"] == year]
+        n = spec.n_for(et, year)
+        vals = [compute_metrics(sel, pool, spec.MODE)[metric]
+                for sel in spec.select_with_ties(pool, regime, n)]
+        per_year_streams.append(vals)
+
+    # A decision-based regime yields one slate, not N_SHUFFLE of them.
+    width = min(len(v) for v in per_year_streams)
+    across = np.array([v[:width] for v in per_year_streams], dtype=float).mean(axis=0)
+    point, lo, hi = spec.point_and_interval(across)
+    if width == 1:                      # no ties to be indifferent over
+        lo = hi = np.nan
+    return point, lo, hi
 
 
 def build():
     os.makedirs("outputs/figures", exist_ok=True)
-    pts = load_points()
-    et = pd.read_csv(EVAL_TABLE, low_memory=False)
-    et = et[et.year.isin(YEARS)].copy()
-    et["accepted"] = et.decision.str.startswith("Accept", na=False)
-    rng = np.random.default_rng(SEED)
+    et = spec.read_eval_table()
+
+    # Random baseline: regime-independent, so computed once per year and averaged.
+    rand = {m: float(np.mean([random_baseline(et[et.year == y], spec.n_for(et, y),
+                                              spec.MODE)[m] for y in spec.YEARS]))
+            for m, _ in METRICS}
 
     recs = []
     for metric, _ in METRICS:
-        for regime, label, col, colour in PANEL:
-            row = pts[(pts.regime == regime.name) & (pts.metric == metric)]
-            assert len(row) == 1, f"{regime.name}/{metric} not in {EVAL_RESULTS}"
-            lo_hi = tie_interval(regime, col, metric, et, rng)
-            recs.append({
-                "metric": metric, "regime": regime.name, "label": label.replace("\n", " "),
-                "value": float(row.value.iloc[0]),
-                "random": float(row.random_value.iloc[0]),
-                "ideal": float(row.ideal_value.iloc[0]),
-                "tie_lo": lo_hi[0] if lo_hi else np.nan,
-                "tie_hi": lo_hi[1] if lo_hi else np.nan,
-                "tie_broken": col is not None,
-            })
+        for r in spec.HEADLINE:
+            point, lo, hi = metric_over_orderings(et, r, metric)
+            # resolution, averaged over years, so the caption can quote it
+            sup = np.mean([spec.resolution(et[et.year == y][r.score],
+                                           spec.n_for(et, y))[1] / spec.n_for(et, y)
+                           for y in spec.YEARS]) if r.score else 0.0
+            recs.append({"metric": metric, "regime": r.label, "key": r.key,
+                         "value": point, "tie_lo": lo, "tie_hi": hi,
+                         "random": rand[metric],
+                         "tie_broken": r.score is not None,
+                         "share_tie_broken": sup})
     res = pd.DataFrame(recs)
     res.to_csv(OUT_CSV, index=False)
 
     fs.apply()
     fig, axes = plt.subplots(1, 2, figsize=(11, 5.2))
     for ax, (metric, unit) in zip(axes, METRICS):
-        sub = res[res.metric == metric].set_index("regime").loc[[p[0].name for p in PANEL]]
-        x = np.arange(len(PANEL))
-        colours = [p[3] for p in PANEL]
-        ax.bar(x, sub.value, width=0.62, color=colours, zorder=3)
+        sub = res[res.metric == metric].set_index("key").loc[[r.key for r in spec.HEADLINE]]
+        x = np.arange(len(spec.HEADLINE))
+        ax.bar(x, sub.value, width=0.62, color=[r.color for r in spec.HEADLINE], zorder=3)
 
-        # tie-break spread, drawn as a range through the bar rather than a symmetric
-        # error bar, because it is not symmetric and is not a standard error
-        for xi, (_, r) in zip(x, sub.iterrows()):
-            if not np.isnan(r.tie_lo):
-                ax.vlines(xi, r.tie_lo, r.tie_hi, color=fs.INK, lw=1.6, zorder=5)
-                ax.hlines([r.tie_lo, r.tie_hi], xi - 0.11, xi + 0.11,
+        # The identified set, drawn as a range through the bar rather than a
+        # symmetric error bar, because it is neither symmetric nor a standard error.
+        for xi, (_, row) in zip(x, sub.iterrows()):
+            if not np.isnan(row.tie_lo):
+                ax.vlines(xi, row.tie_lo, row.tie_hi, color=fs.INK, lw=1.6, zorder=5)
+                ax.hlines([row.tie_lo, row.tie_hi], xi - 0.11, xi + 0.11,
                           color=fs.INK, lw=1.6, zorder=5)
 
         rnd = sub["random"].iloc[0]
         ax.axhline(rnd, color=fs.MUTED, ls=(0, (4, 3)), lw=1.2, zorder=4)
-        ax.annotate("random baseline", (len(PANEL) - 0.45, rnd), va="bottom", ha="right",
-                    fontsize="x-small", color=fs.MUTED)
+        ax.annotate("random baseline", (len(spec.HEADLINE) - 0.45, rnd), va="bottom",
+                    ha="right", fontsize="x-small", color=fs.MUTED)
 
         ax.set_xticks(x)
-        ax.set_xticklabels([p[1] for p in PANEL], fontsize="small")
+        ax.set_xticklabels([WRAP.get(r.label, r.label) for r in spec.HEADLINE],
+                           fontsize="small")
         fs.axis_note(ax, unit)
         fs.clean(ax)
-        # label above the bracket, not the bar, or the two collide. Two decimals on
-        # the log panel: at 4.79 vs 4.79 the point IS that they are the same number.
-        fmt = (lambda v: f"{v:.2f}") if metric == "mean_log_citations" else (lambda v: f"{v:,.0f}")
-        for xi, (_, r) in zip(x, sub.iterrows()):
-            top = r.value if np.isnan(r.tie_hi) else max(r.value, r.tie_hi)
-            ax.annotate(fmt(r.value), (xi, top), xytext=(0, 7),
+        # Two decimals on the log panel: at 4.79 vs 4.79 the point IS that they
+        # are the same number.
+        fmt = ((lambda v: f"{v:.2f}") if metric == "mean_log_citations"
+               else (lambda v: f"{v:,.0f}"))
+        for xi, (_, row) in zip(x, sub.iterrows()):
+            top = row.value if np.isnan(row.tie_hi) else max(row.value, row.tie_hi)
+            ax.annotate(fmt(row.value), (xi, top), xytext=(0, 7),
                         textcoords="offset points", ha="center", fontsize="small",
                         fontweight="bold", color=fs.INK)
         ax.set_ylim(0, np.nanmax([sub.value.max(), sub.tie_hi.max()]) * 1.22)
 
+    t1 = spec.read_table1()
+    allrow = t1[t1.year.astype(str) == "all"].iloc[0]
+    single = res[res.key == "llm_single"].iloc[0]
+
     fs.title_block(
-        fig, "The council matches the area chairs; one naive prompt is far behind",
-        "ICLR 2018-2020, all 4,567 submissions. Every regime selects exactly n papers, "
-        "n = that year's actual accept count.\nThe council leads on median citations "
-        "under every tie-break ordering, but on mean log the two are the same number "
-        "(4.79 vs 4.79).\nBars are the mean across years; brackets span 200 tie-break "
-        "orderings and are NOT confidence intervals.")
-    fs.source(fig, y=0.012, text="Source: outputs/eval_results.csv (mode=raw), outputs/eval_table.csv. "
-                   "Outcome: Semantic Scholar citations, tier A+B, 96.3% of the pool.\n"
-                   "The naive LLM bar is a placeholder: its scores take 13 distinct values, "
-                   "so ~50% of its slate is decided by tie-break rather than by score.")
+        fig, "The council resolves the decision; one call mostly does not",
+        f"ICLR 2018-2020, all {int(allrow.submissions):,} submissions. Every regime "
+        "selects exactly n papers, n = that year's actual accept count.\n"
+        "Bars are the mean across years and across 200 tie-break orderings; brackets "
+        "span the full range of those orderings.\nBrackets are the identified set, "
+        "NOT confidence intervals — a wide one means the regime was indifferent.")
+    fs.source(
+        fig, y=0.012,
+        text=f"Source: outputs/eval_table.csv via src/figures/spec.py (mode={spec.MODE}). "
+             f"Outcome: Semantic Scholar citations, tier {'+'.join(spec.TIERS)}, "
+             f"{allrow.cite_coverage:.1%} of the pool, "
+             f"{allrow.coverage_differential_pp:.1f} pp accept/reject differential.\n"
+             f"The single-call baseline has {single.share_tie_broken:.0%} of its slate "
+             "supplied by the tie-break rather than by its own score; the council has "
+             f"{res[res.key == 'llm_council'].iloc[0].share_tie_broken:.0%}.")
     fig.subplots_adjust(left=fs.LEFT, right=0.98, top=0.72, bottom=0.20, wspace=0.22)
     fig.savefig(OUT_PDF)
     fig.savefig(OUT_PNG, dpi=200)
@@ -178,27 +176,30 @@ def build():
 
 def demo():
     res = build()
-    med = res[res.metric == "median_citations"].set_index("regime")
-    council = med.loc["LLM Committee (Gemma)", "value"]
-    human = med.loc["Human (AC decisions)", "value"]
-    naive = med.loc["LLM2 (ensemble)", "value"]
-    assert council > human > naive, (council, human, naive)
+    med = res[res.metric == "median_citations"].set_index("key")
+
+    # The area chairs made every one of their own decisions, so they have no
+    # identified set. Anything else would be a fabricated interval.
+    assert np.isnan(med.loc["human_ac", "tie_lo"]), "ACs should have no tie interval"
+
+    # Resolution ordering is the figure's mechanism and must hold before any
+    # claim about the levels is worth reading.
+    assert (med.loc["llm_single", "share_tie_broken"]
+            > med.loc["llm_council", "share_tie_broken"]), "resolution not ordered"
+
+    # The point must sit inside its own identified set — the bug this rewrite fixed.
+    for key in ["llm_council", "llm_single"]:
+        lo, hi, v = (med.loc[key, "tie_lo"], med.loc[key, "tie_hi"],
+                     med.loc[key, "value"])
+        assert lo <= v <= hi, f"{key}: point {v} outside its interval [{lo}, {hi}]"
+
     assert (med["value"] > med["random"]).all(), "a regime failed to beat random"
-    # the point of the figure: the naive interval is wide, the council's is not
-    w = lambda r: med.loc[r, "tie_hi"] - med.loc[r, "tie_lo"]
-    assert w("LLM2 (ensemble)") > w("LLM Committee (Gemma)"), "tie spread not ordered"
-    assert np.isnan(med.loc["Human (AC decisions)", "tie_lo"]), "ACs have no ties"
-    # median: the AC point sits BELOW the council's worst tie ordering, so the lead
-    # survives tie-break uncertainty. mean log: it sits INSIDE, so it does not.
-    assert human < med.loc["LLM Committee (Gemma)", "tie_lo"], "median lead not robust"
-    ml = res[res.metric == "mean_log_citations"].set_index("regime")
-    h, lo, hi = (ml.loc["Human (AC decisions)", "value"],
-                 ml.loc["LLM Committee (Gemma)", "tie_lo"],
-                 ml.loc["LLM Committee (Gemma)", "tie_hi"])
-    assert lo < h < hi, f"expected the mean-log difference to be indistinguishable ({h}, {lo}, {hi})"
-    print(f"ok — council {council:.1f} > AC {human:.1f} > naive {naive:.1f}; "
-          f"tie spread naive {w('LLM2 (ensemble)'):.1f} vs council "
-          f"{w('LLM Committee (Gemma)'):.1f}")
+
+    print(f"\nok — median citations: "
+          + ", ".join(f"{k} {med.loc[k, 'value']:.1f}" for k in med.index)
+          + f"; single-call slate {med.loc['llm_single', 'share_tie_broken']:.0%} "
+            "tie-broken vs council "
+            f"{med.loc['llm_council', 'share_tie_broken']:.0%}")
 
 
 if __name__ == "__main__":

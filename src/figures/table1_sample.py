@@ -25,20 +25,17 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from figures import spec  # noqa: E402
 
-EVAL_TABLE = "outputs/eval_table.csv"
-CITATIONS = "outputs/citations.csv"
 OUT_CSV = "outputs/figures/table1_sample.csv"
 OUT_TEX = "outputs/figures/table1_sample.tex"
 
-YEARS = [2018, 2019, 2020]
+YEARS = list(spec.YEARS)
 
 
 def load():
-    et = pd.read_csv(EVAL_TABLE, low_memory=False)
-    et = et[et.year.isin(YEARS)].copy()
-    et["accepted"] = et.decision.str.startswith("Accept", na=False)
-    et["cited"] = et.openalex_citations.notna()
+    et = spec.read_eval_table()
+    et["cited"] = et[spec.OUTCOME].notna()
     return et
 
 
@@ -56,8 +53,8 @@ def rows(et):
             "accept_rate": d.accepted.mean(),
             # n for every regime is the actual accept count, pinned per year
             "n_selected": int(d.accepted.sum()) if yr != "all" else np.nan,
-            "median_cites_accepted": acc.openalex_citations.median(),
-            "median_cites_rejected": rej.openalex_citations.median(),
+            "median_cites_accepted": acc[spec.OUTCOME].median(),
+            "median_cites_rejected": rej[spec.OUTCOME].median(),
             "cite_coverage": d.cited.mean(),
             "coverage_accepted": cov_a,
             "coverage_rejected": cov_r,

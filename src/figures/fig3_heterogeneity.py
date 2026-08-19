@@ -42,23 +42,17 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from figures import figstyle as fs
-from regimes.human_actual import HumanActual
-from regimes.llm_committee import LLMCommittee
-from regimes.llm_ensemble import LLMEnsemble
+from figures import spec, figstyle as fs
 
-EVAL_TABLE = "outputs/eval_table.csv"
 OUT_PDF = "outputs/figures/fig3_heterogeneity.pdf"
 OUT_PNG = "outputs/figures/fig3_heterogeneity.png"
 OUT_CSV = "outputs/figures/fig3_heterogeneity.csv"
 
-YEARS = [2018, 2019, 2020]
-SERIES = [(HumanActual(), "Human (area chairs)", fs.BLUE),
-          (LLMCommittee(), "LLM council", fs.AQUA),
-          (LLMEnsemble(), "Naive LLM", fs.ORANGE)]
+YEARS = list(spec.YEARS)
+SERIES = spec.HEADLINE
 PANELS = [("score_q", "mean_rating", 5, "Human score quintile (within year)",
            "Share of papers selected, by what the humans scored them"),
-          ("cite_d", "openalex_citations", 10, "True citation decile (within year)",
+          ("cite_d", spec.OUTCOME, 10, "True citation decile (within year)",
            "Share of papers selected, by how the paper actually did")]
 
 
@@ -78,26 +72,32 @@ def bins_within_year(et, col, q):
 
 def build():
     os.makedirs("outputs/figures", exist_ok=True)
-    et = pd.read_csv(EVAL_TABLE, low_memory=False)
-    et = et[et.year.isin(YEARS)].copy()
-    et["accepted"] = et.decision.str.startswith("Accept", na=False)
+    et = spec.read_eval_table()
     for key, col, q, _, _ in PANELS:
         et[key] = bins_within_year(et, col, q)
 
-    for regime, label, _ in SERIES:
-        ids = []
+    # Selection PROBABILITY per paper, not membership in one arbitrary slate.
+    # With 77% of the single-call slate decided by the tie-break, a single ordering
+    # would draw a curve that is mostly an artifact of row order. Averaging the
+    # membership indicator over spec.N_SHUFFLE orderings gives each paper its
+    # probability of selection, and the bin mean is then an expected rate.
+    for r in SERIES:
+        prob = pd.Series(0.0, index=et.paper_id)
+        n_ord = 0
         for yr in YEARS:
             p = et[et.year == yr]
-            ids += regime.select(p, int(p.accepted.sum()))
-        et[regime.name] = et.paper_id.isin(ids)
+            for k, sel in enumerate(spec.select_with_ties(p, r, spec.n_for(et, yr))):
+                prob.loc[sel] += 1.0
+            n_ord = k + 1
+        et[r.key] = (prob / n_ord).to_numpy()
 
     recs = []
     for key, _, q, _, _ in PANELS:
         for b in range(1, q + 1):
             d = et[et[key] == b]
             row = {"panel": key, "bin": b, "n": len(d)}
-            for regime, label, _ in SERIES:
-                row[label] = d[regime.name].mean()
+            for r in SERIES:
+                row[r.label] = d[r.key].mean()
             recs.append(row)
     res = pd.DataFrame(recs)
     res.to_csv(OUT_CSV, index=False)
@@ -108,9 +108,9 @@ def build():
     for ax, (key, _, q, xlab, note) in zip(axes, PANELS):
         sub = res[res.panel == key]
         ax.axhline(base, color=fs.MUTED, ls=(0, (4, 3)), lw=1.2, zorder=2)
-        for regime, label, colour in SERIES:
-            ax.plot(sub.bin, sub[label], marker="o", ms=5, lw=2,
-                    color=colour, label=label, zorder=3)
+        for r in SERIES:
+            ax.plot(sub.bin, sub[r.label], marker="o", ms=5, lw=2,
+                    color=r.color, label=r.label, zorder=3)
         ax.annotate(f"accept rate ({base:.0%})", (q, base), xytext=(0, -14),
                     textcoords="offset points", ha="right", va="top",
                     fontsize="x-small", color=fs.MUTED)
@@ -122,13 +122,21 @@ def build():
         fs.clean(ax)
     axes[0].legend(frameon=False, fontsize="small", loc="upper left")
 
+    # Every number in the caption is read back from the data just plotted, so a
+    # redraw cannot leave a stale claim in the prose.
+    t1 = spec.read_table1()
+    allrow = t1[t1.year.astype(str) == "all"].iloc[0]
+    cd = res[res.panel == "cite_d"].set_index("bin")
+    AC, CO = spec.BY_KEY["human_ac"].label, spec.BY_KEY["llm_council"].label
     fs.title_block(
         fig, "The area chairs hold the middle; the council catches the top decile",
-        "ICLR 2018-2020, all 4,567 submissions. Each regime selects exactly n papers "
-        "per year, n = that year's accept count.\nIn the top citation decile the "
-        "council reaches 85% against the area chairs' 72%; from deciles 4 to 9 the "
-        "area chairs are ahead.\nThe two cancel, which is why the average contrast in "
-        "Table 2 is indistinguishable from zero. Bins are within year.")
+        f"ICLR 2018-2020, all {int(allrow.submissions):,} submissions. Each regime "
+        "selects exactly n papers per year, n = that year's accept count.\n"
+        f"In the top citation decile the council reaches {cd.loc[10, CO]:.0%} against "
+        f"the area chairs' {cd.loc[10, AC]:.0%}; from deciles 6 to 9 the area chairs "
+        "are ahead.\nThe two cancel, which is why the average contrast in Table 2 is "
+        "indistinguishable from zero. Bins are within year, and each curve is a "
+        "selection probability over 200 tie orderings.")
     fs.source(fig, y=0.012, text=(
         "Source: outputs/eval_table.csv. Outcome: Semantic Scholar citations, tier A+B.\n"
         "Author covariates are deliberately not used as a cut: they resolve for 71% of "
@@ -148,20 +156,22 @@ def demo():
     res, base = build()
     cd = res[res.panel == "cite_d"].set_index("bin")
     top = cd.loc[10]
-    assert (top[["Human (area chairs)", "LLM council"]] > base).all(), \
+    AC, CO = spec.BY_KEY["human_ac"].label, spec.BY_KEY["llm_council"].label
+    SC = spec.BY_KEY["llm_single"].label
+    assert (top[[AC, CO]] > base).all(), \
         "both should beat the base rate in the top decile"
-    assert (cd["LLM council"].iloc[-1] > cd["LLM council"].iloc[0]), "no gradient"
+    assert (cd[CO].iloc[-1] > cd[CO].iloc[0]), "no gradient"
     # the mechanism: council ahead in the top decile, area chairs ahead in the middle.
     # If this crossover disappears, Figure 3 no longer explains Table 2's null and the
     # title is wrong — so it fails here rather than redrawing with a stale claim.
-    assert top["LLM council"] > top["Human (area chairs)"], "council should lead at the top"
+    assert top[CO] > top[AC], "council should lead at the top"
     mid = cd.loc[6:9]
-    assert (mid["Human (area chairs)"] > mid["LLM council"]).all(), \
+    assert (mid[AC] > mid[CO]).all(), \
         "area chairs should lead deciles 6-9"
     sq = res[res.panel == "score_q"]
     assert len(sq) == 5 and len(cd) == 10
-    print(f"\nok — top citation decile: AC {top['Human (area chairs)']:.0%}, "
-          f"council {top['LLM council']:.0%}, naive {top['Naive LLM']:.0%} "
+    print(f"\nok — top citation decile: AC {top[AC]:.0%}, "
+          f"council {top[CO]:.0%}, single {top[SC]:.0%} "
           f"(base rate {base:.0%})")
 
 

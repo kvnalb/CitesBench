@@ -39,22 +39,17 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from regimes.human_actual import HumanActual
-from regimes.llm_committee import LLMCommittee
-from regimes.llm_ensemble import LLMEnsemble
+from figures import spec  # noqa: E402
 
-EVAL_TABLE = "outputs/eval_table.csv"
+EVAL_TABLE = spec.EVAL_TABLE
 OUT_CSV = "outputs/figures/table2_regression.csv"
 DRAWS_CSV = "outputs/figures/table2_bootstrap_draws.csv"
 OUT_TEX = "outputs/figures/table2_regression.tex"
 
-YEARS = [2018, 2019, 2020]
-N_BOOT = 400
-SEED = 0
-
-REGIMES = [(HumanActual(), "Human (area chairs)", False),
-           (LLMCommittee(), "LLM council (9 calls)", True),
-           (LLMEnsemble(), "Naive LLM (1 prompt)", True)]
+YEARS = list(spec.YEARS)
+N_BOOT = spec.N_BOOT
+SEED = spec.SEED
+REGIMES = spec.HEADLINE
 
 
 def fit(pool, selected_ids):
@@ -63,8 +58,8 @@ def fit(pool, selected_ids):
     Demeaning by year IS the year fixed effect for a single regressor, and it keeps
     this to numpy rather than building a design matrix per bootstrap draw.
     """
-    d = pool.dropna(subset=["openalex_citations"]).copy()
-    d["y"] = np.log1p(d.openalex_citations)
+    d = pool.dropna(subset=[spec.OUTCOME]).copy()
+    d["y"] = np.log1p(d[spec.OUTCOME])
     d["x"] = d.paper_id.isin(selected_ids).astype(float)
     d["y"] -= d.groupby("year")["y"].transform("mean")
     d["x"] -= d.groupby("year")["x"].transform("mean")
@@ -72,18 +67,26 @@ def fit(pool, selected_ids):
     return float((d.x * d.y).sum() / vx) if vx > 0 else np.nan
 
 
-def select_all(pool):
-    """One selection per regime on a given pool, n pinned to that year's accepts."""
+def select_all(pool, n_shuffle=1, seed=SEED):
+    """One selection per regime on a given pool, n pinned to that year's accepts.
+
+    `n_shuffle` tie orderings per regime, yielded as a list of slates. A bootstrap
+    draw uses one ordering — the resampling already randomizes — while the point
+    estimate averages over spec.N_SHUFFLE so it does not depend on row order.
+    """
     out = {}
-    for regime, _, _ in REGIMES:
-        ids = []
+    for r in REGIMES:
+        slates = [[] for _ in range(n_shuffle)]
         for yr in YEARS:
             p = pool[pool.year == yr]
             n = int(p.accepted.sum())
             if n == 0 or len(p) < n:
                 continue
-            ids += regime.select(p, n)
-        out[regime.name] = set(ids)
+            for i, sel in enumerate(spec.select_with_ties(p, r, n, n_shuffle, seed)):
+                slates[i] += sel
+            if r.score is None:          # one slate, reused for every ordering
+                slates = [slates[0]] * n_shuffle
+        out[r.key] = [set(s) for s in slates]
     return out
 
 
@@ -97,7 +100,8 @@ def fingerprint():
     against S2 outcomes without a word.
     """
     h = hashlib.sha1(open(EVAL_TABLE, "rb").read())
-    h.update(repr((N_BOOT, SEED, YEARS, [r[0].name for r in REGIMES])).encode())
+    h.update(spec.fingerprint().encode())
+    h.update(repr((N_BOOT, SEED, YEARS, [r.key for r in REGIMES])).encode())
     return h.hexdigest()[:16]
 
 
@@ -113,7 +117,7 @@ def load_draws(fp):
 
 def compute_draws(et, fp):
     rng = np.random.default_rng(SEED)
-    draws = {r[0].name: [] for r in REGIMES}
+    draws = {r.key: [] for r in REGIMES}
     contrasts = []
     for _ in range(N_BOOT):
         # stratified by year: resample papers within year so year composition, and
@@ -121,11 +125,11 @@ def compute_draws(et, fp):
         idx = np.concatenate([rng.choice(g.index.values, len(g), replace=True)
                               for _, g in et.groupby("year")])
         b = et.loc[idx]
-        sel = select_all(b)
-        vals = {k: fit(b, v) for k, v in sel.items()}
+        sel = select_all(b, n_shuffle=1, seed=int(rng.integers(1 << 30)))
+        vals = {k: fit(b, v[0]) for k, v in sel.items()}
         for k, v in vals.items():
             draws[k].append(v)
-        contrasts.append(vals[LLMCommittee().name] - vals[HumanActual().name])
+        contrasts.append(vals["llm_council"] - vals["human_ac"])
 
     d = pd.DataFrame(draws)
     d["contrast"] = contrasts
@@ -136,11 +140,13 @@ def compute_draws(et, fp):
 
 def build(refresh=False):
     os.makedirs("outputs/figures", exist_ok=True)
-    et = pd.read_csv(EVAL_TABLE, low_memory=False)
-    et = et[et.year.isin(YEARS)].copy()
-    et["accepted"] = et.decision.str.startswith("Accept", na=False)
+    et = spec.read_eval_table()
 
-    point = {k: fit(et, v) for k, v in select_all(et).items()}
+    # Point estimate averaged over tie orderings, matching Figure 2. With 77% of the
+    # single-call slate supplied by the tie-break, a coefficient from one ordering is
+    # partly a coefficient on row order.
+    point = {k: float(np.nanmean([fit(et, s) for s in slates]))
+             for k, slates in select_all(et, n_shuffle=spec.N_SHUFFLE).items()}
 
     fp = fingerprint()
     d = None if refresh else load_draws(fp)
@@ -149,24 +155,24 @@ def build(refresh=False):
         d = compute_draws(et, fp)
     else:
         print(f"reusing {len(d):,} cached draws from {DRAWS_CSV} (fingerprint {fp})")
-    draws = {r[0].name: d[r[0].name].tolist() for r in REGIMES}
+    draws = {r.key: d[r.key].tolist() for r in REGIMES}
     contrasts = d["contrast"].tolist()
 
     rows = []
-    for regime, label, tie in REGIMES:
-        a = np.array(draws[regime.name], dtype=float)
+    for r in REGIMES:
+        a = np.array(draws[r.key], dtype=float)
         a = a[~np.isnan(a)]
         rows.append({
-            "regime": regime.name, "label": label,
-            "coef": point[regime.name],
+            "regime": r.label, "key": r.key,
+            "coef": point[r.key],
             "se": a.std(ddof=1),
             "ci_lo": np.percentile(a, 2.5), "ci_hi": np.percentile(a, 97.5),
-            "tie_broken": tie, "n_boot": len(a),
+            "tie_broken": r.score is not None, "n_boot": len(a),
         })
     c = np.array(contrasts, dtype=float); c = c[~np.isnan(c)]
     rows.append({
-        "regime": "contrast", "label": "Council - area chairs",
-        "coef": point[LLMCommittee().name] - point[HumanActual().name],
+        "regime": "contrast", "key": "contrast",
+        "coef": point["llm_council"] - point["human_ac"],
         "se": c.std(ddof=1), "ci_lo": np.percentile(c, 2.5),
         "ci_hi": np.percentile(c, 97.5), "tie_broken": True, "n_boot": len(c),
         # share of resamples on the wrong side of zero — a p-value's honest cousin
@@ -175,9 +181,10 @@ def build(refresh=False):
     t = pd.DataFrame(rows)
     t.to_csv(OUT_CSV, index=False)
 
+    last_regime = REGIMES[-1].label     # rule between the regimes and the contrast
     body = "\n".join(
-        f"{r.label} & {r.coef:.3f} & ({r.se:.3f}) & [{r.ci_lo:.3f}, {r.ci_hi:.3f}] \\\\"
-        + ("\n\\midrule" if r.regime == "Naive LLM (1 prompt)" else "")
+        f"{r.regime} & {r.coef:.3f} & ({r.se:.3f}) & [{r.ci_lo:.3f}, {r.ci_hi:.3f}] \\\\"
+        + ("\n\\midrule" if r.regime == last_regime else "")
         for r in t.itertuples())
     open(OUT_TEX, "w").write(
         "% generated by src/figures/table2_regression.py — do not hand-edit\n"
@@ -194,10 +201,11 @@ def build(refresh=False):
 
 
 def demo(refresh=False):
-    t = build(refresh).set_index("regime")
-    for r in ("Human (AC decisions)", "LLM Committee (Gemma)", "LLM2 (ensemble)"):
-        assert t.loc[r, "ci_lo"] > 0, f"{r} should beat the papers it passes over"
-    assert t.loc["LLM Committee (Gemma)", "coef"] > t.loc["LLM2 (ensemble)", "coef"]
+    t = build(refresh).set_index("key")
+    for r in REGIMES:
+        assert t.loc[r.key, "ci_lo"] > 0, f"{r.label} should beat the papers it passes over"
+    assert t.loc["llm_council", "coef"] > t.loc["llm_single", "coef"], \
+        "nine calls should not underperform one"
     # the cache must exist and be stamped for THIS input after a build, or a later
     # run would silently reuse draws belonging to different data
     cached = pd.read_csv(DRAWS_CSV)

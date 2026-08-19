@@ -24,9 +24,9 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from figures import figstyle as fs
+from figures import spec, figstyle as fs
 
-TABLE1 = "outputs/figures/table1_sample.csv"
+TABLE1 = spec.TABLE1_CSV
 OUT_PDF = "outputs/figures/fig1_design.pdf"
 OUT_PNG = "outputs/figures/fig1_design.png"
 
@@ -34,9 +34,7 @@ BOX_FC = "#f7f7f5"
 
 
 def facts():
-    if not os.path.exists(TABLE1):
-        sys.exit(f"{TABLE1} missing — run python src/figures/table1_sample.py first")
-    t = pd.read_csv(TABLE1)
+    t = spec.read_table1()
     a = t[t.year == "all"].iloc[0]
     per = t[t.year != "all"]
     return a, per
@@ -120,7 +118,7 @@ def build():
 def demo():
     a = build()
     # the figure states the sample; if it ever disagrees with Table 1 it is wrong
-    assert a.submissions == 4567 and a.accepts == 1526
+    assert a.submissions == 4567 and a.accepts == sum(spec.N_PINNED.values())
     assert a.coverage_differential_pp < 10
     print(f"ok — schematic drawn from Table 1 "
           f"({a.submissions:,} papers, {a.accepts:,} accepts, "
