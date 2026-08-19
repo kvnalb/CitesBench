@@ -397,8 +397,8 @@ _shared modules imported by the above_
 | `outputs/oa_resolve.log` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | — |
 | `outputs/oa_title_match_venues.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py`, `src/fetch/fetch_rejected_venues_s2_title.py` |
 | `outputs/oos_probe_report.md` | `src/probes/run_oos_probes.py` | `src/app/provenance_tab.py` |
-| `outputs/oos_probes_Llama-3-3-70B-Instruct-Turbo.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/oos_probes_{slug(model)}.csv`) | `src/app/provenance_tab.py` |
-| `outputs/oos_probes_gemma-4-31B-it.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/oos_probes_{slug(model)}.csv`) | `src/app/provenance_tab.py` |
+| `outputs/oos_probes_Llama-3-3-70B-Instruct-Turbo.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
+| `outputs/oos_probes_gemma-4-31B-it.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/oos_probes_run.log` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/oos_probes_run2.log` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/oos_traces_Llama-3-3-70B-Instruct-Turbo.jsonl` | `src/build/build_leakage_ledger.py` (via pattern `outputs/oos_traces_{slug}.jsonl`) | `src/app/provenance_tab.py` |
