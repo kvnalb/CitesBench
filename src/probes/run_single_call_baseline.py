@@ -54,33 +54,45 @@ theirs and is preserved. The numeric scales, the JSON schema and the anti-compre
 warnings are ours, added so the output lands in the council's schema. Do not describe
 this as "the Liang et al. prompt" in the paper; it is adapted from it.
 
-POPULATION. ReviewArena is the only local source of full paper text, which bounds this
-hard (measured, not assumed):
+PAPER SET AND TEXT SOURCE ARE ARGUMENTS, not baked in. An earlier version took
+`--year {2020,2025}` and read the ReviewArena parquet, because I had concluded that
+2018 and 2019 had no local full text. That was WRONG: it is in data/OpenReview/, in
+two run directories laid out as fulltext/<paper_id>.txt, covering 4,497 of the 4,567
+papers (98.5%), rejects included, median 49,123 chars — the same text the 9-call
+pipeline consumed. I reached the wrong conclusion by globbing for local_fulltext.json
+under */papers/*/, the layout pipeline_xray documents, and never opening the directory
+that had it. A hardcoded `choices=[2020, 2025]` is how that mistake became structural,
+so both inputs are now arguments:
 
-    2018, 2019   no local full text at all — absent from ReviewArena, and the archive
-                 run holding local_fulltext.json lives on a collaborator's Dropbox
-                 (exactly one paper of it is on disk here)
-    2020         2,211 of 2,213 papers (99.9%), INCLUDING 1,524 of 1,526 rejects
-    2025         3,703 papers, accepts only
+    --papers PATH        CSV of papers to score; needs a paper_id column, other
+                         columns pass through. outputs/eval_table.csv works as-is.
+    --text-dir DIR       repeatable; directories of <paper_id>.txt
+    --text-parquet-year  the ReviewArena backend, for 2025
 
-So 2020 is the only year where this baseline faces a complete accept-and-reject
-selection task, and it is the largest of the three primary years. For 2025 the frozen
-council population is reused verbatim when present, so both regimes score the same
-papers rather than two overlapping sets.
+Exactly one text source. The resolved population is written out, so which papers a
+run actually covered is recoverable from disk rather than re-derived.
+
+NORMALIZATION. to_archive_text() strips markdown heading markers so ReviewArena text
+matches the archive's shape. The archive .txt files carry zero such markers, so it is
+a no-op on them — one code path, and both regimes read the same bytes.
 
 Everything is traced: one JSONL line per call with the verbatim messages, the untouched
 reply, token counts and latency. Both outputs are append-only and a restart skips
 paper_ids that already SUCCEEDED, so a crash costs nothing already paid for.
 
-Outputs:
-  outputs/samples/single_call_{year}_papers.csv   frozen population, written once
-  outputs/single_call_{year}_{model}.csv          one row per paper, incremental
-  outputs/single_call_{year}_{model}_traces.jsonl one line per call, incremental
+Outputs (run = --run-name, default the papers-file stem):
+  outputs/samples/single_call_{run}_papers.csv    resolved population, written once
+  outputs/single_call_{run}_{model}.csv           one row per paper, incremental
+  outputs/single_call_{run}_{model}_traces.jsonl  one line per call, incremental
 
-Run: python src/probes/run_single_call_baseline.py --dry-run          # no API calls
-     python src/probes/run_single_call_baseline.py --year 2020 --n 2  # smoke, 2 calls
-     python src/probes/run_single_call_baseline.py --year 2020 --workers 8
+Run: ARCHIVE=data/OpenReview
+     python src/probes/run_single_call_baseline.py --dry-run \
+       --papers outputs/eval_table.csv \
+       --text-dir $ARCHIVE/rdd_bandwidth_2018_2020__gemma4_dedicated_stage1/fulltext \
+       --text-dir $ARCHIVE/full_2018_2020_remaining/fulltext
+     # ... then --n 2 for a smoke test, then --workers 8 for the full set
 """
+import glob
 import os
 import re
 import sys
@@ -98,7 +110,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from prompts import load as load_prompt
 from llm import MODELS
-from build.build_slim_2025_papers import load_year, MIN_CHARS, SEED
+from build.build_slim_2025_papers import MIN_CHARS, SEED
 from build.normalize_paper_markdown import to_archive_text
 from probes.slim_pipeline import (SlimConferenceReview, _complete_structured,
                                  resolve_base_model)
@@ -115,10 +127,6 @@ TEMPERATURE = 0.25
 MAX_TOKENS = 3072
 STAGE = "single_call_review"
 
-# The council's frozen 2025 list. Reused when scoring 2025 so both regimes see the
-# same papers; irrelevant for 2020, which the council never ran locally.
-COUNCIL_2025_SAMPLE = "outputs/samples/slim_2025_papers.csv"
-
 # Same column list as build_committee_ratings_2025.py, so anything already reading
 # committee output reads this unchanged.
 FIELDS = ["paper_id", "decision", "primary_area", "markdown_chars", "run_order",
@@ -129,56 +137,111 @@ FIELDS = ["paper_id", "decision", "primary_area", "markdown_chars", "run_order",
 _lock = threading.Lock()
 
 
-def _slug(model_key):
-    """Filesystem-safe tag: a dedicated endpoint id carries slashes and dots, which
-    would otherwise scatter outputs across invented directories."""
-    return re.sub(r"[^A-Za-z0-9_.-]", "_", model_key)
+def _slug(s):
+    """Filesystem-safe tag: an endpoint id carries slashes and dots, which would
+    otherwise scatter outputs across invented directories."""
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", str(s))
 
 
-def sample_path(year):
-    return f"outputs/samples/single_call_{year}_papers.csv"
+def sample_path(run):
+    return f"outputs/samples/single_call_{_slug(run)}_papers.csv"
 
 
-def paths(year, model_key):
-    tag = _slug(model_key)
-    return (f"outputs/single_call_{year}_{tag}.csv",
-            f"outputs/single_call_{year}_{tag}_traces.jsonl")
+def paths(run, model_key):
+    return (f"outputs/single_call_{_slug(run)}_{_slug(model_key)}.csv",
+            f"outputs/single_call_{_slug(run)}_{_slug(model_key)}_traces.jsonl")
 
 
-def build_population(year):
-    """Frozen population for a year, written once and reused.
+class DirText:
+    """Text as <dir>/<paper_id>.txt, the archive's layout. Several dirs may be given;
+    a paper present in more than one resolves to the largest file, on the assumption
+    that a truncated extraction is the defective copy."""
 
-    Rejects are KEPT. That is the point of choosing 2020 — a pool of accepts only can
-    measure ranking within accepts but says nothing about accept-vs-reject separation,
-    which is the selection task the benchmark is about.
+    def __init__(self, dirs):
+        self.index = {}
+        for d in dirs:
+            for path in glob.glob(os.path.join(d, "*.txt")):
+                pid = os.path.basename(path)[:-4]
+                size = os.path.getsize(path)
+                if size > self.index.get(pid, (None, -1))[1]:
+                    self.index[pid] = (path, size)
+        self.describe = f"{len(dirs)} fulltext dir(s): " + ", ".join(dirs)
+
+    def sizes(self):
+        return {k: v[1] for k, v in self.index.items()}
+
+    def get(self, pid):
+        e = self.index.get(pid)
+        if not e:
+            return ""
+        with open(e[0], errors="replace") as f:
+            return f.read()
+
+
+class ParquetText:
+    """The ReviewArena backend, keyed by forum_id, for years it covers."""
+
+    def __init__(self, year):
+        from build.build_slim_2025_papers import load_year
+        d = load_year(year).set_index("forum_id")
+        self.md = d.markdown
+        self.describe = f"ReviewArena parquet, year {year}"
+
+    def sizes(self):
+        return self.md.fillna("").str.len().to_dict()
+
+    def get(self, pid):
+        v = self.md.get(pid)
+        return "" if v is None or not isinstance(v, str) else v
+
+
+def build_population(papers_csv, text, run, seed=SEED, min_chars=MIN_CHARS):
+    """Papers to score, resolved against the text we actually have.
+
+    Written out once and reused. Drops are counted and printed rather than silently
+    absorbed: a run that covers 4,100 of 4,567 papers is a different measurement from
+    one that covers all of them, and the difference should not have to be rediscovered
+    later from the output row count.
     """
-    p = sample_path(year)
-    if os.path.exists(p):
-        s = pd.read_csv(p)
-        print(f"Reusing frozen population {p} — {len(s):,} papers "
-              f"(delete it to draw a new one)")
+    out = sample_path(run)
+    if os.path.exists(out):
+        s = pd.read_csv(out)
+        print(f"Reusing resolved population {out} — {len(s):,} papers "
+              f"(delete it to rebuild)")
         return s
 
-    if year == 2025 and os.path.exists(COUNCIL_2025_SAMPLE):
-        # score exactly the papers the council scored, not an overlapping set
-        keep = pd.read_csv(COUNCIL_2025_SAMPLE)
-        print(f"Using the council's frozen 2025 list ({len(keep):,} papers) so both "
-              f"regimes score the same papers")
-    else:
-        d = load_year(year).rename(columns={"forum_id": "paper_id"})
-        keep = d[d.markdown_chars >= MIN_CHARS].copy()
-        # same seed as the council population, so run_order < N is a reproducible
-        # smoke test rather than whatever order the parquet happened to be in
-        keep = keep.sample(frac=1.0, random_state=SEED).reset_index(drop=True)
-        keep["run_order"] = range(len(keep))
-        keep = keep[["paper_id", "title", "decision", "markdown_chars",
-                     "primary_area", "num_reviews", "run_order"]]
+    df = pd.read_csv(papers_csv, low_memory=False)
+    if "paper_id" not in df.columns:
+        sys.exit(f"{papers_csv} has no paper_id column")
+    n_in = len(df)
+    sizes = text.sizes()
+    df["markdown_chars"] = df.paper_id.map(sizes)
+    missing = int(df.markdown_chars.isna().sum())
+    df = df[df.markdown_chars.notna()]
+    short = int((df.markdown_chars < min_chars).sum())
+    df = df[df.markdown_chars >= min_chars].copy()
 
-    keep.to_csv(p, index=False)
-    acc = keep.decision.astype(str).str.startswith("Accept")
-    print(f"wrote {p}: {len(keep):,} papers "
-          f"({int(acc.sum()):,} accept / {int((~acc).sum()):,} reject)")
-    return keep
+    if "run_order" not in df.columns:
+        # seeded, so --n 5 is a reproducible smoke test rather than whatever order
+        # the input file happened to be in (which is decision-correlated)
+        df = df.sample(frac=1.0, random_state=seed).reset_index(drop=True)
+        df["run_order"] = range(len(df))
+    keep = [c for c in ("paper_id", "title", "year", "decision", "primary_area",
+                        "markdown_chars", "run_order") if c in df.columns]
+    df = df[keep].sort_values("run_order")
+
+    os.makedirs("outputs/samples", exist_ok=True)
+    df.to_csv(out, index=False)
+    print(f"{papers_csv}: {n_in:,} papers in -> {len(df):,} scoreable "
+          f"({missing:,} no text, {short:,} under {min_chars:,} chars)")
+    if "decision" in df.columns:
+        acc = df.decision.astype(str).str.startswith("Accept")
+        print(f"  {int(acc.sum()):,} accept / {int((~acc).sum()):,} reject")
+    if "year" in df.columns:
+        print("  by year: " + "  ".join(f"{int(y)}: {n:,}"
+                                        for y, n in df.year.value_counts().sort_index().items()))
+    print(f"  text source: {text.describe}\n  -> {out}")
+    return df
 
 
 def done_ids(csv_path):
@@ -215,7 +278,11 @@ def build_messages(title, markdown, year):
     ]
 
 
-def one_paper(row, markdown, model_key, year, fcsv, writer, ftr, base_model=None):
+def one_paper(row, markdown, model_key, year_default, fcsv, writer, ftr, base_model=None):
+    # the run spans several years, so the prompt's {year} comes from the paper, not
+    # from a flag. Telling the model a 2018 submission is a 2020 one changes what it
+    # is being asked to judge, and would do so silently.
+    year = int(row.get("year") or year_default)
     t0 = time.time()
     rec = {k: row.get(k) for k in ("paper_id", "decision", "primary_area",
                                    "markdown_chars", "run_order")}
@@ -266,35 +333,39 @@ def one_paper(row, markdown, model_key, year, fcsv, writer, ftr, base_model=None
     return rec
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--year", type=int, default=2020, choices=[2020, 2025],
-                    help="2020 is the only year with full text for rejects too")
-    ap.add_argument("--model", default="gemma", help="registry key or a Together id")
-    ap.add_argument("--n", type=int, default=0, help="first N by run_order; 0 = all")
-    ap.add_argument("--workers", type=int, default=4)
-    ap.add_argument("--base-model", default=None,
-                    help="what a dedicated endpoint actually serves, for cost accounting")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="assemble and print one prompt, make no API calls")
-    a = ap.parse_args()
+def make_text(a):
+    if a.text_dir and a.text_parquet_year:
+        sys.exit("give --text-dir or --text-parquet-year, not both")
+    if a.text_dir:
+        missing = [d for d in a.text_dir if not os.path.isdir(d)]
+        if missing:
+            sys.exit("no such text dir(s): " + ", ".join(missing))
+        return DirText(a.text_dir)
+    if a.text_parquet_year:
+        return ParquetText(a.text_parquet_year)
+    sys.exit("a text source is required: --text-dir DIR (repeatable) "
+             "or --text-parquet-year N")
 
-    pop = build_population(a.year)
-    # full text stays in the parquet until needed — thousands x ~79k chars is ~GBs
-    text = load_year(a.year).set_index("forum_id").markdown
+
+def main(a):
+    text = make_text(a)
+    run = a.run_name or os.path.splitext(os.path.basename(a.papers))[0]
+    pop = build_population(a.papers, text, run)
 
     if a.dry_run:
         row = pop.sort_values("run_order").iloc[0]
-        msgs = build_messages(row.get("title"), text.get(row.paper_id, ""), a.year)
-        print(f"\n=== DRY RUN — {row.paper_id} ({row.decision}) — no API call ===")
+        msgs = build_messages(row.get("title"), text.get(row.paper_id),
+                              int(row.get("year") or a.year_label))
+        print(f"\n=== DRY RUN — {row.paper_id} "
+              f"({row.get('decision', 'n/a')}) — no API call ===")
         for m in msgs:
             print(f"\n--- {m['role']} ({len(m['content']):,} chars) ---")
-            print(m["content"][:1500])
-            if len(m["content"]) > 1500:
-                print(f"... [{len(m['content'])-1500:,} more chars]")
+            print(m["content"][:1200])
+            if len(m["content"]) > 1200:
+                print(f"... [{len(m['content'])-1200:,} more chars]")
         return
 
-    out_csv, out_traces = paths(a.year, a.model)
+    out_csv, out_traces = paths(run, a.model)
     done = done_ids(out_csv)
     todo = pop.sort_values("run_order")
     if a.n:
@@ -305,22 +376,48 @@ def main():
     if todo.empty:
         return
 
-    new = not os.path.exists(out_csv)
+    new_file = not os.path.exists(out_csv)
     with open(out_csv, "a", newline="") as fcsv, open(out_traces, "a") as ftr:
         writer = csv.DictWriter(fcsv, fieldnames=FIELDS)
-        if new:
+        if new_file:
             writer.writeheader()
         with ThreadPoolExecutor(max_workers=a.workers) as ex:
-            futs = [ex.submit(one_paper, r._asdict(), text.get(r.paper_id, ""),
-                              a.model, a.year, fcsv, writer, ftr, a.base_model)
+            futs = [ex.submit(one_paper, r._asdict(), text.get(r.paper_id),
+                              a.model, a.year_label, fcsv, writer, ftr, a.base_model)
                     for r in todo.itertuples(index=False)]
             ok = bad = 0
+            t0 = time.time()
             for i, f in enumerate(as_completed(futs), 1):
                 rec = f.result()
                 ok, bad = ok + (rec["error"] == ""), bad + (rec["error"] != "")
                 if i % 25 == 0 or i == len(futs):
-                    print(f"  {i:,}/{len(futs):,}  ok={ok:,} failed={bad:,}", flush=True)
+                    rate = i / max(time.time() - t0, 1e-9) * 60
+                    left = (len(futs) - i) / max(rate, 1e-9)
+                    print(f"  {i:,}/{len(futs):,}  ok={ok:,} failed={bad:,}  "
+                          f"{rate:.1f}/min  ~{left:.0f} min left", flush=True)
     print(f"Done. {ok:,} scored, {bad:,} failed -> {out_csv}")
+
+
+def cli():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--papers", default="outputs/eval_table.csv",
+                    help="CSV of papers to score; needs a paper_id column")
+    ap.add_argument("--text-dir", action="append", metavar="DIR",
+                    help="directory of <paper_id>.txt; repeatable")
+    ap.add_argument("--text-parquet-year", type=int, metavar="YEAR",
+                    help="ReviewArena parquet backend instead of --text-dir")
+    ap.add_argument("--run-name", default=None,
+                    help="tag for output filenames; default is the papers-file stem")
+    ap.add_argument("--year-label", type=int, default=2020,
+                    help="fallback {year} for the prompt when a paper has no year column")
+    ap.add_argument("--model", default="gemma", help="registry key or a Together id")
+    ap.add_argument("--n", type=int, default=0, help="first N by run_order; 0 = all")
+    ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--base-model", default=None,
+                    help="what a dedicated endpoint serves, for cost accounting")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="assemble and print one prompt, make no API calls")
+    return ap.parse_args()
 
 
 def demo():
@@ -350,8 +447,37 @@ def demo():
 
     # parity with stage persona_review — if these drift, the comparison is not controlled
     assert (TEMPERATURE, MAX_TOKENS) == (0.25, 3072)
-    print("ok — prompts assemble, schema is the council's, parity constants intact")
+
+    # the text backends are the part that just changed, so exercise them on disk
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        open(os.path.join(d, "aaa.txt"), "w").write("x" * 5000)
+        open(os.path.join(d, "bbb.txt"), "w").write("y" * 10)
+        t = DirText([d])
+        assert t.sizes() == {"aaa": 5000, "bbb": 10}
+        assert t.get("aaa").startswith("x") and t.get("nope") == ""
+        pop_csv = os.path.join(d, "papers.csv")
+        pd.DataFrame({"paper_id": ["aaa", "bbb", "ccc"],
+                      "decision": ["Accept", "Reject", "Reject"]}).to_csv(pop_csv, index=False)
+        run = "unit_test_tmp"
+        try:
+            pop = build_population(pop_csv, t, run)
+            # bbb is under the char floor, ccc has no text at all: both must drop,
+            # and the drop must be visible rather than inferred from a short output
+            assert list(pop.paper_id) == ["aaa"], list(pop.paper_id)
+            assert "run_order" in pop.columns
+        finally:
+            if os.path.exists(sample_path(run)):
+                os.remove(sample_path(run))
+
+    for yr in (2018, 2019, 2020):
+        m = build_messages("T", "body", yr)
+        assert f"ICLR {yr}" in m[0]["content"], f"prompt year not {yr}"
+
+    print("ok — prompts assemble per-paper year, schema is the council's, "
+          "parity constants intact, text backend resolves and drops are explicit")
 
 
 if __name__ == "__main__":
-    demo() if len(sys.argv) == 1 else main()
+    a = cli()
+    demo() if (len(sys.argv) == 1) else main(a)
