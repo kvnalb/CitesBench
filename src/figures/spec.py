@@ -122,8 +122,6 @@ REGIMES = [
            "the decision actually made; no score, so no ties"),
     Regime("llm_council", "LLM council (9 calls)", fs.VERMILLION, "committee_rating",
            "Gemma-4-31B, 9-call slim_coarse pipeline"),
-    Regime("llm_multi", "LLM ensemble (3 calls)", fs.BLUISHGREEN, "llm_mean_rating",
-           "mean of three persona reviews; NOT in HEADLINE, see below"),
     Regime("llm_single", "LLM single call (1 call)", fs.BLUISHGREEN, "single_call_rating",
            "same model, same schema, one call — the council's control"),
     Regime("human_score", "Human (mean review score)", fs.REDDISHPURPLE, "mean_rating",
@@ -138,14 +136,15 @@ RESERVED_LABELS = {"contrast"}
 BY_KEY = {r.key: r for r in REGIMES}
 # The regimes that carry the paper's argument. Fig 2 and Table 2 use this subset;
 # human_score is a diagnostic that belongs in the appendix.
-# The area chairs, the 9-call council, and the 1-call control. `llm_multi` stays
-# defined but out of HEADLINE: its score takes 13 distinct values against the
-# council's 31, so most of its slate is set by the tie-break rather than by the
-# model, and it sits below the 1-call baseline on every metric. It is a diagnostic,
-# not a rung on a ladder.
+# The area chairs, the 9-call council, and the 1-call control. The canonical
+# blue / vermillion / bluish-green trio, worst CVD separation 11.5 (OKLab dE x100,
+# worst of protan/deutan/tritan).
 #
-# Three regimes means the canonical blue / vermillion / bluish-green trio, whose
-# worst CVD separation is 11.5 (OKLab dE x100, worst of protan/deutan/tritan).
+# The GENAI_REVIEW persona ratings (llm_neutral / positive / negative / mean) are
+# deliberately absent from this module and from eval_table. They came with
+# data/gen_review.db rather than from this project's pipeline, so their prompts,
+# model and inputs are not ours to describe or defend. The regime classes are in
+# Archive/regimes_gen_review/.
 HEADLINE = [BY_KEY["human_ac"], BY_KEY["llm_council"], BY_KEY["llm_single"]]
 
 

@@ -2,7 +2,7 @@
 Build the single flat evaluation table used by all downstream eval scripts.
 
 Joins: SUBMISSION + REVIEW (aggregated) + citations + paper_fields
-       + committee/decision-head LLM run (consistent gpt-oss-20b decision head)
+       + committee/decision-head LLM run + the single-call baseline
 Computes: field×year citation percentile rank, N accepts per year
 
 Output: outputs/eval_table.csv
@@ -33,8 +33,14 @@ reviews_raw = pd.read_sql(
     "SELECT paper_id, rating FROM REVIEW",
     con,
 )
-llm_raw = pd.read_sql("SELECT paper_id, type, rating FROM GENAI_REVIEW", con)
 con.close()
+
+# GENAI_REVIEW is deliberately NOT read. Its neutral / positive / negative persona
+# ratings arrived inside data/gen_review.db rather than from this project's
+# pipeline, so we cannot state what prompt, model or input text produced them. They
+# were previously pivoted into llm_{neutral,positive,negative,mean}_rating and one
+# of them was scored as a regime; both are gone. The council
+# (committee_rating) and the single call (single_call_rating) are ours and stay.
 
 # Parse "6: Marginally above acceptance threshold" → 6.0
 reviews_raw["rating_num"] = reviews_raw["rating"].str.extract(r"^(\d+)").astype(float)
@@ -45,15 +51,6 @@ reviews = (
 )
 # single-review papers have NaN std (ddof=1); treat as zero disagreement
 reviews["rating_std"] = reviews["rating_std"].fillna(0)
-llm_raw["rating_num"] = llm_raw["rating"].str.extract(r"^(\d+)").astype(float)
-llm_scores = llm_raw.pivot_table(
-    index="paper_id", columns="type", values="rating_num", aggfunc="mean"
-).rename(columns={"neutral": "llm_neutral_rating", "positive": "llm_positive_rating",
-                  "negative": "llm_negative_rating"}).reset_index()
-llm_scores["llm_mean_rating"] = llm_scores[
-    ["llm_neutral_rating", "llm_positive_rating", "llm_negative_rating"]
-].mean(axis=1)
-
 # Canonical citation table (src/build/build_citations.py) — S2, tiered, one rule
 # for both eras. Replaces the old OpenAlex pull, whose coverage was 89.0% for
 # accepted papers and 62.7% for rejected: a 26.3 point differential on the very
@@ -112,7 +109,6 @@ df = (
     .merge(reviews, on="paper_id", how="left", validate="1:1")
     .merge(citations, on="paper_id", how="left", validate="1:1")
     .merge(fields, on="paper_id", how="left", validate="1:1")
-    .merge(llm_scores, on="paper_id", how="left", validate="1:1")
     .merge(decision_head, on="paper_id", how="left", validate="1:1")
     .merge(single_call, on="paper_id", how="left", validate="1:1")
 )

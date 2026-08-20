@@ -14,24 +14,17 @@ class Regime(ABC):
 from .human_actual import HumanActual
 from .human_score import HumanScore
 from .human_disagree import HumanDisagree
-from .llm_neutral import LLMNeutral
-from .llm_ensemble import LLMEnsemble
-from .llm_positive import LLMPositive
 from .llm_committee import LLMCommittee
 from .llm_deepseek import LLMDeepSeek
 
-# The council and the decision head were written but never listed here, so every
-# committed eval compared humans against the naive single-call prompts only — the
-# 8-call committee pipeline this project is built around had never been scored on
-# the select-n-from-the-pool task, despite committee_rating sitting in eval_table
-# for 4,497 papers since the archive run.
+# The GENAI_REVIEW persona regimes (LLMNeutral, LLMEnsemble, LLMPositive) were
+# removed: their scores came with data/gen_review.db, not from this project's
+# pipeline, so nothing here can state what produced them. Classes are in
+# Archive/regimes_gen_review/, which is append-only and never imported.
 ALL_REGIMES = [
     HumanActual(),
     HumanScore(),
     HumanDisagree(),
     LLMCommittee(),
     LLMDeepSeek(),
-    LLMNeutral(),
-    LLMEnsemble(),
-    LLMPositive(),
 ]
