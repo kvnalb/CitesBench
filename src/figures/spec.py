@@ -123,9 +123,9 @@ REGIMES = [
     Regime("llm_council", "LLM council (9 calls)", fs.VERMILLION, "committee_rating",
            "Gemma-4-31B, 9-call slim_coarse pipeline"),
     Regime("llm_multi", "LLM ensemble (3 calls)", fs.BLUISHGREEN, "llm_mean_rating",
-           "mean of three persona reviews; the middle rung of the compute ladder"),
-    Regime("llm_single", "LLM single call (1 call)", fs.ORANGE, "single_call_rating",
-           "same model, same schema, one call — the bottom of the ladder"),
+           "mean of three persona reviews; NOT in HEADLINE, see below"),
+    Regime("llm_single", "LLM single call (1 call)", fs.BLUISHGREEN, "single_call_rating",
+           "same model, same schema, one call — the council's control"),
     Regime("human_score", "Human (mean review score)", fs.REDDISHPURPLE, "mean_rating",
            "top-n by mean reviewer rating, ignoring the AC; diagnostic only"),
 ]
@@ -138,11 +138,15 @@ RESERVED_LABELS = {"contrast"}
 BY_KEY = {r.key: r for r in REGIMES}
 # The regimes that carry the paper's argument. Fig 2 and Table 2 use this subset;
 # human_score is a diagnostic that belongs in the appendix.
-# The compute ladder (9 / 3 / 1 calls) against the area chairs. Worst CVD
-# separation across these four is 10.5 (OKLab dE x100, protan/deutan/tritan),
-# against a target of 8.
-HEADLINE = [BY_KEY["human_ac"], BY_KEY["llm_council"],
-            BY_KEY["llm_multi"], BY_KEY["llm_single"]]
+# The area chairs, the 9-call council, and the 1-call control. `llm_multi` stays
+# defined but out of HEADLINE: its score takes 13 distinct values against the
+# council's 31, so most of its slate is set by the tie-break rather than by the
+# model, and it sits below the 1-call baseline on every metric. It is a diagnostic,
+# not a rung on a ladder.
+#
+# Three regimes means the canonical blue / vermillion / bluish-green trio, whose
+# worst CVD separation is 11.5 (OKLab dE x100, worst of protan/deutan/tritan).
+HEADLINE = [BY_KEY["human_ac"], BY_KEY["llm_council"], BY_KEY["llm_single"]]
 
 
 # ------------------------------------------------------------------- readers
