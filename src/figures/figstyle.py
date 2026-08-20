@@ -11,10 +11,12 @@ figure that looks right in the paper looks right here.
 
 Two deliberate departures from the bundle:
 
-  - `text.usetex` is forced off. The bundle asks for LaTeX with the times package;
-    there is no LaTeX on this machine, and a missing binary fails at draw time
-    with a stack trace rather than at import. The serif stack below targets Times
-    directly so the result still matches the venue.
+  - `text.usetex` is forced off. The bundle asks for LaTeX with the times package.
+    TinyTeX is installed here but is not on PATH, so matplotlib would fail at draw
+    time with a stack trace rather than at import. Rendering type through
+    matplotlib rather than LaTeX also keeps the figures independent of a TeX
+    install, which matters for anyone rerunning this. The font stack below names
+    the faces directly.
   - `figure.constrained_layout.use` is forced off. Every script here places its
     own title block and source line with `fig.text` and then calls
     `subplots_adjust`; constrained layout silently ignores that and reflows.
@@ -95,7 +97,7 @@ def rc(nrows=1, ncols=1, rel_width=1.0):
     params = dict(bundles.iclr2024(usetex=False))
     params.update(figsizes.iclr2024(nrows=nrows, ncols=ncols, rel_width=rel_width))
     params.update({
-        "text.usetex": False,               # no LaTeX on this machine — see docstring
+        "text.usetex": False,               # TinyTeX is off PATH — see docstring
         "figure.constrained_layout.use": False,   # scripts lay themselves out
         "figure.autolayout": False,
         "font.family": "sans-serif",
