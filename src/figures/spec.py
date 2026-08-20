@@ -122,8 +122,10 @@ REGIMES = [
            "the decision actually made; no score, so no ties"),
     Regime("llm_council", "LLM council (9 calls)", fs.VERMILLION, "committee_rating",
            "Gemma-4-31B, 9-call slim_coarse pipeline"),
-    Regime("llm_single", "LLM single call (1 call)", fs.BLUISHGREEN, "single_call_rating",
-           "same model, same schema, one call — the council's control"),
+    Regime("llm_multi", "LLM ensemble (3 calls)", fs.BLUISHGREEN, "llm_mean_rating",
+           "mean of three persona reviews; the middle rung of the compute ladder"),
+    Regime("llm_single", "LLM single call (1 call)", fs.ORANGE, "single_call_rating",
+           "same model, same schema, one call — the bottom of the ladder"),
     Regime("human_score", "Human (mean review score)", fs.REDDISHPURPLE, "mean_rating",
            "top-n by mean reviewer rating, ignoring the AC; diagnostic only"),
 ]
@@ -134,9 +136,13 @@ REGIMES = [
 RESERVED_LABELS = {"contrast"}
 
 BY_KEY = {r.key: r for r in REGIMES}
-# The three that carry the paper's argument. Fig 2 and Table 2 use this subset;
+# The regimes that carry the paper's argument. Fig 2 and Table 2 use this subset;
 # human_score is a diagnostic that belongs in the appendix.
-HEADLINE = [BY_KEY["human_ac"], BY_KEY["llm_council"], BY_KEY["llm_single"]]
+# The compute ladder (9 / 3 / 1 calls) against the area chairs. Worst CVD
+# separation across these four is 10.5 (OKLab dE x100, protan/deutan/tritan),
+# against a target of 8.
+HEADLINE = [BY_KEY["human_ac"], BY_KEY["llm_council"],
+            BY_KEY["llm_multi"], BY_KEY["llm_single"]]
 
 
 # ------------------------------------------------------------------- readers

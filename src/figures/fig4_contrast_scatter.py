@@ -44,6 +44,8 @@ OUT_CSV = "outputs/figures/fig4_contrast_scatter.csv"
 
 # y-axis regimes, each plotted against the area chairs on x
 AGAINST = [spec.BY_KEY["llm_council"], spec.BY_KEY["llm_single"]]
+# llm_multi is in HEADLINE but omitted here: two square panels fit the
+# text width, three do not, and the ladder's ends are the comparison.
 BASE = spec.BY_KEY["human_ac"]
 
 

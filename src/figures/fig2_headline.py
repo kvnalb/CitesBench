@@ -58,9 +58,11 @@ METRICS = [("median_citations", "Median citations"),
 
 # Display may wrap a label across two lines; the CSV always carries spec's
 # canonical string, so exhibits stay joinable on `regime`.
+# Three lines, because four bars at this panel width will not take two.
 WRAP = {"Human (area chairs)": "Human\nReviewers",
-        "LLM council (9 calls)": "LLM\nCouncil",
-        "LLM single call (1 call)": "Single LLM\nCall"}
+        "LLM council (9 calls)": "LLM\nCouncil\n(9 calls)",
+        "LLM ensemble (3 calls)": "LLM\nEnsemble\n(3 calls)",
+        "LLM single call (1 call)": "Single\nLLM Call"}
 
 
 def build():
@@ -89,18 +91,18 @@ def build():
     res.to_csv(OUT_CSV, index=False)
 
     fs.apply(nrows=2, ncols=2)
-    fig, axes = plt.subplots(2, 2, figsize=(5.5, 4.4))
+    fig, axes = plt.subplots(2, 2, figsize=(5.5, 4.9))
     for ax, (metric, unit) in zip(axes.ravel(), METRICS):
         sub = res[res.metric == metric].set_index("key").loc[[r.key for r in spec.HEADLINE]]
         x = np.arange(len(spec.HEADLINE))
-        ax.bar(x, sub.value, width=0.62, color=[r.color for r in spec.HEADLINE], zorder=3)
+        ax.bar(x, sub.value, width=0.7, color=[r.color for r in spec.HEADLINE], zorder=3)
 
         # The identified set, drawn as a range through the bar rather than a
         # symmetric error bar, because it is neither symmetric nor a standard error.
         for xi, (_, row) in zip(x, sub.iterrows()):
             if not np.isnan(row.tie_lo):
                 ax.vlines(xi, row.tie_lo, row.tie_hi, color=fs.INK, lw=1.6, zorder=5)
-                ax.hlines([row.tie_lo, row.tie_hi], xi - 0.11, xi + 0.11,
+                ax.hlines([row.tie_lo, row.tie_hi], xi - 0.13, xi + 0.13,
                           color=fs.INK, lw=1.6, zorder=5)
 
         # The random baseline, unlabelled: the dashed line stays, the caption
@@ -110,7 +112,7 @@ def build():
 
         ax.set_xticks(x)
         ax.set_xticklabels([WRAP.get(r.label, r.label) for r in spec.HEADLINE],
-                           fontsize="small")
+                           fontsize=6.5)
         ax.set_ylabel(unit)
         fs.clean(ax)
         # Two decimals on the log panel: at 4.79 vs 4.79 the point IS that they
@@ -132,8 +134,8 @@ def build():
         # labels sit inside
         ax.set_ylim(0, min(top, 1.14) if metric.startswith("recall_at_") else top)
 
-    fs.frame(fig, top_in=0.10, bottom_in=0.40, left=0.09, right=0.99,
-             wspace=0.32, hspace=0.42)
+    fs.frame(fig, top_in=0.10, bottom_in=0.52, left=0.09, right=0.99,
+             wspace=0.32, hspace=0.55)
     fig.savefig(OUT_PDF)
     fig.savefig(OUT_PNG, dpi=200)
     plt.close(fig)

@@ -256,7 +256,8 @@ def binscatter(d, t):
         b, _, _ = ols_hc1(X[:, keep], s[col].to_numpy())
         s["resid"] = s[col].to_numpy() - X[:, keep] @ b
 
-        for side, colr in [(0, fs.VERMILLION), (1, fs.BLUISHGREEN)]:
+        # below / above the cutoff, deliberately NOT the regime palette
+        for side, colr in [(0, fs.MUTED), (1, fs.BLUE)]:
             g = s[s.above == side]
             q = pd.qcut(g.r, N_BINS // 2, duplicates="drop")
             m = g.groupby(q, observed=True).agg(r=("r", "mean"),
