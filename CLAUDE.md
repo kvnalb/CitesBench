@@ -1,3 +1,6 @@
+# Writing style
+Write in simple, concise easy to follow language. ASD-STE 100 is a good reference.
+
 # Codebase conventions
 
 ## Directory layout
@@ -89,6 +92,35 @@ Compares reviewer selection regimes (human discretionary, human score-based, LLM
 - Metrics: median citations, mean log(1+citations), count in true top 1/5/10%, recall@k
 - Baselines: random (1000 runs averaged), ideal (top-N by citations)
 - Reports lift over random and drawdown from ideal per metric per regime
+- **The pool is 4,567 submissions, not 4,567 distinct papers.** 52 of them (1.14%)
+  are the same paper submitted in two different years: 50 detected by a shared arXiv
+  ID, 30 by an identical normalised title across years, 52 in the union. 45 are
+  rejected and 7 accepted, which is the expected shape — a rejection gets
+  resubmitted and the second attempt sometimes lands. That is a lower bound; a
+  retitled resubmission never posted to arXiv escapes both routes.
+
+  This does not break the selection framing: `n` is pinned per year and each year is
+  selected independently. It does mean a handful of papers get two draws at
+  acceptance, and it belongs in the sample-statistics table and in the paper.
+
+  It also means **one S2 record can be claimed by two of our submissions**. All 26
+  such collisions in this sample are cross-year resubmissions; none are same-year.
+  `assign_tiers` in `src/fetch/fetch_citations_s2_v2.py` resolves them by sorting
+  `accepted` FIRST, then `title_sim`, then `author_overlap`, because an S2 record's
+  citations accrue to the published version. Losers drop to tier C and their
+  citations become NaN, which is the honest answer for a submission whose record
+  belongs to another paper.
+
+  Sorting on `title_sim` alone is wrong and was the bug in issue #46. S2's stored
+  title goes stale: arXiv 1711.05101 went to ICLR 2018 as "Fixing Weight Decay
+  Regularization in Adam" (rejected), was retitled "Decoupled Weight Decay
+  Regularization", and was accepted at ICLR 2019. S2 kept the old title, so
+  `title_sim` scored the rejected submission 1.0 against the accepted one's 0.709 —
+  the rejected paper took 2,738 citations and the accepted paper got NaN. Two harms
+  in the same direction on the axis the benchmark measures. `check_collisions()`
+  asserts the invariant: no collision group may pay a rejected submission while an
+  accepted sibling sits at tier C.
+
 - **Ground truth is raw citation counts. Field normalization is excluded.**
   `paper_fields.csv` labels 2,726 of 4,567 papers, and the coverage is not
   independent of the decision: 63.7% of accepted papers carry a label against 57.7%
