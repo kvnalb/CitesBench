@@ -180,6 +180,23 @@ def title_block(fig, title, deck=None, top_in=0.30):
                  fontsize=base * 0.85, color=MUTED, linespacing=1.5)
 
 
+def add_title(fig, title, gap_in=0.10):
+    """Put `title` in a band grown onto the top of the figure.
+
+    Call this AFTER frame() or fs.table(). It grows the canvas rather than
+    stealing space, then restores every axis to the inches it already occupied,
+    so adding a title cannot reflow a layout that was already checked.
+    """
+    band = plt.rcParams["font.size"] * 1.2 * LINE / 72 + gap_in
+    h0 = fig.get_figheight()
+    boxes = [(ax, ax.get_position()) for ax in fig.axes]
+    fig.set_figheight(h0 + band)
+    k = h0 / (h0 + band)
+    for ax, p in boxes:
+        ax.set_position([p.x0, p.y0 * k, p.width, p.height * k])
+    title_block(fig, title, top_in=gap_in)
+
+
 def source(fig, text, bottom_in=0.12):
     fig.text(LEFT, _in(fig, bottom_in * 72), text, ha="left", va="bottom",
              fontsize=plt.rcParams["font.size"] * 0.75, color=MUTED,

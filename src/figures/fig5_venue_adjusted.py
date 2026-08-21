@@ -47,6 +47,7 @@ from figures import spec, figstyle as fs   # noqa: E402
 PREMIUM_CSV = "outputs/venue_premium_by_year.csv"
 SPECCURVE_CSV = "outputs/venue_premium_speccurve.csv"
 OUT_PDF = "outputs/figures/fig5_venue_adjusted.pdf"
+TITLE = r"Regime comparison after removing a venue premium of size $\tau$"
 OUT_PNG = "outputs/figures/fig5_venue_adjusted.png"
 OUT_CSV = "outputs/figures/fig5_venue_adjusted.csv"
 
@@ -129,6 +130,7 @@ def build():
     axes[0].legend(frameon=False, fontsize=6.5, loc="upper right")
 
     fs.frame(fig, top_in=0.10, bottom_in=0.46, left=0.11, right=0.99, wspace=0.34)
+    fs.add_title(fig, TITLE)
     fig.savefig(OUT_PDF)
     fig.savefig(OUT_PNG, dpi=200)
     plt.close(fig)

@@ -28,6 +28,7 @@ from figures import spec, figstyle as fs
 
 TABLE1 = spec.TABLE1_CSV
 OUT_PDF = "outputs/figures/fig1_design.pdf"
+TITLE = "The selection-function framing: pool, budget, and outcome"
 OUT_PNG = "outputs/figures/fig1_design.png"
 
 BOX_FC = "#f7f7f5"
@@ -98,6 +99,7 @@ def build():
     arrow(ax, 0.647, 0.683, y + h / 2)
 
     fs.frame(fig, top_in=0.06, bottom_in=0.06, left=0.0, right=1.0)
+    fs.add_title(fig, TITLE)
     fig.savefig(OUT_PDF)
     fig.savefig(OUT_PNG, dpi=200)
     plt.close(fig)

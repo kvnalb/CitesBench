@@ -46,6 +46,7 @@ from figures import spec, figstyle as fs   # noqa: E402
 from baselines import random_baseline      # noqa: E402
 
 OUT_PDF = "outputs/figures/fig2_headline.pdf"
+TITLE = "Selection quality by regime"
 OUT_PNG = "outputs/figures/fig2_headline.png"
 OUT_CSV = "outputs/figures/fig2_headline.csv"
 
@@ -134,6 +135,7 @@ def build():
 
     fs.frame(fig, top_in=0.10, bottom_in=0.44, left=0.09, right=0.99,
              wspace=0.32, hspace=0.46)
+    fs.add_title(fig, TITLE)
     fig.savefig(OUT_PDF)
     fig.savefig(OUT_PNG, dpi=200)
     plt.close(fig)

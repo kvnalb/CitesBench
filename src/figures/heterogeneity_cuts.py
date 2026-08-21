@@ -52,6 +52,9 @@ OUT_CSV = "outputs/figures/heterogeneity_cuts.csv"
 OUT_TEX = "outputs/figures/heterogeneity_cuts.tex"
 OUT_PDF = "outputs/figures/heterogeneity_cuts.pdf"
 OUT_PNG = "outputs/figures/heterogeneity_cuts.png"
+TITLE = "Selection probability by author and institution attributes"
+TITLE_TABLE = ("Selection probability and regime differences by author "
+               "and institution attributes")
 
 SERIES = spec.HEADLINE
 LABEL = {"human_ac": "Area chairs", "llm_council": "Council",
@@ -160,6 +163,7 @@ def render(res):
     axes[0, 0].legend(frameon=False, fontsize=5.6, loc="upper left")
     fs.frame(fig, top_in=0.08, bottom_in=0.52, left=0.085, right=0.99,
              wspace=0.32, hspace=0.58)
+    fs.add_title(fig, TITLE)
     fig.savefig(OUT_PDF)
     fig.savefig(OUT_PNG, dpi=200)
     plt.close(fig)
@@ -187,6 +191,7 @@ def table(res):
         colw=[3.00, 0.70, 0.66, 0.86, 0.76, 0.90, 0.80],
         rules=tuple(rules[1:]),
         note="Mean selection probability over tie orderings.")
+    fs.add_title(fig, TITLE_TABLE)
     fig.savefig(OUT_PDF.replace(".pdf", "_table.pdf"))
     fig.savefig(OUT_PNG.replace(".png", "_table.png"), dpi=220)
     plt.close(fig)

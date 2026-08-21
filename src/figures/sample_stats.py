@@ -59,6 +59,10 @@ COV_TEX = "outputs/figures/sample_coverage.tex"
 COV_PDF = "outputs/figures/sample_coverage.pdf"
 COV_PNG = "outputs/figures/sample_coverage.png"
 
+TITLE_STATS = "Sample characteristics, ICLR 2018-2020"
+TITLE_COV = ("Data availability by source, and its dependence on the "
+             "decision")
+
 # (column, label, kind). kind: "n" numeric, "b" binary share, "c" integer count.
 PANELS = [
     ("Outcome", [
@@ -209,6 +213,7 @@ def render(st, cv):
         colw=[3.20, 0.70, 0.72, 0.64, 0.80, 1.02, 0.90, 0.80, 0.72],
         rules=tuple(rules[1:]),
         note="Shares in percent. Diff. = accepted minus rejected, t = Welch.")
+    fs.add_title(fig, TITLE_STATS)
     fig.savefig(STATS_PDF)
     fig.savefig(STATS_PNG, dpi=220)
     plt.close(fig)
@@ -223,6 +228,7 @@ def render(st, cv):
         body=body, align="llrrrr",
         colw=[2.55, 3.05, 0.68, 0.88, 0.84, 0.70],
         note="Availability of each source, not the values it carries.")
+    fs.add_title(fig, TITLE_COV)
     fig.savefig(COV_PDF)
     fig.savefig(COV_PNG, dpi=220)
     plt.close(fig)

@@ -48,6 +48,14 @@ OUT_E = "outputs/figures/rdd_e_observability"
 OUT_F = "outputs/figures/rdd_f_preprint_timing"
 OUT_CSV = "outputs/rd_context.csv"
 
+TITLES = {
+    OUT_D: "Distribution of mean review score, by final decision",
+    OUT_E: ("Outcome observability along the review-score axis: arXiv record "
+            "versus citation count"),
+    OUT_F: ("Preprint posting date relative to the decision date, "
+            "arXiv-matched papers"),
+}
+
 # OpenReview notification dates for each cycle.
 DECISION_DATE = {2018: "2018-01-29", 2019: "2018-12-20", 2020: "2019-12-19"}
 
@@ -145,6 +153,7 @@ def build():
         draw(ax)
         fs.clean(ax)
         fs.frame(fig, top_in=0.10, bottom_in=0.44, left=0.13, right=0.99)
+        fs.add_title(fig, TITLES[out])
         fig.savefig(out + ".pdf")
         fig.savefig(out + ".png", dpi=200)
         plt.close(fig)

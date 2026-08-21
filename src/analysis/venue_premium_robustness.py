@@ -205,6 +205,7 @@ def fig_balance(t):
                   "(should be zero)")
     fs.clean(ax, xgrid=True)
     fs.frame(fig, top_in=0.10, bottom_in=0.44, left=0.34, right=0.98)
+    fs.add_title(fig, "Covariate balance at the cutoff")
     fig.savefig(FIG_BALANCE + ".pdf"); fig.savefig(FIG_BALANCE + ".png", dpi=200)
     plt.close(fig)
 
@@ -225,6 +226,7 @@ def fig_per_year(t, pooled, pooled_se):
     ax.set_xlabel("Venue premium, log points")
     fs.clean(ax, xgrid=True)
     fs.frame(fig, top_in=0.10, bottom_in=0.44, left=0.30, right=0.98)
+    fs.add_title(fig, "Acceptance premium estimated separately by year")
     fig.savefig(FIG_PERYEAR + ".pdf"); fig.savefig(FIG_PERYEAR + ".png", dpi=200)
     plt.close(fig)
 
@@ -276,6 +278,7 @@ def fig_spec_curve(t):
     axm.yaxis.grid(False)
 
     fs.frame(fig, top_in=0.10, bottom_in=0.42, left=0.20, right=0.98, hspace=0.10)
+    fs.add_title(fig, "Acceptance premium across 60 specifications, screened on first-stage strength")
     fig.savefig(FIG_SPECCURVE + ".pdf"); fig.savefig(FIG_SPECCURVE + ".png", dpi=200)
     plt.close(fig)
 

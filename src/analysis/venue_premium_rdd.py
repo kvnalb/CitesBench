@@ -44,9 +44,14 @@ from figures import spec, figstyle as fs   # noqa: E402
 DB = "data/gen_review.db"
 RDD_CSV = "data/OpenAlex/openalex_rdd_arxiv_paper_level.csv"
 OUT_CSV = "outputs/venue_premium_rdd.csv"
+TITLE_FIG = "Discontinuity at the review-score cutoff: acceptance and citations"
 OUT_MD = "outputs/venue_premium_rdd.md"
 OUT_TEX = "outputs/figures/venue_premium_rdd.tex"
 OUT_FIG = "outputs/figures/venue_premium_binscatter"
+OUT_TABLE_PDF = "outputs/figures/venue_premium_rdd.pdf"
+OUT_TABLE_PNG = "outputs/figures/venue_premium_rdd.png"
+TITLE_TABLE = ("The ICLR acceptance premium: OLS, reduced form, first stage, "
+               "and fuzzy RD")
 
 # The deck's year-specific bandwidths, so the comparison is like for like.
 BW = {2018: 1.333, 2019: 1.250, 2020: 1.167}
@@ -233,6 +238,7 @@ def build():
         f"% outcome log(1+citations), year-specific bandwidth, n={len(obs)}, "
         "HC1 SEs. Row 7 is the fuzzy-RD Wald ratio.\n")
 
+    render_table(t, len(obs))
     binscatter(d, t)
 
     print(t.to_string(index=False, float_format=lambda v: f"{v:+.3f}"))
@@ -240,6 +246,26 @@ def build():
           f"({abs(cov_a - cov_r) * 100:.1f} pp; OpenAlex was 34 pp)")
     print(f"\n-> {OUT_CSV}\n-> {OUT_MD}\n-> {OUT_TEX}\n-> {OUT_FIG}.pdf")
     return t
+
+
+def render_table(t, n):
+    """The .tex is what goes into the paper; this is the same numbers rendered so
+    the table can be read without a TeX install, and shipped as a PDF."""
+    fs.apply()
+    body = [[r.spec.split("  ", 1)[1], f"{r.coef:+.3f}".replace("-", "\u2212"),
+             f"({r.se:.3f})",
+             f"[{r.ci_lo:+.3f}, {r.ci_hi:+.3f}]".replace("-", "\u2212")]
+            for r in t.itertuples()]
+    fig = fs.table(
+        header=[["Specification", "Estimate", "(SE)", "95% CI"]],
+        body=body, align="lrrr", colw=[3.3, 0.85, 0.75, 1.35],
+        rules=(len(body) - 1,),          # rule above the fuzzy-RD row
+        note=(f"Outcome log(1 + citations), year-specific bandwidth, n={n:,}, "
+              "HC1 standard errors. The last row is the Wald ratio."))
+    fs.add_title(fig, TITLE_TABLE)
+    fig.savefig(OUT_TABLE_PDF)
+    fig.savefig(OUT_TABLE_PNG, dpi=220)
+    plt.close(fig)
 
 
 def binscatter(d, t):
@@ -276,6 +302,7 @@ def binscatter(d, t):
     for ax in axes:
         fs.clean(ax, xgrid=True)
     fs.frame(fig, top_in=0.10, bottom_in=0.42, left=0.12, right=0.99, wspace=0.34)
+    fs.add_title(fig, TITLE_FIG)
     fig.savefig(OUT_FIG + ".pdf")
     fig.savefig(OUT_FIG + ".png", dpi=200)
     plt.close(fig)
