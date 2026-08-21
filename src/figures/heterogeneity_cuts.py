@@ -186,8 +186,7 @@ def table(res):
         body=body, align="lrrrrrr",
         colw=[3.00, 0.70, 0.66, 0.86, 0.76, 0.90, 0.80],
         rules=tuple(rules[1:]),
-        note=("Mean selection probability over tie orderings. The regime contrast "
-              "is identified on the covered papers; the level is not."))
+        note="Mean selection probability over tie orderings.")
     fig.savefig(OUT_PDF.replace(".pdf", "_table.pdf"))
     fig.savefig(OUT_PNG.replace(".png", "_table.png"), dpi=220)
     plt.close(fig)
