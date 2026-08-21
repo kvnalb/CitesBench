@@ -135,7 +135,7 @@ _builds the paper's figures and tables, plus the shared chart style_
 | `src/figures/fig5_venue_adjusted.py` | Figure 5: the regime comparison after netting out the venue premium |
 | `src/figures/figstyle.py` | One chart style for the paper's exhibits: tueplots for the geometry, Okabe-Ito |
 | `src/figures/panels.py` | The candidate panels, one standalone figure each |
-| `src/figures/sample_stats.py` | Sample statistics for the 2018-2020 pool, from outputs/paper_master.parquet |
+| `src/figures/sample_stats.py` | Sample statistics and data coverage for the 2018-2020 pool |
 | `src/figures/spec.py` | Every design choice the paper's exhibits depend on, declared once |
 | `src/figures/table1_sample.py` | Table 1: what the sample is |
 | `src/figures/table2_regression.py` | Table 2: the regression behind Figure 2 |
@@ -459,8 +459,8 @@ _shared modules imported by the above_
 | `outputs/oa_resolve.log` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | — |
 | `outputs/oa_title_match_venues.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py`, `src/fetch/fetch_rejected_venues_s2_title.py` |
 | `outputs/oos_probe_report.md` | `src/probes/run_oos_probes.py` | `src/app/provenance_tab.py` |
-| `outputs/oos_probes_Llama-3-3-70B-Instruct-Turbo.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
-| `outputs/oos_probes_gemma-4-31B-it.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
+| `outputs/oos_probes_Llama-3-3-70B-Instruct-Turbo.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/oos_probes_{slug(model)}.csv`) | `src/app/provenance_tab.py` |
+| `outputs/oos_probes_gemma-4-31B-it.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/oos_probes_{slug(model)}.csv`) | `src/app/provenance_tab.py` |
 | `outputs/oos_probes_run.log` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/oos_probes_run2.log` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/oos_traces_Llama-3-3-70B-Instruct-Turbo.jsonl` | `src/build/build_leakage_ledger.py` (via pattern `outputs/oos_traces_{slug}.jsonl`) | `src/app/provenance_tab.py` |
