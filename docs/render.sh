@@ -7,7 +7,8 @@
 set -euo pipefail
 export PATH="$HOME/Library/TinyTeX/bin/universal-darwin:$PATH"
 cd "$(dirname "$0")"
-for f in *.qmd; do
+for f in *.qmd notes/*.qmd; do
+  [ -e "$f" ] || continue
   pandoc "$f" -o "${f%.qmd}.pdf" --pdf-engine=pdflatex \
     -V geometry:margin=1in -V fontsize=11pt --resource-path=.:..
   echo "-> docs/${f%.qmd}.pdf"
