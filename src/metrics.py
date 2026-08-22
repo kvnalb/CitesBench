@@ -2,7 +2,7 @@
 Pure metric functions. No I/O.
 
 All metrics computed on the selected set vs. the full year pool.
-mode='raw'        → quality signal = openalex_citations
+mode='raw'        → quality signal = s2_citations
 mode='normalized' → quality signal = citation_pct_rank
 """
 import math
@@ -13,7 +13,7 @@ TOP_K = [1, 5, 10]  # percentages
 
 
 def _quality(pool_df: pd.DataFrame, mode: str) -> pd.Series:
-    col = "openalex_citations" if mode == "raw" else "citation_pct_rank"
+    col = "s2_citations" if mode == "raw" else "citation_pct_rank"
     return pool_df.set_index("paper_id")[col]
 
 

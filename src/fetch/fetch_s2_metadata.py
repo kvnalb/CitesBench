@@ -25,7 +25,7 @@ reconstruction. The OpenAlex covariates in this repo have the same defect.
 
 THE OUTCOME VARIABLE IS NOT TOUCHED. citationCount comes back in the same response
 and is written as s2_citations_refetched so drift against the frozen
-`openalex_citations` can be inspected. It is never substituted for it.
+`s2_citations` can be inspected. It is never substituted for it.
 
 S2 REDIRECTS. Two of the 4,451 IDs come back under a different canonical paperId,
 because S2 has merged those arXiv preprints into unrelated records (one into a 2014

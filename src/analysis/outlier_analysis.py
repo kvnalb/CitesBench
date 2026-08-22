@@ -24,7 +24,7 @@ reviews = pd.read_sql(
 )
 con.close()
 
-cites = pd.read_csv("output/citations_2018_2020.csv")  # paper_id, year, openalex_citations, status
+cites = pd.read_csv("output/citations_2018_2020.csv")  # paper_id, year, s2_citations, status
 
 # ── collapse decisions ────────────────────────────────────────────────────────
 def collapse_decision(d):
@@ -39,25 +39,25 @@ submissions["group"] = submissions["decision"].map(collapse_decision)
 submissions = submissions[submissions["group"].notna()]
 
 # ── merge citations ───────────────────────────────────────────────────────────
-found = cites[cites["status"] == "found"][["paper_id", "openalex_citations"]]
+found = cites[cites["status"] == "found"][["paper_id", "s2_citations"]]
 df = submissions.merge(found, left_on="id", right_on="paper_id", how="left")
 
 # report missingness by group before dropping
-missing = df.groupby("group")["openalex_citations"].apply(lambda s: s.isna().mean())
+missing = df.groupby("group")["s2_citations"].apply(lambda s: s.isna().mean())
 print("Citation missingness rate by group:")
 print(missing.round(3).to_string())
 
-df = df[df["openalex_citations"].notna()].copy()
+df = df[df["s2_citations"].notna()].copy()
 
 # ── define outliers: per year, reject > 75th pct of accepts that year ─────────
 thresholds = (
     df[df["group"] == "accept"]
-    .groupby("year")["openalex_citations"]
+    .groupby("year")["s2_citations"]
     .quantile(0.75)
     .rename("accept_p75")
 )
 df = df.join(thresholds, on="year")
-df["is_outlier"] = (df["group"] == "reject") & (df["openalex_citations"] > df["accept_p75"])
+df["is_outlier"] = (df["group"] == "reject") & (df["s2_citations"] > df["accept_p75"])
 
 print("\nOutliers per year:")
 print(df[df["is_outlier"]].groupby("year").size().to_string())
@@ -104,7 +104,7 @@ df["analysis_group"] = df["group"].copy()
 df.loc[df["is_outlier"], "analysis_group"] = "outlier_reject"
 
 # soundness/contribution/novelty sub-axes are blank for pre-2022 ICLR schema
-metric_cols = ["rating_mean", "rating_std", "confidence_mean", "openalex_citations"]
+metric_cols = ["rating_mean", "rating_std", "confidence_mean", "s2_citations"]
 
 quant_rows = []
 for col in metric_cols:
@@ -130,11 +130,11 @@ text = reviews.groupby("paper_id")[text_cols].apply(
     lambda g: pd.Series({c: "\n---\n".join(g[c].dropna().astype(str)) for c in text_cols})
 ).reset_index()
 
-outliers = df[df["is_outlier"]].sort_values("openalex_citations", ascending=False)
+outliers = df[df["is_outlier"]].sort_values("s2_citations", ascending=False)
 outliers = outliers.merge(text, left_on="id", right_on="paper_id", how="left")
 
 out_cols = (
-    ["title", "year", "openalex_citations", "accept_p75",
+    ["title", "year", "s2_citations", "accept_p75",
      "rating_mean", "rating_std", "confidence_mean", "n_reviews"]
     + text_cols
 )

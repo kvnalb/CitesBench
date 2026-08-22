@@ -83,7 +83,7 @@ def set_rubric(name):
 def csv_header():
     """paper metadata, then every rubric field for each arm, then the paraphrase size."""
     fields = RUBRICS[RUBRIC][3]
-    cols = ["paper_id", "year", "lap", "openalex_citations",
+    cols = ["paper_id", "year", "lap", "s2_citations",
             "score_original", "score_masked"]           # primary score, kept for the report
     cols += [f"{arm}_{f}" for arm in ("orig", "mask") for f in fields]
     return ",".join(cols + ["masked_abstract_chars"]) + "\n"
@@ -226,7 +226,7 @@ def run(sample, workers=10):
                 for arm, t in traces:
                     emit(row.paper_id, arm, t)
                 fout.write(f"{row.paper_id},{row.year},{row.lap:.6f},"
-                           f"{row.openalex_citations},{s_orig},{s_mask},"
+                           f"{row.s2_citations},{s_orig},{s_mask},"
                            + ",".join(vals) + f",{len(masked_abs)}\n")
                 fout.flush()
                 counter[0] += 1
@@ -243,8 +243,8 @@ def run_report():
     from scipy import stats
 
     df = pd.read_csv(OUT_CSV)
-    df = df[df["openalex_citations"].notna()]
-    df["log_cites"] = np.log1p(df["openalex_citations"])
+    df = df[df["s2_citations"].notna()]
+    df["log_cites"] = np.log1p(df["s2_citations"])
     df["hi_lap"] = df["lap"] >= 0.5
     df["delta"] = df["score_original"] - df["score_masked"]
     n = len(df)

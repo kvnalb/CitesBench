@@ -16,10 +16,10 @@ sub = pd.read_sql(
 con.close()
 sub["accepted"] = sub["decision"].str.lower().str.contains("accept", na=False)
 
-df = sub.merge(cites[["paper_id", "openalex_citations"]], left_on="id", right_on="paper_id", how="inner")
+df = sub.merge(cites[["paper_id", "s2_citations"]], left_on="id", right_on="paper_id", how="inner")
 totals = sub.groupby(["year", "accepted"]).size()
 
-bins = np.logspace(0, np.log10(df.openalex_citations.max() + 1), 40)
+bins = np.logspace(0, np.log10(df.s2_citations.max() + 1), 40)
 
 fig, axes = plt.subplots(1, 3, figsize=(14, 4), sharey=False)
 for ax, year in zip(axes, [2018, 2019, 2020]):
@@ -30,7 +30,7 @@ for ax, year in zip(axes, [2018, 2019, 2020]):
     ]:
         n_found = mask.sum()
         n_total = totals.get((year, acc), 0)
-        ax.hist(sub_yr[mask].openalex_citations, bins=bins, alpha=0.6,
+        ax.hist(sub_yr[mask].s2_citations, bins=bins, alpha=0.6,
                 label=f"{label} ({n_found}/{n_total})", color=color)
     ax.set_xscale("log")
     ax.set_title(f"{year}  (n={len(sub_yr)})")

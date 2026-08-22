@@ -57,13 +57,13 @@ for year, p75 in year_p75.items():
 # dots
 for tag in TAG_ORDER:
     sub = exploded[exploded.tag == tag]
-    ax.scatter(sub.openalex_citations, sub.y_jit,
+    ax.scatter(sub.s2_citations, sub.y_jit,
                color=TAG_COLORS[tag], alpha=0.7, s=30, linewidths=0,
                zorder=2)
 
 # label top 10 papers, stacked vertically on the right side
-top = df.nlargest(10, "openalex_citations").sort_values("openalex_citations", ascending=False)
-x_label = df.openalex_citations.max() * 1.6
+top = df.nlargest(10, "s2_citations").sort_values("s2_citations", ascending=False)
+x_label = df.s2_citations.max() * 1.6
 y_positions = np.linspace(len(TAG_ORDER) - 0.5, -0.5, len(top))
 
 for (_, row), y_text in zip(top.iterrows(), y_positions):
@@ -73,12 +73,12 @@ for (_, row), y_text in zip(top.iterrows(), y_positions):
     y_dot = TAG_ORDER.index(primary_tag)
     short = row["title"][:44] + ("…" if len(row["title"]) > 44 else "")
     ax.text(x_label, y_text,
-            f"{short} ({int(row['openalex_citations'])})",
+            f"{short} ({int(row['s2_citations'])})",
             fontsize=6.5, color="#333", va="center")
 
 ax.set_xscale("log")
-ax.set_xlim(left=df.openalex_citations.min() * 0.7,
-            right=df.openalex_citations.max() * 12)
+ax.set_xlim(left=df.s2_citations.min() * 0.7,
+            right=df.s2_citations.max() * 12)
 ax.set_yticks(range(len(TAG_ORDER)))
 ax.set_yticklabels(TAG_ORDER, fontsize=11)
 ax.set_xlabel("Citations (log scale)", fontsize=11)

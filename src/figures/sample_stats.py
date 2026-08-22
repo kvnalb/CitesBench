@@ -66,7 +66,7 @@ TITLE_COV = ("Data availability by source, and its dependence on the "
 # (column, label, kind). kind: "n" numeric, "b" binary share, "c" integer count.
 PANELS = [
     ("Outcome", [
-        ("openalex_citations", "Citations", "n"),
+        ("s2_citations", "Citations", "n"),
         ("log_citations", "log(1 + citations)", "n"),
     ]),
     ("Human review", [
@@ -111,7 +111,7 @@ SOURCES = [
     ("committee_rating", "Our council run", "Council rating"),
     ("single_call_rating", "Our single-call run", "Single-call rating"),
     ("s2_primary_field", "S2 paper record", "Field, venue, team, h-index"),
-    ("openalex_citations", "S2 citations, tier A+B", "The outcome"),
+    ("s2_citations", "S2 citations, tier A+B", "The outcome"),
     ("n_author_records", "OpenAlex author record", "Country and team flags"),
     ("institutions", "OpenAlex institution", "Named institution, industry"),
 ]

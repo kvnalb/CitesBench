@@ -121,6 +121,16 @@ Compares reviewer selection regimes (human discretionary, human score-based, LLM
   asserts the invariant: no collision group may pay a rejected submission while an
   accepted sibling sits at tier C.
 
+- **The outcome column is `s2_citations`.** It holds Semantic Scholar counts at
+  match tier A or B, and `citation_source` records the fetch window. It was named
+  `openalex_citations` for months after the source changed to S2, which read as
+  OpenAlex data to anyone who did not check `citation_source`. Renamed across the
+  19 files that consume the eval table. The genuine OpenAlex columns keep the old
+  name: `fetch_citations_openalex.py`, `compare_citation_sources.py`,
+  `table1_summary_stats.py`, `fetch_rejected_venues_s2.py` and the OpenAlex-file
+  branches of `data_audit.py` and `provenance_tab.py`. A name that lies about its
+  source is worse than a long name.
+
 - **Ground truth is raw citation counts. Field normalization is excluded.**
   `paper_fields.csv` labels 2,726 of 4,567 papers, and the coverage is not
   independent of the decision: 63.7% of accepted papers carry a label against 57.7%

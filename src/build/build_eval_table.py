@@ -57,18 +57,20 @@ reviews["rating_std"] = reviews["rating_std"].fillna(0)
 # axis this project measures. S2 tier A+B runs 0.8. Unmatched papers stay NaN and
 # are never imputed as zero.
 #
-# The column keeps the name `openalex_citations` for now. That is a lie the repo
-# already tells (dashboard.py has been assigning S2 counts to it since July), and
-# renaming it touches 121 references across 22 files including the leakage probes
-# — a separate mechanical PR. `citation_source` records the truth meanwhile.
+# The column is named `s2_citations`, which is what it holds. It was called
+# `openalex_citations` for months after the source changed, and that name cost
+# real confusion: it reads as OpenAlex data to anyone who did not check
+# `citation_source`. The genuine OpenAlex columns keep the old name, in
+# fetch_citations_openalex.py, compare_citation_sources.py,
+# table1_summary_stats.py and the OpenAlex-file branches of data_audit.py.
 CITATIONS_CSV = "outputs/citations.csv"
 if not os.path.exists(CITATIONS_CSV):
     sys.exit(f"{CITATIONS_CSV} missing — run python src/build/build_citations.py first")
 _cit = pd.read_csv(CITATIONS_CSV)
-citations = _cit.rename(columns={"citations": "openalex_citations",
+citations = _cit.rename(columns={"citations": "s2_citations",
                                  "source": "citation_source",
                                  "tier": "citation_tier"})[
-    ["paper_id", "openalex_citations", "citation_source", "citation_tier"]
+    ["paper_id", "s2_citations", "citation_source", "citation_tier"]
 ]
 citations["status"] = "found"     # the table only carries matched papers
 
@@ -117,7 +119,7 @@ assert len(df) == len(papers), (
 
 # The canonical table only contains matched papers, so a missing row means
 # "no usable match" and must stay NaN — never zero.
-df.loc[df["status"] != "found", "openalex_citations"] = np.nan
+df.loc[df["status"] != "found", "s2_citations"] = np.nan
 
 # field×year citation percentile rank (0–1) among papers with citations.
 #
@@ -137,8 +139,8 @@ df.loc[df["status"] != "found", "openalex_citations"] = np.nan
 # in a bucket they do not belong to.
 df["citation_pct_rank"] = np.nan
 for (field, year), grp in df.groupby(["field", "year"]):
-    mask = df["field"].eq(field) & df["year"].eq(year) & df["openalex_citations"].notna()
-    vals = df.loc[mask, "openalex_citations"]
+    mask = df["field"].eq(field) & df["year"].eq(year) & df["s2_citations"].notna()
+    vals = df.loc[mask, "s2_citations"]
     df.loc[mask, "citation_pct_rank"] = vals.rank(pct=True)
 
 df.to_csv(OUT, index=False)
@@ -150,11 +152,11 @@ print("\nN accepts per year (used as N for all regimes):")
 print(n_accepts.to_string())
 print("\nField distribution:")
 print(df["field"].value_counts().to_string())
-print(f"\nCitation coverage: {df['openalex_citations'].notna().sum():,} / {len(df):,} papers")
+print(f"\nCitation coverage: {df['s2_citations'].notna().sum():,} / {len(df):,} papers")
 print(f"Citation source: {df['citation_source'].dropna().unique()}")
 print("Tier mix:", df["citation_tier"].value_counts(dropna=False).to_dict())
 _acc = df["decision"].str.startswith("Accept", na=False)
-_cov = df.groupby(_acc)["openalex_citations"].apply(lambda x: x.notna().mean())
+_cov = df.groupby(_acc)["s2_citations"].apply(lambda x: x.notna().mean())
 if len(_cov) == 2:
     print(f"Coverage by decision: accepted {_cov[True]:.1%}  rejected {_cov[False]:.1%}"
           f"  differential {abs(_cov[True]-_cov[False])*100:.1f} pp  (OpenAlex was 26.3)")

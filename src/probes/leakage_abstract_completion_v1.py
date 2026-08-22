@@ -287,11 +287,11 @@ def run_report():
                 sp = stats.spearmanr(m["rougeL_margin"], m[col])
                 conv_lines.append(f"| {name} | {len(m)} | {sp.statistic:+.3f} | {sp.pvalue:.3g} |")
 
-    ev = pd.read_csv("outputs/eval_table.csv")[["paper_id", "title", "openalex_citations"]]
+    ev = pd.read_csv("outputs/eval_table.csv")[["paper_id", "title", "s2_citations"]]
     top = (res.sort_values(["extractable", "eight_target", "rougeL_margin"],
                            ascending=False).head(15).merge(ev, on="paper_id"))
     exhibit = "\n".join(
-        f"| {r.title[:70]} | {int(r.openalex_citations) if pd.notna(r.openalex_citations) else '—'} "
+        f"| {r.title[:70]} | {int(r.s2_citations) if pd.notna(r.s2_citations) else '—'} "
         f"| {r.rougeL_margin:+.3f} | {r.eight_target:.3f} |"
         for r in top.itertuples())
 

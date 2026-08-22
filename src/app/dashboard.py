@@ -100,7 +100,7 @@ def _provenance(et):
     src = et["citation_source"].dropna()
     src = src.iloc[0] if len(src) else "unknown"
     tiers = et["citation_tier"].value_counts().to_dict()
-    n = int(et["openalex_citations"].notna().sum())
+    n = int(et["s2_citations"].notna().sum())
     return src, tiers, n
 
 
@@ -140,15 +140,15 @@ def prepare_pool(year, mode, impute_zeros, exclude_top_decile=False):
     et = _et()
     pool = et[et["year"] == year].copy()
     if impute_zeros:
-        pool["openalex_citations"] = pool["openalex_citations"].fillna(0)
+        pool["s2_citations"] = pool["s2_citations"].fillna(0)
         for field, grp in pool.groupby("field"):
-            mask = pool["field"].eq(field) & pool["openalex_citations"].notna()
-            pool.loc[mask, "citation_pct_rank"] = pool.loc[mask, "openalex_citations"].rank(pct=True)
+            mask = pool["field"].eq(field) & pool["s2_citations"].notna()
+            pool.loc[mask, "citation_pct_rank"] = pool.loc[mask, "s2_citations"].rank(pct=True)
     if exclude_top_decile:
-        known = pool.dropna(subset=["openalex_citations"])
+        known = pool.dropna(subset=["s2_citations"])
         if not known.empty:
-            cut = known["openalex_citations"].quantile(0.90)
-            pool = pool[pool["openalex_citations"].isna() | (pool["openalex_citations"] <= cut)].copy()
+            cut = known["s2_citations"].quantile(0.90)
+            pool = pool[pool["s2_citations"].isna() | (pool["s2_citations"] <= cut)].copy()
     return pool
 
 @st.cache_data
@@ -376,10 +376,10 @@ def compute_quadrants(regime_name, lam, years_tuple, mode, impute_zeros, exclude
             sel = set(regime.select(pool, n))
         except Exception:
             sel = set()
-        known = pool.dropna(subset=["openalex_citations"])
+        known = pool.dropna(subset=["s2_citations"])
         cutoff_n = math.ceil(1 * n / 100 * 10)  # top-N = same N as acceptance
         cutoff_n = n  # ideal = top-N by citations = same count as selected
-        ideal = set(known.nlargest(n, "openalex_citations")["paper_id"])
+        ideal = set(known.nlargest(n, "s2_citations")["paper_id"])
         ac    = set(pool[pool["decision"].str.startswith("Accept", na=False)]["paper_id"])
         regime_ids |= sel
         ideal_ids  |= ideal
@@ -503,8 +503,8 @@ st.markdown('<p class="explainer">'
             'If FN residuals are above zero, the regime is dropping impactful papers.</p>',
             unsafe_allow_html=True)
 
-_resid_df = pool_df.dropna(subset=["mean_rating", "openalex_citations"]).copy()
-_resid_df["log_cites"] = np.log1p(_resid_df["openalex_citations"])
+_resid_df = pool_df.dropna(subset=["mean_rating", "s2_citations"]).copy()
+_resid_df["log_cites"] = np.log1p(_resid_df["s2_citations"])
 
 from scipy.stats import linregress
 _parts = []
@@ -576,8 +576,8 @@ st.markdown('<p class="explainer">'
             'selecting papers reviewers liked but that had little impact.</p>',
             unsafe_allow_html=True)
 
-scatter_df = pool_df.dropna(subset=["mean_rating","openalex_citations"]).copy()
-scatter_df["log_cites"] = np.log1p(scatter_df["openalex_citations"])
+scatter_df = pool_df.dropna(subset=["mean_rating","s2_citations"]).copy()
+scatter_df["log_cites"] = np.log1p(scatter_df["s2_citations"])
 
 fig_sc = go.Figure()
 for quad in quad_order:
@@ -612,16 +612,16 @@ st.markdown('<p class="explainer">'
             'consensus agreed but the citation signal says they were wrong.</p>',
             unsafe_allow_html=True)
 
-merged = pool_df.dropna(subset=["openalex_citations"])
+merged = pool_df.dropna(subset=["s2_citations"])
 
 # Fetch rejection_tags directly from eval_table to avoid stale cache issues
 _rej_map = eval_table.set_index("paper_id")["rejection_tags"] \
     if "rejection_tags" in eval_table.columns else None
 
 # Missed gems: ideal only, sorted by citations
-missed_raw = merged[merged["quadrant"] == "ideal only"].nlargest(10, "openalex_citations")[
-    ["paper_id", "title", "year", "openalex_citations", "mean_rating"]].copy()
-missed_raw = missed_raw.round({"openalex_citations": 0, "mean_rating": 2})
+missed_raw = merged[merged["quadrant"] == "ideal only"].nlargest(10, "s2_citations")[
+    ["paper_id", "title", "year", "s2_citations", "mean_rating"]].copy()
+missed_raw = missed_raw.round({"s2_citations": 0, "mean_rating": 2})
 if _rej_map is not None:
     missed_raw["rejection_tags"] = missed_raw["paper_id"].map(_rej_map).fillna("(accepted by AC — no rejection tag)")
 missed_raw = missed_raw.drop(columns=["paper_id"])
@@ -632,9 +632,9 @@ missed_raw.columns = (["Title", "Year", "Citations", "Avg rating"] +
 consensus_wrong = merged[
     merged["paper_id"].isin(regime_ids & ac_ids) &
     ~merged["paper_id"].isin(ideal_ids)
-].nlargest(10, "openalex_citations")[
-    ["title", "year", "openalex_citations", "mean_rating"]].copy()
-consensus_wrong = consensus_wrong.round({"openalex_citations": 0, "mean_rating": 2})
+].nlargest(10, "s2_citations")[
+    ["title", "year", "s2_citations", "mean_rating"]].copy()
+consensus_wrong = consensus_wrong.round({"s2_citations": 0, "mean_rating": 2})
 consensus_wrong.columns = ["Title", "Year", "Citations", "Avg rating"]
 
 col_l, col_r = st.columns(2)
@@ -668,7 +668,7 @@ def _load_hetero_full(_v=4):
     et  = _et()
     cov = pd.read_csv(cov_path)
     df  = et.merge(cov, on="paper_id", how="left")
-    df["log_cites"] = np.log1p(df["openalex_citations"].fillna(0))
+    df["log_cites"] = np.log1p(df["s2_citations"].fillna(0))
     return df
 
 _het_df = _load_hetero_full()
@@ -1440,7 +1440,7 @@ else:
 
     _rc = eval_table.merge(_lap[["paper_id", "lap"]], on="paper_id") \
                     .merge(_fame[["paper_id", "fame"]], on="paper_id", how="left")
-    _rc["log_cites"] = np.log1p(_rc["openalex_citations"])
+    _rc["log_cites"] = np.log1p(_rc["s2_citations"])
     _rc_d = _rc.dropna(subset=["log_cites", "mean_rating", "lap", "fame"])
 
     def _multi_ols(y):
@@ -1758,9 +1758,9 @@ else:
             "text is absent from the weights."
         )
         _exhibit = _ab[_ab["extractable"] == 1].nlargest(5, "eight_target").merge(
-            eval_table[["paper_id", "title", "openalex_citations"]], on="paper_id", how="left")
+            eval_table[["paper_id", "title", "s2_citations"]], on="paper_id", how="left")
         if len(_exhibit):
-            _exhibit_disp = _exhibit[["title", "openalex_citations", "rougeL_margin", "eight_target"]].copy()
+            _exhibit_disp = _exhibit[["title", "s2_citations", "rougeL_margin", "eight_target"]].copy()
             _exhibit_disp.columns = ["Title", "Citations", "ROUGE-L margin", "8-gram hit rate"]
             _exhibit_disp["Citations"] = _exhibit_disp["Citations"].map(
                 lambda v: f"{v:,.0f}" if pd.notna(v) else "—")
