@@ -54,6 +54,17 @@ TREE = {
         ("venue_premium_by_year", "Premium by year"),
         ("venue_premium_speccurve", "Premium across 60 specifications"),
     ],
+    # The April 2026 deck's figures, rebuilt on the corrected data. Kept in their
+    # own folder because they are a check on the deck, not paper exhibits.
+    "figures_from_old_slides_new_data": [
+        ("oldslides_01_rating_distribution", "Deck Fig 1 - rating distribution"),
+        ("oldslides_02_ratings_and_acceptance", "Deck Fig 2 - ratings and acceptance"),
+        ("oldslides_03_first_stage_by_year", "Deck Fig 3 - first stage by year"),
+        ("oldslides_04_sample_funnel", "Deck slide 5 - sample funnel"),
+        ("oldslides_05_pipeline", "Deck Fig 4 - the pipeline"),
+        ("oldslides_06_confusion_matrices", "Deck Fig 5 - confusion matrices"),
+        ("oldslides_07_llm_vs_human_scores", "Deck Fig 7 - LLM vs human scores"),
+    ],
 }
 
 # PDF for the paper, PNG for pasting into a message, CSV/TEX where they exist.
