@@ -64,6 +64,10 @@ TREE = {
         ("oldslides_05_pipeline", "Deck Fig 4 - the pipeline"),
         ("oldslides_06_confusion_matrices", "Deck Fig 5 - confusion matrices"),
         ("oldslides_07_llm_vs_human_scores", "Deck Fig 7 - LLM vs human scores"),
+        ("oldslides_08_council_vs_human", "Deck Fig 6 - council vs human ratings"),
+        ("oldslides_09_counterfactual_design", "Deck Fig 13 - counterfactual design"),
+        ("oldslides_10_borderline_flips", "Deck Fig 14 - borderline band flips"),
+        ("oldslides_11_flip_counts_and_gain", "Deck Fig 15 - flips and citation gain"),
     ],
 }
 

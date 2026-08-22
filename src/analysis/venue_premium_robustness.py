@@ -48,7 +48,8 @@ FIG_SPECCURVE = "outputs/figures/venue_premium_speccurve"
 
 BANDWIDTHS = [0.50, 0.75, 1.00, 1.25, 1.50]
 POLYS = [1, 2]
-COVARIATE_SETS = [("none", None), ("year", ["year"]), ("year x topic", ["year", "topic"])]
+# Year FE only. Topic clusters were a SPECTER2 stand-in and are not used.
+COVARIATE_SETS = [("none", None), ("year", ["year"])]
 KERNELS = ["uniform", "triangular"]
 
 
@@ -127,8 +128,8 @@ def balance(d):
     tests = [("number of reviews", "n_reviews"),
              ("abstract length (chars)", "abstract_len"),
              ("reviewer disagreement (sd)", "rating_std")]
-    # topic is categorical: test the share in each of the largest clusters
-    top = d.topic.value_counts().head(4).index
+    # topic clusters are gone, so the balance table tests only real covariates
+    top = []
     for t in top:
         d[f"topic_{t}"] = (d.topic == t).astype(float)
         tests.append((f"share in topic {t}", f"topic_{t}"))

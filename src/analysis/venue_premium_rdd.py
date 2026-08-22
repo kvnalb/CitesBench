@@ -3,7 +3,7 @@ The ICLR venue premium: the slide deck's RD table, rebuilt on the canonical
 citation table, plus the row the deck is missing.
 
 WHAT THE DECK REPORTED. Specifications 1-5 below reproduce its table: naive OLS,
-OLS with year FE, then "sharp RD" with no FE / year FE / year x topic FE. Its
+OLS with year FE, then "sharp RD" with no FE / year FE. Its
 headline was the last one, +0.269.
 
 WHY THAT IS NOT THE VENUE PREMIUM. Crossing the cutoff does not accept a paper,
@@ -169,18 +169,17 @@ def build():
             ("1  OLS  lcites ~ accepted", False, None),
             ("2  OLS + year FE", False, ["year"]),
             ("3  RD reduced form (ITT), no FE", True, None),
-            ("4  RD reduced form (ITT) + year FE", True, ["year"]),
-            ("5  RD reduced form (ITT) + year x topic FE", True, ["year", "topic"])]:
+            ("4  RD reduced form (ITT) + year FE", True, ["year"])]:
         b, se, *_ = fit(obs, rd, fe)
         rows.append({"spec": label, "coef": b, "se": se, "n": len(obs),
                      "is_premium": False})
 
-    fsj, fs_se = fit(obs, True, ["year", "topic"], col="D")[:2]
-    rows.append({"spec": "6  First stage: jump in P(accepted)", "coef": fsj,
+    fsj, fs_se = fit(obs, True, ["year"], col="D")[:2]
+    rows.append({"spec": "5  First stage: jump in P(accepted)", "coef": fsj,
                  "se": fs_se, "n": len(obs), "is_premium": False})
 
-    late, late_se, rf, rf_se, j, j_se, n = wald(d, ["year", "topic"])
-    rows.append({"spec": "7  FUZZY RD premium = row 5 / row 6", "coef": late,
+    late, late_se, rf, rf_se, j, j_se, n = wald(d, ["year"])
+    rows.append({"spec": "6  FUZZY RD premium = row 4 / row 5", "coef": late,
                  "se": late_se, "n": n, "is_premium": True})
 
     t = pd.DataFrame(rows)
@@ -232,7 +231,7 @@ def build():
         + "\n".join(
             f"{r.spec.split('  ', 1)[1]} & {r.coef:+.3f} & ({r.se:.3f}) & "
             f"[{r.ci_lo:+.3f}, {r.ci_hi:+.3f}] \\\\"
-            + ("\n\\midrule" if r.spec.startswith("5") else "")
+            + ("\n\\midrule" if r.spec.startswith("4") else "")
             for r in t.itertuples())
         + "\n\\bottomrule\n\\end{tabular}\n"
         f"% outcome log(1+citations), year-specific bandwidth, n={len(obs)}, "
@@ -269,15 +268,15 @@ def render_table(t, n):
 
 
 def binscatter(d, t):
-    """The deck's Figure 12, on the new outcome. Residualised on year x topic FE
-    so the bins show the discontinuity the regression fits."""
+    """The deck's Figure 12, on our outcome. Residualised on YEAR FE only, matching
+    the table, so the bins show the discontinuity the regression actually fits."""
     fs.apply(ncols=2)
     fig, axes = plt.subplots(1, 2, figsize=(5.5, 2.4))
 
     for ax, (col, lab) in zip(axes, [("D", "P(accepted)"),
                                      ("y", "log(1 + citations)")]):
         s = d.dropna(subset=[col]).copy()
-        X, names = design(s, rd=False, fe=["year", "topic"])
+        X, names = design(s, rd=False, fe=["year"])
         keep = [j for j, nm in enumerate(names) if nm != "treat"]
         b, _, _ = ols_hc1(X[:, keep], s[col].to_numpy())
         s["resid"] = s[col].to_numpy() - X[:, keep] @ b
@@ -311,12 +310,12 @@ def binscatter(d, t):
 def demo():
     t = build().set_index(t_index := "spec")
     prem = t[t.is_premium].iloc[0]
-    itt = t.loc[[i for i in t.index if i.startswith("5")][0]]
-    fsj = t.loc[[i for i in t.index if i.startswith("6")][0]]
+    itt = t.loc[[i for i in t.index if i.startswith("4")][0]]
+    fsj = t.loc[[i for i in t.index if i.startswith("5")][0]]
 
     # The whole point: the premium is the ITT scaled up by the first stage, and
     # the deck reported the ITT as if it were the premium.
-    assert abs(prem.coef - itt.coef / fsj.coef) < 1e-6, "row 7 is not row 5 / row 6"
+    assert abs(prem.coef - itt.coef / fsj.coef) < 1e-6, "row 6 is not row 4 / row 5"
     assert prem.coef > itt.coef, "premium should exceed the ITT"
     assert prem.se > itt.se, "dividing by a noisy first stage must widen the SE"
     print(f"\nok — ITT {itt.coef:+.3f} (se {itt.se:.3f}) / first stage "

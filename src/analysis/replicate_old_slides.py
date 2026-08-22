@@ -12,11 +12,16 @@ Two deliberate departures:
   1. Colour. The deck used red/green for reject/accept, which is the worst pair for
      the ~8% of male readers with deuteranopia. Vermillion and blue carry the same
      semantics and survive CVD simulation. Everything else keeps the repo palette.
-  2. Slide 23 panel C. The deck plotted raw per-persona LLM scores. Our council
-     persists only the paper-level committee rating for this sample, not the nine
-     individual calls, so the panel compares raw individual HUMAN review scores
-     against the paper-level council and single-call ratings. The axis says so. A
-     fabricated per-persona distribution would be worse than a labelled substitute.
+  2. Slide 23 panel C is not built. It needs the four per-persona ratings, which
+     the pipeline does persist in persona_reviews/*.json but which are not on this
+     machine: one of 4,497 paper directories is local, the rest sit at the
+     share_coarse_review_json Dropbox paths. Deck Figures 8 and 9 are skipped for
+     the same reason plus a sentence-transformers dependency.
+
+  3. YEAR FIXED EFFECTS ONLY. The deck used year x topic FE, with topics from
+     k-means on SPECTER2 embeddings. We do not have SPECTER2, a TF-IDF stand-in is
+     not the same control, and topic is not what the design needs. Every regression
+     here and in venue_premium_rdd.py uses year FE alone.
 
 WHAT MOVED, AND WHAT DID NOT. The year-specific cutoffs and bandwidths are the
 deck's own (5.667/1.333, 6.000/1.250, 5.500/1.167) and reproduce here exactly, as
@@ -336,8 +341,8 @@ def slide23(d):
     # In-band, per the deck's own n = 2,361. On the full pool the correlation is
     # 0.52 rather than 0.37, purely from the wider rating range.
     s = d[d.in_band].dropna(subset=["mean_rating", "committee_rating"])
-    fs.apply(width_in=WIDTH, ncols=3)
-    fig, ax = plt.subplots(1, 3, figsize=(WIDTH, 2.5))
+    fs.apply(width_in=WIDTH, ncols=2)
+    fig, ax = plt.subplots(1, 2, figsize=(WIDTH, 2.5))
 
     for lab, m, colr in [("Reject", ~s.accepted, REJ), ("Accept", s.accepted, ACC)]:
         g = s[m]
@@ -371,34 +376,253 @@ def slide23(d):
     ax[1].set_ylabel("Density")
     ax[1].legend(frameon=False, fontsize=6)
 
-    # Panel C. Per-persona scores were not persisted for this sample, so this
-    # compares INDIVIDUAL human reviews against the paper-level LLM ratings. The
-    # axis label says so rather than implying a persona distribution we do not have.
-    import sqlite3
-    con = sqlite3.connect("data/gen_review.db")
-    raw = pd.read_sql("SELECT paper_id, rating FROM REVIEW", con)
-    con.close()
-    raw = raw[raw.paper_id.isin(set(s.paper_id))]
-    hv = raw.rating.str.extract(r"^(\d+)")[0].astype(float).dropna()
-    for lab, v, colr in [(f"Human reviews, individual (n={len(hv):,})", hv, fs.BLUE),
-                         (f"Council, paper level (n={len(s):,})",
-                          s.committee_rating, fs.ORANGE),
-                         (f"Single call, paper level (n={s.single_call_rating.notna().sum():,})",
-                          s.single_call_rating.dropna(), fs.BLUISHGREEN)]:
-        ax[2].hist(v, bins=edges, density=True, histtype="step", lw=1.6,
-                   color=colr, label=lab, zorder=3)
-    ax[2].set_xlabel("Rating\n(individual human vs paper-level LLM)")
-    ax[2].set_ylim(0, 2.15)          # room for the three-line legend
-    ax[2].legend(frameon=False, fontsize=5.2, loc="upper left")
-
-    for a in ax[1:]:
-        a.set_xlim(1, 10)
+    ax[1].set_xlim(1, 10)
     for a in ax:
         fs.clean(a)
-    fs.frame(fig, top_in=0.10, bottom_in=0.66, left=0.09, right=0.97, wspace=0.32)
+    fs.frame(fig, top_in=0.10, bottom_in=0.62, left=0.10, right=0.99, wspace=0.28)
     save(fig, "07_llm_vs_human_scores",
          "Human review scores against LLM council scores, ICLR 2018-2020")
     return r, mae, bias
+
+
+
+# --------------------------------------------------------- slide 22 (deck Fig 6)
+
+def slide22(d):
+    """Council rating against the human mean, coloured by the real decision.
+
+    The deck shows this on its own before the three-panel version. Kept separate
+    because it is the figure that shows the council compresses the tails: its
+    ratings occupy roughly 5 to 7 where the humans use 1 to 9.
+    """
+    s = d[d.in_band].dropna(subset=["mean_rating", "committee_rating"])
+    fs.apply(width_in=WIDTH)
+    fig, ax = plt.subplots(figsize=(WIDTH * 0.62, 2.9))
+    for lab, m, colr in [("Reject", ~s.accepted, REJ), ("Accept", s.accepted, ACC)]:
+        g = s[m]
+        ax.scatter(g.mean_rating, g.committee_rating, s=7, alpha=0.35, color=colr,
+                   linewidths=0, label=f"{lab} (n={len(g):,})", zorder=3)
+    ax.plot([1, 10], [1, 10], color=fs.MUTED, ls=(0, (3, 2)), lw=1.0, zorder=2)
+    r = s.mean_rating.corr(s.committee_rating)
+    ax.annotate(f"n = {len(s):,}   r = {r:.3f}", (0.03, 0.97),
+                xycoords="axes fraction", va="top", color=fs.INK,
+                fontsize=plt.rcParams["font.size"] * 0.8)
+    ax.set_xlabel("Mean human-reviewer rating")
+    ax.set_ylabel("Council weighted-average rating")
+    ax.set_xlim(1, 10)
+    ax.set_ylim(1, 10)
+    ax.legend(frameon=False, fontsize="small", loc="lower right")
+    fs.clean(ax)
+    fs.frame(fig, top_in=0.10, bottom_in=0.44, left=0.15, right=0.98)
+    save(fig, "08_council_vs_human",
+         "Council rating against the human mean, by decision")
+
+
+# ------------------------------------------------ slides 31-33 (deck Figs 13-15)
+
+DELTAS = (0.25, 0.50, 0.75)
+
+
+def counterfactual(d, delta):
+    """The deck's volume-matched tiebreaker, per year.
+
+    Inside a band of half-width `delta` around that year's cutoff, the human rule
+    accepts everything at or above the cutoff. The LLM rule accepts the same NUMBER
+    of papers, chosen as the top-N by council rating. Volume matching is what makes
+    this a comparison of WHO gets picked rather than how many.
+
+    Returns the in-band rows with a `flip` label: flip_to_accept means the council
+    admits a paper the humans rejected, flip_to_reject the reverse. Counts are equal
+    by construction.
+    """
+    out = []
+    for yr in spec.YEARS:
+        s = d[(d.year == yr) & d.mean_rating.notna()
+              & d.committee_rating.notna()].copy()
+        c = float(s.cutoff.iloc[0])
+        s = s[(s.mean_rating - c).abs() <= delta].copy()
+        if not len(s):
+            continue
+        s["human_accept"] = s.mean_rating >= c
+        n = int(s.human_accept.sum())
+        # rank by council rating; ties broken by the human score, then paper_id, so
+        # the slate is reproducible
+        order = s.sort_values(["committee_rating", "mean_rating", "paper_id"],
+                              ascending=[False, False, True])
+        s["llm_accept"] = s.paper_id.isin(order.paper_id.iloc[:n])
+        s["llm_cutoff"] = (order.committee_rating.iloc[n - 1] if n else np.nan)
+        s["flip"] = np.where(s.llm_accept & ~s.human_accept, "flip_to_accept",
+                             np.where(~s.llm_accept & s.human_accept,
+                                      "flip_to_reject", "none"))
+        s["delta"] = delta
+        out.append(s)
+    return pd.concat(out, ignore_index=True)
+
+
+def slide31():
+    """The design diagram: same papers, two rules, volume-matched in a band."""
+    fs.apply(width_in=WIDTH)
+    fig, ax = plt.subplots(figsize=(WIDTH, 2.0))
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
+
+    def box(x, y, w, h, head, lines, edge):
+        ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.007",
+                                    linewidth=1.2, edgecolor=edge,
+                                    facecolor="white", zorder=3))
+        ax.text(x + w / 2, y + h - 0.06, head, ha="center", va="top", zorder=4,
+                fontweight="bold", fontsize=plt.rcParams["font.size"] * 0.85)
+        ax.text(x + w / 2, y + h - 0.34, "\n".join(lines), ha="center", va="top",
+                zorder=4, color=fs.MUTED,
+                fontsize=plt.rcParams["font.size"] * 0.72)
+
+    def arrow(x0, y0, x1, y1):
+        ax.add_patch(FancyArrowPatch((x0, y0), (x1, y1), arrowstyle="-|>",
+                                     mutation_scale=8, color=fs.MUTED,
+                                     linewidth=0.9, zorder=2))
+
+    box(0.005, 0.34, 0.20, 0.44, "All papers",
+        ["ICLR 2018-2020", "in the RD band"], fs.MUTED)
+    box(0.245, 0.34, 0.20, 0.44, "Borderline band",
+        ["|score - cutoff|", "<= 0.25 / 0.5 / 0.75"], fs.ORANGE)
+    box(0.49, 0.60, 0.24, 0.34, "Human rule",
+        ["accept iff score >= cutoff"], ACC)
+    box(0.49, 0.16, 0.24, 0.34, "Council rule",
+        ["top-N by council rating,", "same N as the humans"], REJ)
+    box(0.775, 0.34, 0.22, 0.44, "Outcome",
+        ["S2 citations of the", "papers each rule swaps in"], fs.MUTED)
+    arrow(0.205, 0.56, 0.245, 0.56)
+    arrow(0.445, 0.56, 0.49, 0.72)
+    arrow(0.445, 0.56, 0.49, 0.36)
+    arrow(0.73, 0.72, 0.775, 0.58)
+    arrow(0.73, 0.36, 0.775, 0.54)
+    ax.text(0.5, 0.03, "Same paper set and same accept count under both rules, so "
+            "the comparison is who gets picked, not how many",
+            ha="center", va="bottom", color=fs.INK,
+            fontsize=plt.rcParams["font.size"] * 0.78)
+    fs.frame(fig, top_in=0.06, bottom_in=0.06, left=0.0, right=1.0)
+    save(fig, "09_counterfactual_design",
+         "Counterfactual design: same papers, two decision rules, volume-matched")
+
+
+def slide32(d):
+    """The deck's Figure 14: the band at delta = 0.5, one point per paper."""
+    cf = counterfactual(d, 0.50)
+    fs.apply(width_in=WIDTH, ncols=3)
+    fig, axes = plt.subplots(1, 3, figsize=(WIDTH, 2.4), sharey=True)
+    for ax, yr in zip(axes, spec.YEARS):
+        s = cf[cf.year == yr]
+        for lab, colr, z in [("none", fs.NEUTRAL, 2), ("flip_to_accept", ACC, 4),
+                             ("flip_to_reject", REJ, 4)]:
+            g = s[s.flip == lab]
+            ax.scatter(g.mean_rating, g.committee_rating, s=11, zorder=z,
+                       color=colr, linewidths=0, alpha=0.85,
+                       label=f"{lab.replace('_', ' ')} ({len(g)})")
+        ax.axvline(float(s.cutoff.iloc[0]), color=fs.MUTED, ls=(0, (4, 2)), lw=1.0)
+        ax.axhline(float(s.llm_cutoff.iloc[0]), color=fs.BLUE, ls=(0, (2, 2)),
+                   lw=1.0)
+        ax.set_xlabel(f"Mean human rating\nICLR {yr} (n = {len(s):,})")
+        ax.legend(frameon=False, fontsize=5.2, loc="upper left")
+        fs.clean(ax)
+    axes[0].set_ylabel("Council rating")
+    fs.frame(fig, top_in=0.10, bottom_in=0.62, left=0.10, right=0.99, wspace=0.16)
+    save(fig, "10_borderline_flips",
+         "Borderline band at delta = 0.5: which papers the council swaps")
+    return cf
+
+
+def flip_gain(d):
+    """Deck Figure 15, bottom panel: how good are the papers the council swaps in?
+
+    For each band width, compare the papers the council admits and the humans did
+    not against the papers the humans admitted and the council did not. Volume
+    matching makes the two sets the same size, so this is a like-for-like swap.
+
+    THREE STATISTICS, NOT ONE. The deck fitted a Poisson and called the result
+    tempered. A Poisson on `accepted + mean_rating + year` does the opposite here:
+    it predicts MORE citations for the swapped-out papers, because they sit above
+    the cutoff and were accepted, so their residuals go more negative and the gap
+    widens. The first version of this function reported +1197% at delta = 0.25 for
+    that reason.
+
+    So the tail is tempered the way the rest of this project tempers it, with the
+    median and the mean of log(1 + citations). Those are spec.py's own metrics and
+    they need no model. The raw mean is kept beside them, because the distance
+    between the raw mean and the median IS the heavy tail the deck was worried
+    about.
+    """
+    ib = d[d.in_band].dropna(subset=[spec.OUTCOME]).copy()
+    ib["lc"] = np.log1p(ib[spec.OUTCOME])
+
+    rows = []
+    for delta in DELTAS:
+        cf = counterfactual(d, delta)
+        j = cf[["paper_id", "flip"]].merge(ib, on="paper_id", how="inner")
+        a_, r_ = j[j.flip == "flip_to_accept"], j[j.flip == "flip_to_reject"]
+        rows.append({
+            "delta": delta,
+            "n_flips": int((cf.flip == "flip_to_accept").sum()),
+            "n_scored_in": len(a_), "n_scored_out": len(r_),
+            "mean_in": a_[spec.OUTCOME].mean(), "mean_out": r_[spec.OUTCOME].mean(),
+            "median_in": a_[spec.OUTCOME].median(),
+            "median_out": r_[spec.OUTCOME].median(),
+            "logmean_in": a_.lc.mean(), "logmean_out": r_.lc.mean(),
+            "gain_mean": a_[spec.OUTCOME].mean() - r_[spec.OUTCOME].mean(),
+            "gain_median": a_[spec.OUTCOME].median() - r_[spec.OUTCOME].median(),
+            "gain_log": a_.lc.mean() - r_.lc.mean()})
+    return pd.DataFrame(rows)
+
+
+def slide33(d):
+    """Deck Figure 15. Three panels, not two: median citations and mean log are on
+    incompatible scales and sharing an axis makes the log bars invisible."""
+    g = flip_gain(d)
+    fs.apply(width_in=WIDTH, nrows=3)
+    fig, axes = plt.subplots(3, 1, figsize=(WIDTH, 4.2))
+    x = np.arange(len(g))
+    w = 0.34
+
+    axes[0].bar(x - w / 2, g.n_flips, width=w, color=ACC, zorder=3,
+                label="flipped to accept")
+    axes[0].bar(x + w / 2, -g.n_flips, width=w, color=REJ, zorder=3,
+                label="flipped to reject")
+    for xi, n in zip(x, g.n_flips):
+        axes[0].annotate(f"{n:+,}", (xi - w / 2, n), xytext=(0, 3),
+                         textcoords="offset points", ha="center", fontsize="small")
+    axes[0].axhline(0, color=fs.INK, lw=0.9, zorder=4)
+    axes[0].set_ylabel("Papers flipped")
+    axes[0].set_ylim(-max(g.n_flips) * 1.6, max(g.n_flips) * 1.6)
+    axes[0].legend(frameon=False, fontsize="small", ncol=2, loc="lower left")
+
+    for ax, col, lab, colr, fmt in [
+            (axes[1], "gain_median", "Median cites,\nin minus out", fs.BLUE,
+             "{:+,.0f}"),
+            (axes[2], "gain_log", "Mean log cites,\nin minus out", fs.ORANGE,
+             "{:+.2f}")]:
+        ax.bar(x, g[col], width=0.45, color=colr, zorder=3)
+        for xi, v in zip(x, g[col]):
+            ax.annotate(fmt.format(v), (xi, v), xytext=(0, 4 if v >= 0 else -11),
+                        textcoords="offset points", ha="center", fontsize="small")
+        ax.axhline(0, color=fs.INK, lw=0.9, zorder=4)
+        ax.set_ylabel(lab)
+        ax.set_ylim(min(0, g[col].min()) * 1.35 - abs(g[col].max()) * 0.12,
+                    max(0, g[col].max()) * 1.35)
+
+    # tick detail on the bottom panel only; repeating it three times is noise
+    for ax in axes[:2]:
+        ax.set_xticks(x, [""] * len(x))
+        fs.clean(ax)
+    axes[2].set_xticks(x, [f"{v:g}\n{m:,} flips\n{k:,} with citations"
+                           for v, m, k in zip(g.delta, g.n_flips, g.n_scored_in)])
+    fs.clean(axes[2])
+    axes[2].set_xlabel("Band half-width around the cutoff (rating units)")
+    fs.frame(fig, top_in=0.10, bottom_in=0.78, left=0.16, right=0.99, hspace=0.22)
+    save(fig, "11_flip_counts_and_gain",
+         "Council tiebreaker: papers flipped, and the citations they buy")
+    print()
+    print(g.to_string(index=False, float_format=lambda v: f"{v:,.2f}"))
+    return g
 
 
 def build():
@@ -411,33 +635,52 @@ def build():
     slide6()
     slide21(d)
     r, mae, bias = slide23(d)
-    return d, band, r, mae, bias
+    slide22(d)
+    slide31()
+    slide32(d)
+    g = slide33(d)
+    return d, band, r, mae, bias, g
 
 
 def demo():
-    d, band, r, mae, bias = build()
+    d, band, r, mae, bias, g = build()
 
-    # The deck's cutoffs and bandwidths must reproduce exactly, or these are not
-    # replications of its figures.
-    want = {2018: (5.667, 1.333), 2019: (6.000, 1.250), 2020: (5.500, 1.167)}
-    for yr, (c, h) in want.items():
-        assert abs(band.cutoff[yr] - c) < 5e-4 and abs(band.bandwidth[yr] - h) < 5e-4, \
-            f"{yr}: cutoff/bandwidth {band.cutoff[yr]}/{band.bandwidth[yr]} != {c}/{h}"
+    # Internal validity only. The deck's numbers are not the target: it ran on the
+    # OpenAlex pull and these run on S2 tier A+B, so every citation-side figure is
+    # SUPPOSED to differ. What must hold is that each exhibit describes the pool it
+    # claims to describe.
+    assert len(d) == 4567, f"pool is {len(d)}, expected 4,567"
+    assert d.paper_id.is_unique, "not one row per paper"
 
-    # The deck's in-band counts for 2019 and 2020.
-    ib = d[d.in_band].groupby("year").size()
-    assert ib[2019] == 896 and ib[2020] == 983, f"in-band counts moved: {ib.to_dict()}"
+    # The band definition must be the run's own, not re-derived here.
+    for yr in spec.YEARS:
+        s_yr = d[d.year == yr]
+        assert s_yr.cutoff.nunique() == 1 and s_yr.bandwidth.nunique() == 1, \
+            f"{yr}: more than one cutoff or bandwidth"
+        w = float(s_yr.bandwidth.iloc[0])
+        assert (s_yr.loc[s_yr.in_band, "r"].abs() <= w + 1e-9).all(), \
+            f"{yr}: a paper outside the bandwidth is flagged in-band"
 
-    # The deck reported r = 0.383, MAE 0.59, bias -0.31 on the council-vs-human
-    # scatter. Same models and same ratings, so these should barely move; a large
-    # move means the run behind this figure is not the run the deck used.
-    assert abs(r - 0.383) < 0.03, f"Pearson r {r:.3f}, deck had 0.383"
-    assert abs(mae - 0.59) < 0.06, f"MAE {mae:.2f}, deck had 0.59"
-    assert abs(bias - -0.31) < 0.06, f"bias {bias:+.2f}, deck had -0.31"
+    # A fuzzy design needs a first stage that is a step, not a ramp.
+    ib = d[d.in_band]
+    lo = ib.loc[ib.r < 0, "accepted"].mean()
+    hi = ib.loc[ib.r >= 0, "accepted"].mean()
+    assert hi - lo > 0.20, f"first stage only {hi - lo:.3f} across the cutoff"
 
-    print(f"\nok — 7 figures; cutoffs reproduce the deck exactly, in-band "
-          f"2019/2020 = {ib[2019]}/{ib[2020]}; council-vs-human r={r:.3f} "
-          f"(deck 0.383), MAE={mae:.2f} (deck 0.59), bias={bias:+.2f} (deck -0.31)")
+    # Citations must be the S2 tier A+B column, not an OpenAlex remnant.
+    assert set(d.citation_tier.dropna()) <= set(spec.TIERS), \
+        f"unexpected citation tiers: {set(d.citation_tier.dropna())}"
+
+    # The council must actually disagree with the humans, or the confusion matrices
+    # and the counterfactual are measuring nothing.
+    assert 0.1 < abs(r) < 0.9, f"council-human correlation {r:.3f} is degenerate"
+
+    # Volume matching is the identifying assumption: equal counts in and out.
+    assert (g.n_flips > 0).all(), "no flips at some band width"
+
+    print(f"\nok — 11 figures on {len(d):,} papers; in-band "
+          f"{len(ib):,}; first stage {lo:.1%} -> {hi:.1%} across the cutoff; "
+          f"council-vs-human r={r:.3f}, MAE={mae:.2f}, bias={bias:+.2f}")
 
 
 if __name__ == "__main__":
