@@ -2,7 +2,7 @@
 Build the single flat evaluation table used by all downstream eval scripts.
 
 Joins: SUBMISSION + REVIEW (aggregated) + citations + paper_fields
-       + committee/decision-head LLM run (consistent gpt-oss-20b decision head)
+       + committee/decision-head LLM run + the single-call baseline
 Computes: field×year citation percentile rank, N accepts per year
 
 Output: outputs/eval_table.csv
@@ -19,6 +19,7 @@ os.makedirs("outputs", exist_ok=True)
 DB = "data/gen_review.db"
 OUT = "outputs/eval_table.csv"
 DECISION_HEAD_CSV = "outputs/all_paper_results_consistent_gptoss20b.csv"
+SINGLE_CALL_CSV = "outputs/single_call_iclr1820_gemma.csv"
 
 con = sqlite3.connect(DB)
 
@@ -32,8 +33,14 @@ reviews_raw = pd.read_sql(
     "SELECT paper_id, rating FROM REVIEW",
     con,
 )
-llm_raw = pd.read_sql("SELECT paper_id, type, rating FROM GENAI_REVIEW", con)
 con.close()
+
+# GENAI_REVIEW is deliberately NOT read. Its neutral / positive / negative persona
+# ratings arrived inside data/gen_review.db rather than from this project's
+# pipeline, so we cannot state what prompt, model or input text produced them. They
+# were previously pivoted into llm_{neutral,positive,negative,mean}_rating and one
+# of them was scored as a regime; both are gone. The council
+# (committee_rating) and the single call (single_call_rating) are ours and stay.
 
 # Parse "6: Marginally above acceptance threshold" → 6.0
 reviews_raw["rating_num"] = reviews_raw["rating"].str.extract(r"^(\d+)").astype(float)
@@ -44,15 +51,6 @@ reviews = (
 )
 # single-review papers have NaN std (ddof=1); treat as zero disagreement
 reviews["rating_std"] = reviews["rating_std"].fillna(0)
-llm_raw["rating_num"] = llm_raw["rating"].str.extract(r"^(\d+)").astype(float)
-llm_scores = llm_raw.pivot_table(
-    index="paper_id", columns="type", values="rating_num", aggfunc="mean"
-).rename(columns={"neutral": "llm_neutral_rating", "positive": "llm_positive_rating",
-                  "negative": "llm_negative_rating"}).reset_index()
-llm_scores["llm_mean_rating"] = llm_scores[
-    ["llm_neutral_rating", "llm_positive_rating", "llm_negative_rating"]
-].mean(axis=1)
-
 # Canonical citation table (src/build/build_citations.py) — S2, tiered, one rule
 # for both eras. Replaces the old OpenAlex pull, whose coverage was 89.0% for
 # accepted papers and 62.7% for rejected: a 26.3 point differential on the very
@@ -93,20 +91,50 @@ else:
           "src/build/build_consistent_decision_head.py first. "
           "committee_rating/deepseek_p_accept will be empty.")
 
+# Single-call baseline (src/probes/run_single_call_baseline.py): the 1-call control
+# for the 9-call council. The runner appends, so a paper that failed and later
+# succeeded has both rows — keep the last successful row per paper, never a mean.
+if os.path.exists(SINGLE_CALL_CSV):
+    _sc = pd.read_csv(SINGLE_CALL_CSV, low_memory=False)
+    _sc = _sc[_sc["rating"].notna()].drop_duplicates("paper_id", keep="last")
+    single_call = _sc[["paper_id", "rating"]].rename(
+        columns={"rating": "single_call_rating"})
+else:
+    single_call = pd.DataFrame(columns=["paper_id", "single_call_rating"])
+    print(f"Warning: {SINGLE_CALL_CSV} not found — single_call_rating will be empty.")
+
+
 df = (
     papers
-    .merge(reviews, on="paper_id", how="left")
-    .merge(citations, on="paper_id", how="left")
-    .merge(fields, on="paper_id", how="left")
-    .merge(llm_scores, on="paper_id", how="left")
-    .merge(decision_head, on="paper_id", how="left")
+    .merge(reviews, on="paper_id", how="left", validate="1:1")
+    .merge(citations, on="paper_id", how="left", validate="1:1")
+    .merge(fields, on="paper_id", how="left", validate="1:1")
+    .merge(decision_head, on="paper_id", how="left", validate="1:1")
+    .merge(single_call, on="paper_id", how="left", validate="1:1")
 )
+assert len(df) == len(papers), (
+    f"merge fanned the table out: {len(papers)} papers in, {len(df)} rows out")
 
 # The canonical table only contains matched papers, so a missing row means
 # "no usable match" and must stay NaN — never zero.
 df.loc[df["status"] != "found", "openalex_citations"] = np.nan
 
-# field×year citation percentile rank (0–1) among papers with citations
+# field×year citation percentile rank (0–1) among papers with citations.
+#
+# COMPUTED BUT NOT USED AS A HEADLINE OUTCOME. `paper_fields.csv` covers 2,726 of
+# 4,567 papers, and the coverage is not independent of the decision: 63.7% of
+# accepted papers carry a label against 57.7% of rejected ones. That leaves this
+# column defined for 57.7% of the pool with an 8.1 pp accept/reject gap of its own,
+# on the same axis the benchmark measures. 1,749 of the 2,726 labels are
+# `theory_methods`, so most of the normalization happens inside one catch-all.
+#
+# The column stays because the leakage scripts read it. Every paper exhibit goes
+# through src/figures/spec.py, which pins MODE = "raw"; run_eval.py no longer
+# writes the normalized arm unless asked. Fixing this means classifying the 1,841
+# unlabeled papers, which is a project, not a patch.
+#
+# `groupby` drops NaN keys, so unlabeled papers keep NaN here rather than landing
+# in a bucket they do not belong to.
 df["citation_pct_rank"] = np.nan
 for (field, year), grp in df.groupby(["field", "year"]):
     mask = df["field"].eq(field) & df["year"].eq(year) & df["openalex_citations"].notna()

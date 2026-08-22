@@ -254,7 +254,7 @@ def audit_source():
         if incomplete:
             flag(S, "minor", "GENAI_REVIEW personas incomplete for some papers",
                  f"{incomplete:,} papers have fewer than 3 persona rows. "
-                 "build_eval_table averages whichever personas exist into llm_mean_rating, so those "
+                 "build_eval_table no longer reads GENAI_REVIEW at all, so this affects nothing "
                  "papers' means come from a different persona mix than the rest.",
                  "src/build/build_eval_table.py#L45-L51")
         gbad = gen_win.assign(num=parse_rating(gen_win["rating"]))

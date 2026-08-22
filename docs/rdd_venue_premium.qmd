@@ -1,0 +1,234 @@
+---
+title: "Can a regression discontinuity identify the ICLR venue premium?"
+subtitle: "A design memo for CitesBench"
+date: 2026-08-20
+format:
+  pdf:
+    documentclass: article
+    geometry: margin=1in
+    fontsize: 11pt
+    colorlinks: true
+---
+
+## Why we need the premium at all
+
+CitesBench scores a selection regime by the citations of the papers it admits. The
+problem is that acceptance itself raises citations. Write
+
+$$Y_i = Y_i(0) + D_i \tau$$
+
+where $Y_i$ is realised log citations, $D_i$ is historical ICLR acceptance, and
+$\tau$ is the venue premium.
+
+The area-chair regime's admitted set is, by definition, $\{i : D_i = 1\}$. So it
+collects $Y_i(0) + \tau$ on every paper it picks. An LLM regime collects only
+$Y_i(0)$ on any paper the humans rejected. The comparison is therefore biased
+**toward the humans**, by roughly $\tau$ times the share of the LLM's slate that
+the humans had rejected.
+
+This has a useful consequence and an awkward one.
+
+* **Useful.** "The LLM matches or beats the humans" is *conservative* under this
+  bias. We can claim it without knowing $\tau$.
+* **Awkward.** "The humans beat the LLM" is not identified at all without $\tau$.
+  Neither is any statement about the size of a gap.
+
+So we want $\tau$. A fuzzy regression discontinuity on the mean reviewer score is
+the obvious instinct, and it is the right instinct. This memo is about whether the
+data supports it.
+
+## What the design requires
+
+A fuzzy RD needs four things. Fuzziness relaxes only the second one, from "treatment
+is determined by the threshold" to "treatment probability jumps at the threshold".
+
+1. **A threshold in the assignment rule.** Some institutional cutoff that actually
+   governs decisions.
+2. **A jump in the probability of treatment at that threshold.**
+3. **Data arbitrarily close to the threshold on both sides**, because the estimate
+   is a limit taken from each side.
+4. **An exclusion restriction.** Crossing the threshold affects citations *only*
+   through acceptance.
+
+Take these in turn against ICLR 2018--2020, with the running variable
+$z_i = \text{mean review score}_i - \text{cutoff}_y$.
+
+## What the data looks like
+
+### Support: there is almost nothing at the threshold
+
+![Mass points of the running variable. Bubble area is the number of papers; labels
+show counts near the cutoff. The vertical line is the imputed
+threshold.](../outputs/figures/rdd_a_support.pdf)
+
+The score is the mean of integer reviewer ratings, and 4,213 of 4,554 papers have
+exactly three reviews. So the running variable can only land on multiples of
+$\tfrac{1}{3}$. It takes 29 to 41 distinct values per year, and near the cutoff it
+collapses to a handful of clumps.
+
+| year | within 0.10 of cutoff | within 0.25 | distinct values |
+|---|---:|---:|---:|
+| 2018 | 85 | 86 | 29 |
+| 2019 | 123 | 123 | 41 |
+| 2020 | **6** | 122 | 39 |
+
+Two things to read off this. In 2018 and 2019, essentially every paper "near" the
+cutoff sits *exactly on it*, and the next mass is a third of a point away. In 2020
+there are six papers within 0.1, with 265 and 211 papers parked at $\pm 0.5$.
+
+Requirement 3 fails outright. There is no neighbourhood of the threshold to take a
+limit through. A local linear fit is not interpolating nearby data; it is
+extrapolating from clumps a third to a half of a rating point away, and the answer
+is whatever the slope assumption says it is. Kolesár and Rothe (2018) show that
+conventional RD inference is invalid in exactly this case.
+
+### First stage: a ramp with a small step in it
+
+![Probability of acceptance at each mass point of the running variable, by year.
+Points with fewer than five papers are
+suppressed.](../outputs/figures/rdd_b_first_stage.pdf)
+
+This is the panel that decides the question, and it is more interesting than a flat
+"no first stage".
+
+There *is* a jump at zero. Fitting local linear with separate slopes gives a
+first-stage discontinuity of 0.18 to 0.26 depending on bandwidth, and it is not
+zero. An earlier version of this analysis claimed there was no first stage; that was
+wrong, and the data said so.
+
+But look at the shape. $P(\text{accept})$ climbs smoothly from near 0% to near 100%
+across the whole range. In 2018 it runs 0%, 5%, 8%, 34%, 57%, 75%, 95%, 100%. The
+increment *across* the cutoff, 8% to 34%, is the same order as the increment one
+step above it, 34% to 57%. The threshold is not special. It is one step on a
+sigmoid.
+
+That is what you should expect from the institution. Area chairs read a continuous
+quality signal and exercise discretion. Discretion applied to a continuous signal
+produces a smooth propensity. A genuine jump needs a *rule*, and ICLR publishes
+none.
+
+### Stability: the estimate is a choice of bandwidth
+
+![Fuzzy-RD Wald estimate against bandwidth, with 95% confidence intervals and the
+first-stage $F$ at each bandwidth.](../outputs/figures/rdd_c_stability.pdf)
+
+| $h$ | n | first-stage jump | $F$ | estimate | 95% CI |
+|---:|---:|---:|---:|---:|---|
+| 0.20 | 323 | 0.184 | 7.0 | $-0.01$ | $[-2.97,\ 2.95]$ |
+| 0.35 | 787 | 0.182 | 7.1 | $-0.09$ | $[-3.04,\ 2.86]$ |
+| 0.50 | 1,270 | 0.181 | 7.4 | $-0.27$ | $[-3.20,\ 2.66]$ |
+| 0.75 | 1,669 | 0.219 | 14.6 | $+0.34$ | $[-1.76,\ 2.44]$ |
+| 1.00 | 2,116 | 0.216 | 17.3 | $+0.39$ | $[-1.55,\ 2.34]$ |
+| 1.25 | 2,417 | 0.236 | 30.2 | $+0.54$ | $[-0.94,\ 2.02]$ |
+| 1.50 | 3,045 | 0.261 | 46.6 | $+0.63$ | $[-0.56,\ 1.83]$ |
+
+Three readings, in order of how damaging they are.
+
+**Every interval contains zero, and every interval is enormous.** The narrowest is
+$[-0.56, 1.83]$ log points. A premium of zero and a premium that multiplies
+citations sixfold are both inside it. Whatever else is true, this design does not
+deliver a number we could put in a sensitivity analysis, let alone an abstract.
+
+**The estimate does not converge as $h \to 0$.** It marches monotonically from
+$-0.27$ to $+0.63$ as the window widens, a span of 0.9 log points. RD asymptotics
+run the other way: bias shrinks as $h \to 0$, so the small-$h$ estimates should be
+the trustworthy ones. Those are the ones sitting at zero with $\pm 3$ around them.
+Reporting any single number here would be reporting a bandwidth choice.
+
+**$F$ rises with bandwidth.** This is the tell, and it is the sentence to use in the
+meeting. A real discontinuity does not become *easier* to detect as you look further
+away from it. $F$ climbing from 7 to 47 as $h$ goes from 0.20 to 1.50 is the
+signature of a step function absorbing a slope: the wider the window, the more of
+the sigmoid's gradient the "above cutoff" dummy can soak up. It is measuring the
+slope, not a jump.
+
+## Two problems that more data would not fix
+
+The above is about power and functional form. These two are structural.
+
+**The cutoff was reverse-engineered from the decisions.** The value arrives
+pre-computed in `data/OpenAlex/openalex_rdd_arxiv_paper_level.csv`; no script in
+this repository derives it. It was fitted to the realised accept/reject pattern. So
+the "threshold" is a function of the outcome it is supposed to instrument, and the
+density test failing at the cutoff ($+84.6\%$) partly reflects that it was placed
+where the mass already sat. Requirement 1 is not satisfied by an estimated cutoff.
+
+**The exclusion restriction fails independently.** ICLR reviews and scores are
+public on OpenReview, for rejected papers as well as accepted ones. That is how this
+dataset exists at all. So crossing the threshold changes a *publicly visible quality
+signal*, not only the acceptance decision. A reader can see 6.0 rather than 5.67.
+Requirement 4 asks that the instrument work only through $D$, and here it plainly
+has a second channel.
+
+## Why the "working" estimate in the older output is not one
+
+`outputs/fuzzy_rdd.md` reports a healthy-looking local *constant* specification:
+$F$ of 172 to 674, estimate 0.94 to 1.01. It is worth knowing why that is not a
+rescue.
+
+Dropping the slope does not remove the slope from the data. It reassigns the entire
+gradient across the bandwidth to a "jump" at the centre. With a smooth propensity,
+that estimate is a difference in means between papers a third of a rating point
+apart, which is a matched comparison and not a discontinuity. It inherits every
+confounder that varies over a third of a rating point, and reviewer scores are
+informative about quality, so plenty does.
+
+The strong $F$ is a symptom of the misspecification, not evidence against it.
+
+## What would make an RD work here
+
+Being fair to the design, since it is the right instinct:
+
+* A venue with a **published numeric threshold** that area chairs are instructed to
+  follow. Some journals and grant panels have this. ICLR does not.
+* A **continuous** running variable, or at least one with support near the cutoff.
+  Many more reviews per paper would do it; three integers will not.
+* A cutoff **fixed ex ante and documented**, not fitted afterwards.
+
+None of the three is available for ICLR 2018--2020. This is a property of the
+institution and the data, not of the estimation.
+
+## What to do instead
+
+Three routes. The first is the one I would put in the paper.
+
+**1. Treat $\tau$ as a sensitivity parameter, and report the breakdown value.**
+Do not estimate the premium. Report the regime contrast $\Delta$ as a function of
+$\tau$ and mark the value at which each conclusion flips. The sentence becomes: *the
+LLM's advantage survives any venue premium below $\tau^*$, and the literature puts
+plausible premia in range $R$.* This converts an unidentifiable nuisance into a
+stated robustness range, which is standard practice when a parameter is not
+recoverable. It also plays to the bias direction from the first section: the main
+claim is already conservative, so the breakdown value is likely to be comfortably
+large.
+
+**2. Matched comparison among the rejected.** Rejected papers that later appeared
+elsewhere, against accepted ICLR papers, matched on score and year. This is
+selection-on-observables, so a weaker assumption than RD, but it is an assumption we
+can state and probe rather than one that is silently violated. The data supports it
+today.
+
+**3. Honest confidence intervals for a discrete running variable.**
+Kolesár--Rothe if we want to keep the RD framing. It requires a curvature bound we
+would have to argue for, the intervals will be wide, and it does not address either
+structural problem above. Defensible as an appendix, not as the headline.
+
+## The short version
+
+The RD instinct is correct, and the failure is not weak data. A fuzzy RD needs a
+threshold that governs decisions; ICLR area chairs apply discretion to a continuous
+score, so the acceptance probability is a smooth curve rather than a step. The small
+jump we do detect is bandwidth-dependent, the first-stage $F$ rises with bandwidth
+in the way misspecification produces, the estimate never settles as the window
+shrinks, and every confidence interval spans zero and several log points. On top of
+that the cutoff was fitted to the decisions it would instrument, and public
+OpenReview scores give the instrument a second channel to the outcome.
+
+We should report the venue premium as a sensitivity range with a breakdown value,
+not as an estimate.
+
+---
+
+*Produced by `python src/analysis/rdd_diagnostic.py`, on the canonical citation
+table. The older `fuzzy_rdd.py` uses the superseded OpenAlex pull (26.3 pp
+accept/reject coverage differential, against 3.9 pp now).*

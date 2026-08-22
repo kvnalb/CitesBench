@@ -7,6 +7,7 @@ src/fetch/      pulls from an external API or dump; incremental and resumable
 src/build/      builds the analysis tables and frozen samples from fetched data
 src/probes/     sends prompts to a model (leakage / recall / review probes)
 src/analysis/   reads tables, computes results, writes reports and figures
+src/figures/    the paper's figures and tables -> outputs/figures/; figstyle.py lives here
 src/app/        Streamlit dashboard + pages/ (reads only, never writes results)
 src/audit/      audits the repo itself: data quality, prompt export, MANIFEST
 src/*.py        shared modules imported by the above: prompts, metrics, baselines
@@ -19,7 +20,12 @@ MANIFEST.md     generated: every script, and which script produced each output
 ```
 
 A script goes in the directory matching what it does, not what it is about. New
-group only when a file fits none of the six.
+group only when a file fits none of the seven.
+
+Adding a group means registering it in `GROUPS` in `src/audit/build_manifest.py`.
+Without that the whole directory is invisible to the manifest and everything it
+writes is reported as an orphan — the script count going DOWN after adding scripts
+is the symptom.
 
 ## MANIFEST.md must never be stale
 
@@ -83,7 +89,20 @@ Compares reviewer selection regimes (human discretionary, human score-based, LLM
 - Metrics: median citations, mean log(1+citations), count in true top 1/5/10%, recall@k
 - Baselines: random (1000 runs averaged), ideal (top-N by citations)
 - Reports lift over random and drawdown from ideal per metric per regime
-- **Field normalization toggle**: dashboard supports both raw citations and field×year normalized citation percentile ranks as the ground truth signal. Fields: nlp, computer_vision, generative_models, reinforcement_learning, theory_methods.
+- **Ground truth is raw citation counts. Field normalization is excluded.**
+  `paper_fields.csv` labels 2,726 of 4,567 papers, and the coverage is not
+  independent of the decision: 63.7% of accepted papers carry a label against 57.7%
+  of rejected ones. `citation_pct_rank` is therefore defined for 57.7% of the pool
+  with an 8.1 pp accept/reject gap, on the same axis the benchmark measures, and
+  1,749 of the 2,726 labels are the `theory_methods` catch-all. The normalized arm
+  also rescales n to the labeled subset, making it a different selection problem
+  rather than a robustness check on the same one.
+
+  Enforced in three places: `src/figures/spec.py` pins `MODE = "raw"` for every
+  exhibit, `src/analysis/run_eval.py` writes only the raw arm unless given
+  `--include-normalized`, and the dashboard hardcodes raw. `citation_pct_rank` is
+  still computed because the leakage scripts read it. Re-enabling it means
+  classifying the 1,841 unlabeled papers first.
 
 ## Secrets
 
