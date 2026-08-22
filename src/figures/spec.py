@@ -82,7 +82,7 @@ TABLE1_CSV = os.path.join(FIG_DIR, "table1_sample.csv")
 # The outcome column. Named for OpenAlex, holds S2 counts. Renaming it touches
 # 122 references across 26 files and is its own PR (#38, out of scope); every
 # exhibit goes through this constant so the eventual rename is one line here.
-OUTCOME = "openalex_citations"
+OUTCOME = "s2_citations"
 
 
 # --------------------------------------------------------------- regime table

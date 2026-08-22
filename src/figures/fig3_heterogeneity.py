@@ -45,18 +45,24 @@ from matplotlib import patheffects
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from figures import spec, figstyle as fs
 
-OUT_PDF = "outputs/figures/fig3_heterogeneity.pdf"
-OUT_PNG = "outputs/figures/fig3_heterogeneity.png"
 OUT_CSV = "outputs/figures/fig3_heterogeneity.csv"
+OUT_DECILE = "outputs/figures/fig3_citation_decile"
+OUT_QUINTILE = "outputs/figures/fig3_score_quintile"
 
 YEARS = list(spec.YEARS)
 SERIES = spec.HEADLINE
-# Axis labels only. No title, deck or source line: captions belong in the LaTeX
-# document where the author controls them, not baked into the PDF.
-PANELS = [("score_q", "mean_rating", 5, "Human score quintile (within year)",
-           "Selection rate"),
-          ("cite_d", spec.OUTCOME, 10, "True citation decile (within year)",
-           "Selection rate")]
+
+# One file per panel. The citation-decile panel is the main-paper exhibit: it
+# explains how the council can lead on top-decile recall while Table 2 finds no
+# difference in average separation. The score-quintile panel answers a different
+# question — how far each regime departs from the human scores — and travels with
+# the leakage caveat instead.
+PANELS = [("cite_d", spec.OUTCOME, 10, "True citation decile (within year)",
+           "Selection rate", OUT_DECILE,
+           "Selection rate by true citation decile"),
+          ("score_q", "mean_rating", 5, "Human score quintile (within year)",
+           "Selection rate", OUT_QUINTILE,
+           "Selection rate by human score quintile")]
 
 
 def bins_within_year(et, col, q):
@@ -76,7 +82,7 @@ def bins_within_year(et, col, q):
 def build():
     os.makedirs("outputs/figures", exist_ok=True)
     et = spec.read_eval_table()
-    for key, col, q, _, _ in PANELS:
+    for key, col, q, *_ in PANELS:
         et[key] = bins_within_year(et, col, q)
 
     # Selection PROBABILITY per paper, not membership in one arbitrary slate.
@@ -95,7 +101,7 @@ def build():
         et[r.key] = (prob / n_ord).to_numpy()
 
     recs = []
-    for key, _, q, _, _ in PANELS:
+    for key, _, q, *_ in PANELS:
         for b in range(1, q + 1):
             d = et[et[key] == b]
             row = {"panel": key, "bin": b, "n": len(d)}
@@ -106,9 +112,9 @@ def build():
     res.to_csv(OUT_CSV, index=False)
     base = et.accepted.mean()
 
-    fs.apply(ncols=2)
-    fig, axes = plt.subplots(1, 2, figsize=(5.5, 2.3))
-    for ax, (key, _, q, xlab, note) in zip(axes, PANELS):
+    for key, _, q, xlab, note, out, title in PANELS:
+        fs.apply()
+        fig, ax = plt.subplots(figsize=(5.5, 2.5))
         sub = res[res.panel == key]
         ax.axhline(base, color=fs.MUTED, ls=(0, (4, 3)), lw=1.2, zorder=2)
         for r in SERIES:
@@ -125,17 +131,17 @@ def build():
         ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
         ax.set_ylabel(note)
         fs.clean(ax)
-    axes[0].legend(frameon=False, fontsize="small", loc="upper left")
+        ax.legend(frameon=False, fontsize="small", loc="upper left")
 
-    fs.frame(fig, top_in=0.10, bottom_in=0.46, left=0.09, right=0.99,
-             wspace=0.32)
-    fig.savefig(OUT_PDF)
-    fig.savefig(OUT_PNG, dpi=200)
-    plt.close(fig)
+        fs.frame(fig, top_in=0.10, bottom_in=0.46, left=0.11, right=0.99)
+        fs.add_title(fig, title)
+        fig.savefig(out + ".pdf")
+        fig.savefig(out + ".png", dpi=200)
+        plt.close(fig)
 
     with pd.option_context("display.width", 200):
         print(res.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
-    print(f"\n-> {OUT_PDF}\n-> {OUT_PNG}\n-> {OUT_CSV}")
+    print(f"\n-> {OUT_DECILE}.pdf\n-> {OUT_QUINTILE}.pdf\n-> {OUT_CSV}")
     return res, base
 
 

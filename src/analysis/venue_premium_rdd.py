@@ -3,7 +3,7 @@ The ICLR venue premium: the slide deck's RD table, rebuilt on the canonical
 citation table, plus the row the deck is missing.
 
 WHAT THE DECK REPORTED. Specifications 1-5 below reproduce its table: naive OLS,
-OLS with year FE, then "sharp RD" with no FE / year FE / year x topic FE. Its
+OLS with year FE, then "sharp RD" with no FE / year FE. Its
 headline was the last one, +0.269.
 
 WHY THAT IS NOT THE VENUE PREMIUM. Crossing the cutoff does not accept a paper,
@@ -44,9 +44,14 @@ from figures import spec, figstyle as fs   # noqa: E402
 DB = "data/gen_review.db"
 RDD_CSV = "data/OpenAlex/openalex_rdd_arxiv_paper_level.csv"
 OUT_CSV = "outputs/venue_premium_rdd.csv"
+TITLE_FIG = "Discontinuity at the review-score cutoff: acceptance and citations"
 OUT_MD = "outputs/venue_premium_rdd.md"
 OUT_TEX = "outputs/figures/venue_premium_rdd.tex"
 OUT_FIG = "outputs/figures/venue_premium_binscatter"
+OUT_TABLE_PDF = "outputs/figures/venue_premium_rdd.pdf"
+OUT_TABLE_PNG = "outputs/figures/venue_premium_rdd.png"
+TITLE_TABLE = ("The ICLR acceptance premium: OLS, reduced form, first stage, "
+               "and fuzzy RD")
 
 # The deck's year-specific bandwidths, so the comparison is like for like.
 BW = {2018: 1.333, 2019: 1.250, 2020: 1.167}
@@ -164,18 +169,17 @@ def build():
             ("1  OLS  lcites ~ accepted", False, None),
             ("2  OLS + year FE", False, ["year"]),
             ("3  RD reduced form (ITT), no FE", True, None),
-            ("4  RD reduced form (ITT) + year FE", True, ["year"]),
-            ("5  RD reduced form (ITT) + year x topic FE", True, ["year", "topic"])]:
+            ("4  RD reduced form (ITT) + year FE", True, ["year"])]:
         b, se, *_ = fit(obs, rd, fe)
         rows.append({"spec": label, "coef": b, "se": se, "n": len(obs),
                      "is_premium": False})
 
-    fsj, fs_se = fit(obs, True, ["year", "topic"], col="D")[:2]
-    rows.append({"spec": "6  First stage: jump in P(accepted)", "coef": fsj,
+    fsj, fs_se = fit(obs, True, ["year"], col="D")[:2]
+    rows.append({"spec": "5  First stage: jump in P(accepted)", "coef": fsj,
                  "se": fs_se, "n": len(obs), "is_premium": False})
 
-    late, late_se, rf, rf_se, j, j_se, n = wald(d, ["year", "topic"])
-    rows.append({"spec": "7  FUZZY RD premium = row 5 / row 6", "coef": late,
+    late, late_se, rf, rf_se, j, j_se, n = wald(d, ["year"])
+    rows.append({"spec": "6  FUZZY RD premium = row 4 / row 5", "coef": late,
                  "se": late_se, "n": n, "is_premium": True})
 
     t = pd.DataFrame(rows)
@@ -227,12 +231,13 @@ def build():
         + "\n".join(
             f"{r.spec.split('  ', 1)[1]} & {r.coef:+.3f} & ({r.se:.3f}) & "
             f"[{r.ci_lo:+.3f}, {r.ci_hi:+.3f}] \\\\"
-            + ("\n\\midrule" if r.spec.startswith("5") else "")
+            + ("\n\\midrule" if r.spec.startswith("4") else "")
             for r in t.itertuples())
         + "\n\\bottomrule\n\\end{tabular}\n"
         f"% outcome log(1+citations), year-specific bandwidth, n={len(obs)}, "
         "HC1 SEs. Row 7 is the fuzzy-RD Wald ratio.\n")
 
+    render_table(t, len(obs))
     binscatter(d, t)
 
     print(t.to_string(index=False, float_format=lambda v: f"{v:+.3f}"))
@@ -242,16 +247,36 @@ def build():
     return t
 
 
+def render_table(t, n):
+    """The .tex is what goes into the paper; this is the same numbers rendered so
+    the table can be read without a TeX install, and shipped as a PDF."""
+    fs.apply()
+    body = [[r.spec.split("  ", 1)[1], f"{r.coef:+.3f}".replace("-", "\u2212"),
+             f"({r.se:.3f})",
+             f"[{r.ci_lo:+.3f}, {r.ci_hi:+.3f}]".replace("-", "\u2212")]
+            for r in t.itertuples()]
+    fig = fs.table(
+        header=[["Specification", "Estimate", "(SE)", "95% CI"]],
+        body=body, align="lrrr", colw=[3.3, 0.85, 0.75, 1.35],
+        rules=(len(body) - 1,),          # rule above the fuzzy-RD row
+        note=(f"Outcome log(1 + citations), year-specific bandwidth, n={n:,}, "
+              "HC1 standard errors. The last row is the Wald ratio."))
+    fs.add_title(fig, TITLE_TABLE)
+    fig.savefig(OUT_TABLE_PDF)
+    fig.savefig(OUT_TABLE_PNG, dpi=220)
+    plt.close(fig)
+
+
 def binscatter(d, t):
-    """The deck's Figure 12, on the new outcome. Residualised on year x topic FE
-    so the bins show the discontinuity the regression fits."""
+    """The deck's Figure 12, on our outcome. Residualised on YEAR FE only, matching
+    the table, so the bins show the discontinuity the regression actually fits."""
     fs.apply(ncols=2)
     fig, axes = plt.subplots(1, 2, figsize=(5.5, 2.4))
 
     for ax, (col, lab) in zip(axes, [("D", "P(accepted)"),
                                      ("y", "log(1 + citations)")]):
         s = d.dropna(subset=[col]).copy()
-        X, names = design(s, rd=False, fe=["year", "topic"])
+        X, names = design(s, rd=False, fe=["year"])
         keep = [j for j, nm in enumerate(names) if nm != "treat"]
         b, _, _ = ols_hc1(X[:, keep], s[col].to_numpy())
         s["resid"] = s[col].to_numpy() - X[:, keep] @ b
@@ -276,6 +301,7 @@ def binscatter(d, t):
     for ax in axes:
         fs.clean(ax, xgrid=True)
     fs.frame(fig, top_in=0.10, bottom_in=0.42, left=0.12, right=0.99, wspace=0.34)
+    fs.add_title(fig, TITLE_FIG)
     fig.savefig(OUT_FIG + ".pdf")
     fig.savefig(OUT_FIG + ".png", dpi=200)
     plt.close(fig)
@@ -284,12 +310,12 @@ def binscatter(d, t):
 def demo():
     t = build().set_index(t_index := "spec")
     prem = t[t.is_premium].iloc[0]
-    itt = t.loc[[i for i in t.index if i.startswith("5")][0]]
-    fsj = t.loc[[i for i in t.index if i.startswith("6")][0]]
+    itt = t.loc[[i for i in t.index if i.startswith("4")][0]]
+    fsj = t.loc[[i for i in t.index if i.startswith("5")][0]]
 
     # The whole point: the premium is the ITT scaled up by the first stage, and
     # the deck reported the ITT as if it were the premium.
-    assert abs(prem.coef - itt.coef / fsj.coef) < 1e-6, "row 7 is not row 5 / row 6"
+    assert abs(prem.coef - itt.coef / fsj.coef) < 1e-6, "row 6 is not row 4 / row 5"
     assert prem.coef > itt.coef, "premium should exceed the ITT"
     assert prem.se > itt.se, "dividing by a noisy first stage must widen the SE"
     print(f"\nok — ITT {itt.coef:+.3f} (se {itt.se:.3f}) / first stage "

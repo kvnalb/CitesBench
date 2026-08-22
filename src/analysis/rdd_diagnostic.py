@@ -35,6 +35,12 @@ OUT_B = "outputs/figures/rdd_b_first_stage"
 OUT_C = "outputs/figures/rdd_c_stability"
 OUT_CSV = "outputs/rdd_diagnostic.csv"
 
+TITLES = {
+    OUT_A: "Support of the running variable: mass points in mean review score",
+    OUT_B: "First stage: acceptance probability along the review-score axis, by year",
+    OUT_C: "Acceptance premium across bandwidths",
+}
+
 BANDWIDTHS = [0.20, 0.35, 0.50, 0.75, 1.00, 1.25, 1.50]
 MIN_MASS = 5          # mass points thinner than this are noise, not structure
 
@@ -160,6 +166,7 @@ def build():
         draw(ax)
         fs.clean(ax, xgrid=True)
         fs.frame(fig, top_in=0.14, bottom_in=0.48, left=0.13, right=0.98)
+        fs.add_title(fig, TITLES[out])
         fig.savefig(out + ".pdf")
         fig.savefig(out + ".png", dpi=200)
         plt.close(fig)

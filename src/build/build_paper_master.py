@@ -44,7 +44,7 @@ journals that mint DOIs. None of these describe the submission as reviewers saw 
 The s2_* columns are descriptive. s2_*_h_index in particular is read at fetch time
 in 2026 and is post-treatment for a 2018 submission: acceptance raised it. It is not
 a pre-determined covariate. The outcome variable is untouched; `s2_citations_refetched`
-sits beside `openalex_citations` for drift inspection and never replaces it.
+sits beside `s2_citations` for drift inspection and never replaces it.
 
 OUTPUTS. The text columns make a single CSV unwieldy, so:
   outputs/paper_master.parquet  everything, including review and abstract text
@@ -213,13 +213,13 @@ def demo():
 
     # Known coverage, from src/audit/metadata_coverage.py. These are the numbers a
     # summary table quotes, so a join that quietly halves one should fail here.
-    checks = {"openalex_citations": 0.963, "n_author_records": 0.715,
+    checks = {"s2_citations": 0.963, "n_author_records": 0.715,
               "institutions": 0.395}
     for col, want in checks.items():
         got = float(cover.loc[cover.column == col, "coverage"].iloc[0])
         assert abs(got - want) < 0.01, f"{col} coverage {got:.3f}, expected ~{want}"
 
-    diff = float(cover.loc[cover.column == "openalex_citations", "differential_pp"].iloc[0])
+    diff = float(cover.loc[cover.column == "s2_citations", "differential_pp"].iloc[0])
     assert abs(diff - 3.9) < 0.5, f"citation coverage differential {diff:.1f}pp, expected ~3.9"
 
     # The point of the S2 pull: a field label whose coverage does not depend on the
@@ -235,7 +235,7 @@ def demo():
     # be introducing a selection axis rather than passing one through.
     if "s2_primary_field" in d:
         row = cover[cover.column == "s2_primary_field"].iloc[0]
-        cite = float(cover.loc[cover.column == "openalex_citations",
+        cite = float(cover.loc[cover.column == "s2_citations",
                                "differential_pp"].iloc[0])
         assert row.coverage > 0.95, f"s2 field coverage only {row.coverage:.1%}"
         assert abs(row.differential_pp) <= abs(cite) + 0.1, (

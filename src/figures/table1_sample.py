@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from figures import spec, figstyle as fs  # noqa: E402
 
 OUT_CSV = "outputs/figures/table1_sample.csv"
+TITLE = "Sample and citation coverage by year and decision"
 OUT_TEX = "outputs/figures/table1_sample.tex"
 OUT_PDF = "outputs/figures/table1_sample.pdf"
 OUT_PNG = "outputs/figures/table1_sample.png"
@@ -115,6 +116,7 @@ def render(t):
         colw=[0.8, 1.0, 0.9, 0.9, 0.95, 0.95, 1.0, 1.0, 0.85],
         rules=(len(body) - 1,),        # rule above the pooled row
         note="Outcome: Semantic Scholar citations by title + author matching.")
+    fs.add_title(fig, TITLE)
     fig.savefig(OUT_PDF)
     fig.savefig(OUT_PNG, dpi=220)
     plt.close(fig)

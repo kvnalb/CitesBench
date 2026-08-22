@@ -19,6 +19,6 @@ def random_baseline(pool_df: pd.DataFrame, n: int, mode: str = "raw") -> dict:
 
 
 def ideal_baseline(pool_df: pd.DataFrame, n: int, mode: str = "raw") -> dict:
-    col = "openalex_citations" if mode == "raw" else "citation_pct_rank"
+    col = "s2_citations" if mode == "raw" else "citation_pct_rank"
     top_n = pool_df.dropna(subset=[col]).nlargest(n, col)["paper_id"].tolist()
     return compute_metrics(top_n, pool_df, mode)

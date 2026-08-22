@@ -727,12 +727,12 @@ def audit_join(sub, rev):
                  "python src/build/build_eval_table.py   # then diff against the committed file")
 
     # --- citation column integrity
-    if "openalex_citations" in ev:
-        n = ev["openalex_citations"].notna().sum()
-        note(S, "openalex_citations coverage", pct(n, len(ev)))
+    if "s2_citations" in ev:
+        n = ev["s2_citations"].notna().sum()
+        note(S, "s2_citations coverage", pct(n, len(ev)))
         if n < 0.9 * len(ev):
             flag(S, "major", "A third of the corpus has no citation outcome",
-                 f"{len(ev) - n:,} of {len(ev):,} papers have NaN openalex_citations. metrics.py "
+                 f"{len(ev) - n:,} of {len(ev):,} papers have NaN s2_citations. metrics.py "
                  "drops NaNs from the selected set but computes the top-k denominator from "
                  "`quality.dropna()`, so recall@k is measured against the matched subset while "
                  "regimes select from the full pool. Coverage differences between regimes therefore "
@@ -744,7 +744,7 @@ def audit_join(sub, rev):
         n = ev["citation_pct_rank"].notna().sum()
         note(S, "citation_pct_rank coverage", pct(n, len(ev)))
         if "field" in ev:
-            both = ev[ev["field"].notna() & ev["openalex_citations"].notna()]
+            both = ev[ev["field"].notna() & ev["s2_citations"].notna()]
             if n < len(both):
                 flag(S, "minor", "citation_pct_rank missing for papers that have the inputs",
                      f"{len(both) - n:,} papers have both a field and a citation count but no "

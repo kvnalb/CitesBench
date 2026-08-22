@@ -39,6 +39,7 @@ import table2_regression as t2             # noqa: E402
 DRAWS_CSV = t2.DRAWS_CSV
 TABLE2_CSV = t2.OUT_CSV
 OUT_PDF = "outputs/figures/fig4_contrast_scatter.pdf"
+TITLE = "Paired bootstrap draws: council and single call against the area chairs"
 OUT_PNG = "outputs/figures/fig4_contrast_scatter.png"
 OUT_CSV = "outputs/figures/fig4_contrast_scatter.csv"
 
@@ -104,6 +105,7 @@ def build():
     res.to_csv(OUT_CSV, index=False)
 
     fs.frame(fig, top_in=0.10, bottom_in=0.45, left=0.11, right=0.99, wspace=0.28)
+    fs.add_title(fig, TITLE)
     fig.savefig(OUT_PDF)
     fig.savefig(OUT_PNG, dpi=200)
     plt.close(fig)

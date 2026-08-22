@@ -55,8 +55,8 @@ def main():
     ev = pd.read_csv("outputs/eval_table.csv")
     # raw within-year citation percentile — matches the prompt's "top 10% of its
     # year" and covers papers the field-normalized citation_pct_rank misses
-    ev["cite_year_pct_rank"] = ev.groupby("year")["openalex_citations"].rank(pct=True)
-    df = fame.merge(ev[["paper_id", "title", "openalex_citations", "cite_year_pct_rank"]],
+    ev["cite_year_pct_rank"] = ev.groupby("year")["s2_citations"].rank(pct=True)
+    df = fame.merge(ev[["paper_id", "title", "s2_citations", "cite_year_pct_rank"]],
                     on="paper_id")
 
     rng = np.random.default_rng(42)
@@ -93,7 +93,7 @@ def main():
                     "paper_id": row.paper_id,
                     "title": row.title,
                     "year": int(row.year),
-                    "citations": None if pd.isna(row.openalex_citations) else int(row.openalex_citations),
+                    "citations": None if pd.isna(row.s2_citations) else int(row.s2_citations),
                     "citation_pct_rank": None if pd.isna(row.citation_pct_rank) else round(float(row.citation_pct_rank), 4),
                     "cite_year_pct_rank": None if pd.isna(row.cite_year_pct_rank) else round(float(row.cite_year_pct_rank), 4),
                     "is_top_decile": None if pd.isna(row.cite_year_pct_rank) else bool(row.cite_year_pct_rank >= 0.9),

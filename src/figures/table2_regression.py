@@ -44,6 +44,7 @@ from figures import spec, figstyle as fs  # noqa: E402
 
 EVAL_TABLE = spec.EVAL_TABLE
 OUT_CSV = "outputs/figures/table2_regression.csv"
+TITLE = "Regime comparison on log citations, with bootstrap intervals"
 OUT_PDF = "outputs/figures/table2_regression.pdf"
 OUT_PNG = "outputs/figures/table2_regression.png"
 DRAWS_CSV = "outputs/figures/table2_bootstrap_draws.csv"
@@ -207,6 +208,7 @@ def build(refresh=False):
         rules=(len(t) - 1,),           # rule above the contrast row
         note=f"Dependent variable log(1+citations), year FE, {N_BOOT} stratified "
              "bootstrap draws that re-run selection.")
+    fs.add_title(fig, TITLE)
     fig.savefig(OUT_PDF)
     fig.savefig(OUT_PNG, dpi=220)
     plt.close(fig)
