@@ -326,7 +326,7 @@ _shared modules imported by the above_
 | `data/summary.json` | **ORPHAN — read but never written here** | `src/app/provenance_tab.py` |
 | `outputs/ai_vs_human_2025.pdf` | `src/analysis/plot_ai_vs_human_2025.py` | — |
 | `outputs/ai_vs_human_2025.png` | `src/analysis/plot_ai_vs_human_2025.py` | `src/app/era_comparison_tab.py` |
-| `outputs/all_paper_results_consistent_gptoss20b.csv` | `src/build/build_consistent_decision_head.py` | `src/analysis/replicate_old_slides.py`, `src/build/build_eval_table.py` |
+| `outputs/all_paper_results_consistent_gptoss20b.csv` | `src/build/build_consistent_decision_head.py` | `src/analysis/replicate_old_slides.py`, `src/app/provenance_tab.py`, `src/build/build_eval_table.py` |
 | `outputs/arxiv_dump_download.log` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/arxiv_fuzzy.log` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/arxiv_fuzzy_candidates.csv` | `src/fetch/resolve_arxiv_fuzzy.py` | `src/app/provenance_tab.py`, `src/fetch/fetch_citations_s2_v2.py` |
@@ -346,7 +346,7 @@ _shared modules imported by the above_
 | `outputs/breakthrough_top_decile.png` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py` |
 | `outputs/citation_source_comparison.csv` | `src/analysis/compare_citation_sources.py` | `src/app/provenance_tab.py` |
 | `outputs/citation_source_comparison.md` | `src/analysis/compare_citation_sources.py` | `src/app/provenance_tab.py`, `src/audit/data_audit.py` |
-| `outputs/citations.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/dashboard.py`, `src/build/build_citations.py`, `src/build/build_eval_table.py`, `src/figures/spec.py` |
+| `outputs/citations.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/dashboard.py`, `src/app/provenance_tab.py`, `src/build/build_citations.py`, `src/build/build_eval_table.py`, `src/figures/spec.py` |
 | `outputs/cite_hist.png` | `src/analysis/cite_hist.py` | `src/app/provenance_tab.py` |
 | `outputs/committee_ratings_2025.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/analysis/compare_eras.py`, `src/build/build_committee_ratings_2025.py` |
 | `outputs/data_audit.html` | `src/audit/data_audit.py` | `src/app/provenance_tab.py` |
@@ -522,7 +522,7 @@ _shared modules imported by the above_
 | `outputs/single_call_epprobe_thedatainnovati-6e25_gemma-2025_traces.jsonl` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | — |
 | `outputs/single_call_eptest_thedatainnovati-6e25_gemma-2025.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | — |
 | `outputs/single_call_eptest_thedatainnovati-6e25_gemma-2025_traces.jsonl` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | — |
-| `outputs/single_call_iclr1820_gemma.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/build/build_eval_table.py` |
+| `outputs/single_call_iclr1820_gemma.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | `src/app/provenance_tab.py`, `src/build/build_eval_table.py` |
 | `outputs/single_call_iclr1820_gemma_traces.jsonl` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | — |
 | `outputs/single_call_iclr1820_thedatainnovati-6e25_gemma-2025.csv` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | — |
 | `outputs/single_call_iclr1820_thedatainnovati-6e25_gemma-2025_traces.jsonl` | `src/probes/run_oos_probes.py` (via pattern `outputs/{f}`) | — |

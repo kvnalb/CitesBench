@@ -216,8 +216,9 @@ st.sidebar.caption(
     f"**Ground truth:** `outputs/citations.csv` → `eval_table.csv`.  \n"
     f"Source `{_src}`. Matched {_cov:,}/{len(eval_table):,} ({_cov/len(eval_table):.1%}) — "
     f"tier A {_tiers.get('A', 0):,} (arXiv/DOI id), tier B {_tiers.get('B', 0):,} "
-    f"(title ≥0.95 + year window + shared author). Unmatched papers are dropped, "
-    f"never imputed as zero.  \n"
+    f"(title ≥0.95 + year window + shared author). "
+    + ("Unmatched citations are imputed as zero.  \n" if impute_zeros else
+       "Unmatched citations are excluded from citation metrics.  \n") +
     "Coverage by decision is 98.9% accepted vs 95.0% rejected — a 3.9 pp differential, "
     "against 26.3 pp under OpenAlex. That gap is why this is the outcome variable; the "
     "residual 3.9 pp is real and belongs in the robustness table."
@@ -270,7 +271,9 @@ st.markdown("")
 
 st.markdown('<p class="section-header">Section 1 — Performance by Metric</p>', unsafe_allow_html=True)
 st.markdown('<p class="explainer">Select a metric to compare regimes. '
-            'Bars show % of ideal gap closed (higher = better, 100% = ideal); '
+            + ('Bars show % of ideal gap remaining (lower = better, 0% = ideal); '
+               if show_drawdown else
+               'Bars show % of ideal gap closed (higher = better, 100% = ideal); ') +
             'raw values shown in parentheses. '
             'The dashed line is random selection; the dotted line is the theoretical ceiling '
             '(top-N papers by citations). Full per-metric table below.</p>',
@@ -417,6 +420,8 @@ st.markdown('<p class="explainer">'
             'diamonds AC missed.</p>', unsafe_allow_html=True)
 
 def cm_stats(selected, ground_truth, all_ids):
+    selected = selected & all_ids
+    ground_truth = ground_truth & all_ids
     tp = len(selected & ground_truth)
     fp = len(selected - ground_truth)
     fn = len(ground_truth - selected)
@@ -481,10 +486,12 @@ def cm_figure(stats, title, gt_label):
     return fig
 
 all_ids = set(pool_df["paper_id"])
-cm_ideal = cm_stats(regime_ids, ideal_ids, all_ids)
+citation_ids = set(pool_df.loc[pool_df["s2_citations"].notna(), "paper_id"])
+cm_ideal = cm_stats(regime_ids, ideal_ids, citation_ids)
 cm_ac    = cm_stats(regime_ids, ac_ids,    all_ids)
 
 col1, col2 = st.columns(2)
+col1.caption(f"Citation outcomes available for {len(citation_ids):,} of {len(all_ids):,} submissions.")
 col1.plotly_chart(cm_figure(cm_ideal, "vs Citation Ideal (top-N by citations)", "citation ideal"),
                   use_container_width=True)
 col2.plotly_chart(cm_figure(cm_ac, "vs AC Decisions (human ground truth)", "AC decisions"),
@@ -849,7 +856,7 @@ else:
     def _field_recall(years_tuple, mode_key, impute, excl):
         rows = []
         _regs = [LLMCommittee(), HumanActual(), HumanScore()]
-        et_sub = _et(src)
+        et_sub = _et()
         for field in et_sub["field"].dropna().unique():
             for yr in years_tuple:
                 pf = prepare_pool(yr, mode_key, impute, excl)
