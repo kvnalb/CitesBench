@@ -6,7 +6,7 @@ parser that records HOW it read the JSON. A refusal, a truncation, or a malforme
 object is evidence about the model and must reach the trace file, not vanish inside
 an exception handler.
 
-Used by src/probes/qualitative_check.py and src/probes/run_review_eval.py.
+Used by src/probes/run_review_eval.py (and the archived Archive/src_2026-09/probes/qualitative_check.py).
 """
 import os
 import re
