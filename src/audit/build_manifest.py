@@ -26,6 +26,7 @@ GROUPS = {
     "probes": "sends prompts to a model (leakage / recall / review probes)",
     "analysis": "reads tables, computes results, writes reports and figures",
     "figures": "builds the paper's figures and tables, plus the shared chart style",
+    "figures/new-figures": "builds sample distributions and three-regime comparisons",
     "app": "the Streamlit dashboard and its pages",
     "audit": "checks the repo itself: data quality, prompts, provenance",
     ".": "shared modules imported by the above",

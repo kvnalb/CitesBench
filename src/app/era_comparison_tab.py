@@ -96,19 +96,20 @@ def render():
     st.dataframe(show.style.format(precision=3), use_container_width=True)
     st.caption(
         f"n = {int(m['n'].iloc[0]):,} papers. Effect and NB standard errors are "
-        "clustered by field — earlier unclustered numbers in this repo read as "
-        "optimistic. AUC 0.5 and Recall@10% of 10% are the no-skill baselines."
+        "clustered by field. The historical sample has only six field groups, so these "
+        "standard errors can be unreliable. Consult the saved HC1 and pairs-bootstrap "
+        "checks for the pooled interaction. AUC 0.5 and Recall@10% of 10% are the no-skill baselines."
     )
 
     # ------------------------------------------------------------ the headline
     st.subheader("Does the committee's edge over humans survive into 2025?")
     st.markdown(
-        "Within an era the LLM and the humans are scored against the **identical** "
-        "outcome, so the citation window cancels in the within-era difference. "
-        "Comparing that difference across eras isolates what only the LLM could "
-        "have had — having seen the papers. Below: the share of its 2018–2020 "
-        "advantage that survives, which is unitless and so comparable across "
-        "measures. **1.0 means no erosion.**"
+        "Both eras contain accepted papers only, with tier A citation matches. "
+        "The comparison describes how the LLM advantage changes across cohorts. "
+        "Citation age, sample coverage, model configuration and cohort composition can "
+        "also change; the comparison does not isolate memorisation. Below is the "
+        "2025 advantage divided by the historical advantage for each metric. "
+        "**1.0 means the same measured advantage.**"
     )
     control = st.selectbox("Control group", sorted(h["control"].unique()))
     hc = h[h["control"] == control].set_index("metric_name")

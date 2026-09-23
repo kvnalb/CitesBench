@@ -124,6 +124,10 @@ if os.path.exists(CITATIONS_CSV) and \
         "```bash\npython src/build/build_eval_table.py\n```")
 
 _src, _tiers, _cov = _provenance(eval_table)
+_accepted = eval_table["decision"].str.startswith("Accept", na=False)
+_coverage_acc = eval_table.loc[_accepted, "s2_citations"].notna().mean()
+_coverage_rej = eval_table.loc[~_accepted, "s2_citations"].notna().mean()
+_coverage_gap = 100 * (_coverage_acc - _coverage_rej)
 
 BASELINE_CACHE = _abs("outputs/baselines_cache.csv")
 
@@ -206,10 +210,10 @@ impute_zeros = st.sidebar.checkbox("Impute 0 citations for unmatched papers", va
          "find is not a paper with no citations.")
 show_drawdown = st.sidebar.checkbox("Show drawdown from ideal", value=False,
     help="Off: % of gap closed (higher = better). On: % left on table vs ideal (lower = better).")
-exclude_top_decile = st.sidebar.checkbox("Exclude top-10% by citations (leakage-robust)", value=False,
+exclude_top_decile = st.sidebar.checkbox("Exclude top-10% by citations (sensitivity check)", value=False,
     help="Removes the top citation decile per year and adjusts N. "
          "LLMs may recognise famous papers from training data — stripping them tests whether "
-         "the signal survives without memorisation of high-impact work.")
+         "the signal survives after excluding highly cited work. This does not rule out memorisation.")
 
 st.sidebar.markdown("---")
 st.sidebar.caption(
@@ -219,18 +223,17 @@ st.sidebar.caption(
     f"(title ≥0.95 + year window + shared author). "
     + ("Unmatched citations are imputed as zero.  \n" if impute_zeros else
        "Unmatched citations are excluded from citation metrics.  \n") +
-    "Coverage by decision is 98.9% accepted vs 95.0% rejected — a 3.9 pp differential, "
-    "against 26.3 pp under OpenAlex. That gap is why this is the outcome variable; the "
-    "residual 3.9 pp is real and belongs in the robustness table."
+    f"Citation coverage is {_coverage_acc:.1%} accepted vs {_coverage_rej:.1%} rejected "
+    f"({_coverage_gap:.1f} percentage points). Coverage is measured before optional imputation."
 )
 st.sidebar.markdown("---")
+_heads = eval_table["decision_head_model"].dropna().value_counts()
 st.sidebar.caption(
-    "ℹ️ **LLM regimes** use a two-stage pipeline: Gemma-4-31B committee (4 reviewer "
-    "personas) → decision head. Borderline papers (n=2,361, ratings 4–7) used a "
-    "fine-tuned Gemma + DeepSeek V3.1; remaining papers used base Gemma + GPT-oss-20b. "
-    "Base model scores are less calibrated (r=0.10 vs r=0.26 with human ratings). "
-    "Results reflect a mixed-model pipeline and should be interpreted accordingly."
+    "**LLM regimes:** committee ratings and decision-head probabilities are separate "
+    "selectors. Decision heads in the loaded data: "
+    + "; ".join(f"{model}: {count:,}" for model, count in _heads.items()) + "."
 )
+
 
 # ── Regime list ───────────────────────────────────────────────────────────────
 all_regimes = [HumanActual(), HumanScore(), HumanDisagree(lam),
@@ -264,9 +267,29 @@ metrics   = [m for m in METRIC_LABELS if m in dff["metric"].unique()]
 # SECTION 1 — OVERVIEW
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("# CitesBench — Reviewer Regime Comparison")
-_mode_label = "Top-10% excluded (leakage-robust)" if exclude_top_decile else "Full citation pool"
+_mode_label = "Top-10% excluded (sensitivity check)" if exclude_top_decile else "Full citation pool"
 st.markdown(f"<span style='color:{SUBTEXT};font-size:15px'>ICLR 2018–2020  ·  "
             f"{selected_year}  ·  {_mode_label}</span>", unsafe_allow_html=True)
+st.caption(
+    "Exploratory live comparisons use one tie ordering and include additional selectors. "
+    "All-years metrics average the three annual results equally. The paper headline "
+    "below averages 200 random tie orderings and includes the single-call baseline. "
+    "Use that snapshot when quoting the paper; the two displays need not match."
+)
+with st.expander("Paper headline: saved exhibit values"):
+    headline_path = _abs("outputs/figures/fig2_headline.csv")
+    if os.path.exists(headline_path):
+        headline = pd.read_csv(headline_path)
+        st.dataframe(headline[["regime", "metric", "value", "tie_lo", "tie_hi",
+                               "share_tie_broken"]], hide_index=True)
+        st.caption("Frozen paper exhibit; sidebar controls do not change these values. "
+                   "tie_lo/tie_hi are the observed range over 200 tie orderings, "
+                   "not sampling confidence intervals or exhaustive bounds.")
+        if os.path.getmtime(EVAL_TABLE) > os.path.getmtime(headline_path):
+            st.warning("The evaluation data is newer than this saved headline. "
+                       "Revalidate the exhibit before quoting it.")
+    else:
+        st.info("The paper headline exhibit has not been generated.")
 st.markdown("")
 
 st.markdown('<p class="section-header">Section 1 — Performance by Metric</p>', unsafe_allow_html=True)
