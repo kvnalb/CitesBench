@@ -164,7 +164,7 @@ def main():
         sub = df.dropna(subset=[col])
         if col in ("top_institution_flag", "industry_flag", "us_team_flag"):
             sub = sub.copy()
-            sub[col] = sub[col].astype(str)
+            sub[col] = sub[col].astype(int).astype(str)   # flags are float once blanks exist
         result = interaction_reg(sub, col)
         if not result.empty:
             lines.append(f"### {col}\n")

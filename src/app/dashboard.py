@@ -691,16 +691,17 @@ else:
     # ── 3a. COVERAGE TABLE ────────────────────────────────────────────────────
     st.markdown("#### 3a. Covariate Coverage")
     st.markdown('<p class="explainer">'
-                'Covariate data comes from OpenAlex author profiles. '
-                '28.5% of papers have no author match (likely lower-tier venues with fewer indexed authors). '
-                'These papers have a much lower acceptance rate (12.9%) vs matched papers (42%), '
-                'so coverage is <b>non-random</b> — estimates for author-flag covariates apply to '
-                'a higher-quality slice of the pool.</p>', unsafe_allow_html=True)
+                'Team size and h-index come from Semantic Scholar, which covers 98.6% of accepted '
+                'and 95.8% of rejected papers. The institution flags come from OpenAlex, which '
+                'matches 89.0% of accepted but only 62.7% of rejected papers, so coverage is '
+                '<b>non-random</b>: estimates for the flags apply to a higher-quality slice of the '
+                'pool. h-index and institutions are as of 2026, after the decision.</p>',
+                unsafe_allow_html=True)
 
     cov_rows = [
         {"Covariate": "Any author data",       "N with data": n_matched,
          "% covered": f"{n_matched/total_papers:.1%}",
-         "Note": "Missing = no OpenAlex author match; acceptance rate 12.9% vs 42% for matched"},
+         "Note": "OpenAlex author match; drives the three flags below"},
         {"Covariate": "top_institution_flag",  "N with data": n_matched,
          "% covered": f"{n_matched/total_papers:.1%}",
          "Note": "Imputed 0 when institution name missing (30% of matched authors)"},
@@ -712,10 +713,10 @@ else:
          "Note": "Imputed 0 when country missing (~30% of matched authors)"},
         {"Covariate": "max_h_index",           "N with data": int(_het_df["max_h_index"].notna().sum()),
          "% covered": f"{_het_df['max_h_index'].notna().mean():.1%}",
-         "Note": "h_index missing for some authors in OpenAlex"},
-        {"Covariate": "team_size",             "N with data": n_matched,
-         "% covered": f"{n_matched/total_papers:.1%}",
-         "Note": "Count of authors on the OpenReview submission"},
+         "Note": "Semantic Scholar, read in 2026 (post-decision)"},
+        {"Covariate": "team_size",             "N with data": int(_het_df["team_size"].notna().sum()),
+         "% covered": f"{_het_df['team_size'].notna().mean():.1%}",
+         "Note": "Semantic Scholar author count"},
     ]
     st.dataframe(pd.DataFrame(cov_rows), use_container_width=True, hide_index=True)
 
