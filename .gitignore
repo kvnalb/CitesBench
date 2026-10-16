@@ -28,12 +28,11 @@ Thumbs.db
 processed/
 truncated.txt
 .gstack/
+MANIFEST.md
 
 # Data and generated outputs (see CLAUDE.md: read-only inputs / generated outputs)
 data/
 outputs/
 output/
 OpenAlex.txt
-docs/slides.pdf
-docs/notes/
-docs/paper/
+docs/

@@ -25,10 +25,15 @@ Outputs land in `outputs/`.
 
 ## Where things are
 
-See [MANIFEST.md](MANIFEST.md) — generated from the code, never hand-edited. It lists
-every script, what each one writes, and which script produced each file under
-`outputs/` and `data/`. That is the authoritative index; this README stays high-level
-on purpose.
+`MANIFEST.md` is the authoritative index. It lists every script, what each one writes,
+and which script produced each file under `outputs/` and `data/`. It is generated from
+the code and is not in git, so build it locally:
+
+```bash
+python src/audit/build_manifest.py
+```
+
+This README stays high-level on purpose.
 
 Directory conventions and the rules scripts follow live in [CLAUDE.md](CLAUDE.md).
 
