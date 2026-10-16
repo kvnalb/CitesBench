@@ -13,9 +13,9 @@ script under `src/` — scripts call `load("<path>", **placeholders)` from
 | `recall/abstract_completion.txt` | `leakage_abstract_completion_v1.py` | continue the abstract from its first sentence (verbatim-memorization probe) |
 | `review/iclr_review_calibrated.txt` | `leakage_masked_rereview.py --rubric calibrated` (default) | 5 dimensions on a 0-5 float scale + rationale, with anti-bias warnings and 5 few-shot examples; takes `{year}` |
 | `review/score_system.txt` | `leakage_masked_rereview.py --rubric simple` | single ICLR 1-10 quality score, JSON only |
-| `review/citation_prediction_system.txt` | `leakage_eval_v1.py` | predicted 5-year citation count, JSON only |
+| `review/citation_prediction_system.txt` | `leakage_eval_v1.py` (archived) | predicted 5-year citation count, JSON only |
 | `review/paraphrase_abstract.txt` | `leakage_masked_rereview.py` | rewrite an abstract, strip identifying names |
-| `review/title_abstract_body.txt` | `leakage_masked_rereview.py`, `leakage_eval_v1.py` | user message: title + abstract |
+| `review/title_abstract_body.txt` | `leakage_masked_rereview.py`, `leakage_eval_v1.py` (archived) | user message: title + abstract |
 | `review/abstract_only_body.txt` | `leakage_masked_rereview.py` | user message: masked abstract only |
 
 ## Conventions

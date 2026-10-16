@@ -13,7 +13,7 @@ Design:
   sample       stratified by decision_class x citation quartile, seeded, written once
                and reused so a rerun scores the same papers
   treatment    prompts/review/iclr_review_calibrated.txt, title + abstract only,
-               temperature 0 — identical to what src/probes/qualitative_check.py sends
+               temperature 0 — identical to what Archive/src_2026-09/probes/qualitative_check.py sent
   outcomes     Spearman rho of model rating vs (a) log1p citations, (b) human
                mean_rating; recall@top-decile; accept-vs-reject separation
 

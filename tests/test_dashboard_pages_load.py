@@ -19,7 +19,7 @@ import contextlib
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PAGES = ["pages/1_Provenance.py", "pages/2_Committee_Pipeline_Xray.py",
-         "pages/3_Era_Comparison.py"]
+         "pages/3_Era_Comparison.py", "pages/4_Venue_Premium_RDD.py", "pages/5_Leakage.py"]
 
 
 def main():
