@@ -107,7 +107,7 @@ abstracts = pd.read_sql("SELECT id, abstract FROM SUBMISSION", con)
 con.close()
 
 df = eval_df.merge(abstracts, left_on="paper_id", right_on="id", how="inner")
-df = df[df["citation_pct_rank"].notna() & df["openalex_citations"].notna()]
+df = df[df["citation_pct_rank"].notna() & df["s2_citations"].notna()]
 
 # ---------------------------------------------------------------------------
 # Build sample
@@ -197,7 +197,7 @@ CSV_COLS = [
 
 if args.dry_run:
     print("\nDry run — sample preview:")
-    print(sample[["paper_id", "year", "group", "openalex_citations", "citation_pct_rank", "title"]].to_string())
+    print(sample[["paper_id", "year", "group", "s2_citations", "citation_pct_rank", "title"]].to_string())
     sys.exit(0)
 
 for i, row in sample.iterrows():
@@ -210,7 +210,7 @@ for i, row in sample.iterrows():
         "paper_id": pid,
         "year": row["year"],
         "group": row["group"],
-        "actual_citations": row["openalex_citations"],
+        "actual_citations": row["s2_citations"],
         "citation_pct_rank": row["citation_pct_rank"],
         "predicted_citations": result["predicted_citations"],
         "rationale": result["rationale"],
@@ -225,7 +225,7 @@ for i, row in sample.iterrows():
             OUT_CSV, mode="a", header=write_header, index=False
         )
         done_ids.add(pid)
-        print(f"  {len(done_ids)}/{len(sample)}  paper={pid}  pred={result['predicted_citations']}  actual={int(row['openalex_citations'])}")
+        print(f"  {len(done_ids)}/{len(sample)}  paper={pid}  pred={result['predicted_citations']}  actual={int(row['s2_citations'])}")
 
 if args.smoke:
     print("Smoke done.")

@@ -26,7 +26,7 @@ import pandas as pd
 from scipy import stats
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import figstyle as fs
+from figures import figstyle as fs
 import compare_eras as ce
 
 OUT_PNG = "outputs/ai_vs_human_2025.png"
@@ -67,9 +67,10 @@ def boot_delta(a, b, cp, rng):
 def main(tier_a_only=False):
     d = load(tier_a_only)
     cp = d["cite_pct"].to_numpy()
-    series = [("LLM committee", d["rating"].to_numpy(), fs.BLUE),
-              ("Human reviewers", d["mean_rating"].to_numpy(), fs.ORANGE),
-              ("Area chair tier", d["ac_tier"].to_numpy(), fs.AQUA)]
+    # Same entity, same colour as the 2018-2020 exhibits (src/figures/spec.py):
+    series = [("LLM committee", d["rating"].to_numpy(), fs.VERMILLION),
+              ("Human reviewers", d["mean_rating"].to_numpy(), fs.REDDISHPURPLE),
+              ("Area chair tier", d["ac_tier"].to_numpy(), fs.BLUE)]
 
     fs.apply()
     fig, ax = plt.subplots(figsize=(10, 5.8))

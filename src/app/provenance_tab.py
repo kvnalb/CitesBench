@@ -279,7 +279,7 @@ ART = [
      [], "Slim RDD file read at `src/app/dashboard.py#L1042`. No writer anywhere in the repo."),
     ("output/citations_2018_2020.csv", "1 citations",
      "src/fetch/fetch_citations_openalex.py#L27-L29,L85-L89", [DB_PATH],
-     "OpenAlex ground truth. Path is `output/` (singular) — outside the CLAUDE.md convention."),
+     "Historical OpenAlex counts, not the current outcome. Path is `output/` (singular) — outside the CLAUDE.md convention."),
     ("output/papers_2018_2020.csv", "1 citations", None, [], "No producer anywhere in the repo."),
     ("output/reviews_2018_2020.csv", "1 citations", None, [], "No producer anywhere in the repo."),
     ("output/reviews_summary_2018_2020.csv", "1 citations", None, [],
@@ -303,9 +303,11 @@ ART = [
     ("outputs/paper_venues.csv", "1 citations", "src/fetch/fetch_author_stats.py#L32", [], ""),
     ("outputs/paper_author_covariates.csv", "4 join", "src/build/build_author_covariates.py#L122",
      ["outputs/author_stats.csv", "outputs/paper_author_ids.csv"], ""),
-    ("outputs/eval_table.csv", "4 join", "src/build/build_eval_table.py#L82",
-     [DB_PATH, "output/citations_2018_2020.csv", "outputs/paper_fields.csv"],
-     "The central study table. Holds two columns the builder cannot write — see defects."),
+    ("outputs/eval_table.csv", "4 join", "src/build/build_eval_table.py",
+     [DB_PATH, "outputs/citations.csv", "outputs/paper_fields.csv",
+      "outputs/all_paper_results_consistent_gptoss20b.csv",
+      "outputs/single_call_iclr1820_gemma.csv"],
+     "Central study table; one-to-one joins validated by paper ID."),
     ("outputs/eval_table_2024.csv", "4 join", "src/build/build_eval_table_year.py#L127",
      [DB_PATH, "outputs/arxiv_resolution.csv"], "Out-of-sample year, --year 2024."),
     ("outputs/eval_table_2025.csv", "4 join", "src/build/build_eval_table_year.py#L127",
@@ -435,77 +437,17 @@ STAGE_LABEL = {
 # ──────────────────────────────────────────────────────────────────────────────
 TOP_FLOW = """
 flowchart LR
-  subgraph EXT["External sources"]
-    OR["OpenReview<br/>(scrape)"]
-    OA["OpenAlex API"]
-    S2["Semantic Scholar API"]
-    TG["Together AI<br/>(Gemma / Llama / DeepSeek)"]
-    HF["HuggingFace<br/>arXiv metadata dump"]
-  end
-
-  subgraph RAW["Raw data (data/, read-only)"]
-    DB[("data/gen_review.db<br/>SUBMISSION / REVIEW / GENAI_REVIEW")]
-    APR["data/archive/all_paper_results.csv<br/>committee + decision head"]
-    OAX["data/OpenAlex/<br/>arXiv-OpenAlex match (Archive pipeline)"]
-  end
-
-  subgraph FETCH["Fetch / enrich"]
-    CIT["output/citations_2018_2020.csv<br/>OpenAlex counts"]
-    AXR["outputs/arxiv_resolution.csv<br/>+ arxiv_fuzzy_candidates.csv"]
-    S2F["outputs/s2_citations_full.csv<br/>outputs/s2_citations_v2.csv"]
-    AUT["outputs/author_stats.csv<br/>paper_venues.csv"]
-  end
-
-  subgraph ANN["Annotate (LLM labels)"]
-    FLD["outputs/paper_fields.csv"]
-    PRB["LAP / FAME / controls /<br/>masked / abstract-completion"]
-  end
-
-  ET["outputs/eval_table.csv<br/>THE study table"]
-  OOS["outputs/eval_table_2024.csv<br/>outputs/eval_table_2025.csv<br/>outputs/samples/ (frozen)"]
-
-  subgraph ANL["Analyse"]
-    DASH["src/app/dashboard.py<br/>(recomputes regimes live)"]
-    REP["reports: data_audit.md, fuzzy_rdd.md,<br/>hetero_analysis.md, oos_probe_report.md"]
-    STALE["outputs/eval_results.csv<br/>SUPERSEDED"]
-  end
-
-  OR --> DB
-  TG --> APR
-  OA --> OAX
-  OA --> CIT
-  HF --> AXR
-  S2 --> S2F
-  OA --> AUT
-  TG --> FLD
-  TG --> PRB
-
-  DB --> CIT
-  DB --> FLD
-  DB --> AXR
-  OAX --> S2F
-  AXR --> S2F
-  ET -.->|"circular: eval_table is an input<br/>to the S2 fetch that feeds it"| S2F
-
-  DB --> ET
-  CIT --> ET
-  FLD --> ET
-  APR -.->|"committee_rating, deepseek_p_accept<br/>NO SCRIPT PERFORMS THIS JOIN"| ET
-
-  DB --> OOS
-  AXR --> OOS
-  ET --> PRB
-  ET --> DASH
-  S2F --> DASH
-  AUT --> DASH
-  PRB --> REP
-  ET --> STALE
-  OOS --> REP
-
-  classDef gap fill:#FEF2F2,stroke:#DC2626,color:#7F1D1D;
-  classDef stale fill:#FFFBEB,stroke:#D97706,color:#78350F;
-  class APR,OAX gap;
-  class STALE stale;
+  DB[("data/gen_review.db")] --> BE["src/build/build_eval_table.py"]
+  S2["Semantic Scholar matches"] --> BC["src/build/build_citations.py"]
+  BC --> CIT["outputs/citations.csv: S2 tiers A/B"]
+  CIT --> BE
+  DH["outputs/all_paper_results_consistent_gptoss20b.csv"] --> BE
+  SC["outputs/single_call_iclr1820_gemma.csv"] --> BE
+  FLD["outputs/paper_fields.csv"] --> BE
+  BE --> ET["outputs/eval_table.csv"]
+  ET --> DASH["Dashboard: live regime evaluation"]
+  ET --> EVAL["src/analysis/run_eval.py"]
+  EVAL --> RESULTS["outputs/eval_results.csv"]
 """
 
 DIA_SOURCE = """
@@ -517,11 +459,10 @@ flowchart TB
 
   SUB --> W["Study window filter<br/>when_submitted IN (2018,2019,2020)<br/>src/build/build_eval_table.py#L22-L26"]
   REV --> AGG["Rating parse + aggregate<br/>str.extract('^(\\\\d+)') then groupby mean/std/count<br/>src/build/build_eval_table.py#L36-L43"]
-  GEN --> PIV["Pivot to llm_neutral/positive/negative_rating<br/>src/build/build_eval_table.py#L44-L51"]
+  GEN --> UNUSED["Excluded from the evaluation builder: unknown prompt/model provenance"]
 
   W --> ET["outputs/eval_table.csv"]
   AGG --> ET
-  PIV --> ET
 
   REV -.->|"9.3% of in-window rows carry a<br/>decision string, not a score<br/>(outputs/data_audit.md, finding 1)"| AGG
   classDef gap fill:#FEF2F2,stroke:#DC2626,color:#7F1D1D;
@@ -612,9 +553,10 @@ flowchart TB
 
   DBG["gen_review.db GENAI_REVIEW<br/>neutral / positive / negative personas"]
 
-  APR -.->|"join with no script"| ET["outputs/eval_table.csv"]
+  APR --> DH["Consistent decision-head rebuild"]
+  DH -->|"build_eval_table.py joins scores"| ET["outputs/eval_table.csv"]
   FLD --> ET
-  DBG --> ET
+  DBG --> UNUSED["Excluded from current evaluation"]
   ET --> LAP
   ET --> FAME
   LAP --> CTL
@@ -628,18 +570,14 @@ flowchart TB
 
 DIA_JOIN = """
 flowchart LR
-  DB[("gen_review.db")] -->|"SUBMISSION 2018-2020"| BE["src/build/build_eval_table.py"]
-  DB -->|"REVIEW (all years, then joined)"| BE
-  DB -->|"GENAI_REVIEW"| BE
-  CIT["output/citations_2018_2020.csv<br/>read at #L53 - singular output/"] --> BE
-  FLD["outputs/paper_fields.csv<br/>optional, #L57-L63"] --> BE
-  BE -->|"#L82 to_csv"| ET["outputs/eval_table.csv"]
-  BE -->|"#L75-L80 field x year rank(pct=True)"| ET
-  APR["data/archive/all_paper_results.csv"] -.->|"committee_rating<br/>deepseek_p_accept<br/>NO SCRIPT DOES THIS"| ET
-  ET --> DASH["src/app/dashboard.py<br/>recomputes all regimes live"]
-  ET --> RE["src/analysis/run_eval.py<br/>-> outputs/eval_results.csv (stale regimes)"]
-  classDef gap fill:#FEF2F2,stroke:#DC2626,color:#7F1D1D;
-  class APR gap;
+  DB[("gen_review.db")] -->|"SUBMISSION 2018-2020 and REVIEW aggregates"| BE["src/build/build_eval_table.py"]
+  CIT["outputs/citations.csv: S2 citations, source, tier"] --> BE
+  FLD["outputs/paper_fields.csv: optional field labels"] --> BE
+  DH["outputs/all_paper_results_consistent_gptoss20b.csv"] -->|"committee_rating, deepseek_p_accept, decision_head_model"| BE
+  SC["outputs/single_call_iclr1820_gemma.csv"] -->|"last successful rating per paper"| BE
+  BE -->|"one-to-one joins; field/year citation rank"| ET["outputs/eval_table.csv"]
+  ET --> DASH["Dashboard: live regimes"]
+  ET --> RE["src/analysis/run_eval.py"]
 """
 
 DIA_OOS = """
@@ -693,14 +631,11 @@ def _check_orphan_columns():
     orphans = [c for c in et if c not in src]
     apr = _csv_columns("data/archive/all_paper_results.csv") or []
     shared = [c for c in orphans if c in apr]
-    ev = (f"Columns on disk that never appear as a literal in the builder source: "
-          f"**{orphans or 'none'}**. Of those, present in `data/archive/all_paper_results.csv`: "
-          f"**{shared or 'none'}**. Re-running `python src/build/build_eval_table.py` writes "
-          f"`{len(et)}` columns minus these, silently breaking every regime and analysis "
-          f"that reads them.")
-    return ("blocker", "eval_table.csv holds columns build_eval_table.py cannot produce", ev,
-            ["src/build/build_eval_table.py#L82", "outputs/eval_table.csv",
-             "data/archive/all_paper_results.csv", "outputs/data_audit.md (finding 7)"])
+    ev = (f"Columns absent as literals from the builder source: **{orphans or 'none'}**. "
+          "This is a source-text heuristic, not a rebuild test. "
+          "The builder explicitly joins committee, decision-head and single-call scores.")
+    return ("major" if orphans else "info", "Evaluation column provenance check", ev,
+            ["src/build/build_eval_table.py", "outputs/eval_table.csv"])
 
 
 def _check_title_cached():
@@ -1091,25 +1026,17 @@ def render():
     st.markdown("#### The pipeline end to end")
     _mermaid(TOP_FLOW, 900)
     st.markdown(
-        "- **Red nodes are imported, not produced.** `data/gen_review.db`, "
-        "`data/archive/all_paper_results.csv` and `data/OpenAlex/` all arrive from outside this "
-        "repo; no script here creates or refreshes them. The OpenAlex match files can at "
-        "least be attributed to `Archive/CompletePipeline/design/"
-        "fetch_openalex_citations_from_arxiv_matches.py`, which writes them under different "
-        "paths (`rawdata/Design/OpenAlex/`) and is never invoked by anything in `src/`.\n"
-        "- **The dashed edge into `eval_table.csv` is the load-bearing gap.** "
-        "`committee_rating` and `deepseek_p_accept` are on disk and drive the LLM regimes, "
-        "the heterogeneity section and the exclusion eval — and no script performs that "
-        "join. Verified live below.\n"
-        "- **There is a genuine cycle.** `src/fetch/fetch_citations_s2_full.py#L67` reads "
-        "`outputs/eval_table.csv` to decide which papers to fetch, while the S2 counts it "
-        "writes are then read back by the dashboard alongside that same table. Rebuilding "
-        "in dependency order therefore requires two passes, and nothing enforces that.\n"
-        "- **`output/` (singular) is not a typo in this diagram.** The OpenAlex ground truth "
-        "genuinely lives there, outside the `CLAUDE.md` convention, and is an *input* to the "
-        "join.\n"
-        "- **`outputs/eval_results.csv` is a dead end** (amber). The dashboard never reads "
-        "it; it recomputes every regime live from `eval_table.csv`."
+        "- **Canonical citations:** `src/build/build_citations.py` produces "
+        "`outputs/citations.csv` from Semantic Scholar matches. The evaluation builder "
+        "reads these counts, source and tier; unmatched citations remain missing.\n"
+        "- **LLM scores are joined explicitly:** `src/build/build_eval_table.py` reads "
+        "`outputs/all_paper_results_consistent_gptoss20b.csv` and the single-call baseline. "
+        "It validates one-to-one joins by paper ID.\n"
+        "- **Historical OpenAlex files are not the current citation outcome.** "
+        "The stage tabs also document older inputs and runs.\n"
+        "- **Dashboard results are computed live.** It currently also loads "
+        "`outputs/eval_results.csv` at startup, although displayed regime metrics "
+        "are recomputed from `eval_table.csv`."
     )
 
     st.markdown("---")
@@ -1217,16 +1144,13 @@ def render():
     with stage_tabs[3]:
         _mermaid(DIA_LLM, 780)
         st.markdown(
-            "- **Two unrelated LLM annotation sources are easy to confuse.** "
-            "`GENAI_REVIEW` inside the DB (neutral/positive/negative personas → the "
-            "`llm_*_rating` columns) is *not* the committee run; the committee and "
-            "decision-head outputs live in `data/archive/all_paper_results.csv` and were produced "
-            "outside this repo.\n"
-            "- **The decision head is two different models.** Per `outputs/data_audit.md` "
-            "(Stage 2 statistics), `decision_head_model` is `DeepSeek-V3.1` on 2,361 papers "
-            "and `gpt-oss-20b` on 2,136 — disjoint halves pooled into one regime. Any "
-            "\"committee beats decision head\" claim could be \"one of two models "
-            "underperforms\".\n"
+            "- **The current builder excludes `GENAI_REVIEW`.** Its imported persona "
+            "ratings lack prompt/model provenance. Committee and decision-head scores "
+            "come from `outputs/all_paper_results_consistent_gptoss20b.csv`; single-call "
+            "ratings come from `outputs/single_call_iclr1820_gemma.csv`.\n"
+            "- **Historical runs used mixed decision heads.** The current table uses "
+            "the consistent decision-head rebuild; inspect `decision_head_model` in "
+            "that table for the models actually evaluated.\n"
             "- **Field tags are LLM-generated and unvalidated**, and coverage collapses in "
             "2020: `outputs/data_audit.md` Stage 2 reports field coverage by year as "
             "`{2018: '100%', 2019: '100%', 2020: '17%'}`. Since `citation_pct_rank` is "
@@ -1248,18 +1172,17 @@ def render():
     with stage_tabs[4]:
         _mermaid(DIA_JOIN, 520)
         st.markdown(
-            "- `src/build/build_eval_table.py` is 91 lines and does the whole join: DB window "
-            "filter, review-rating parse and aggregate, `GENAI_REVIEW` pivot, OpenAlex "
-            "counts, field tags, then field×year percentile rank.\n"
-            "- **Citations are nulled unless OpenAlex reported `status == 'found'`** "
-            "(#L72-L73), which is why `openalex_citations` coverage is well below 100%.\n"
-            "- **`citation_pct_rank` is computed inside field×year cells** (#L75-L80). With "
-            "field coverage at 17% for 2020, many cells are tiny, and a percentile rank "
-            "inside a small cell is close to meaningless.\n"
-            "- **`rating_std` is `fillna(0)` for single-review papers** (#L42-L43) — "
-            "treating \"one reviewer\" as \"perfect agreement\". That feeds the "
-            "disagreement-adjusted regime directly.\n"
-            "- **The builder is not reproducible.** See the first defect below."
+            "- `src/build/build_eval_table.py` joins submissions, human review aggregates, "
+            "canonical S2 citations, field tags, committee/decision-head scores and "
+            "single-call ratings. It deliberately excludes `GENAI_REVIEW`.\n"
+            "- **Unmatched citations remain missing.** The builder reads "
+            "`outputs/citations.csv`; it does not use historical OpenAlex counts.\n"
+            "- **`citation_pct_rank` is computed within field × year cells** for papers "
+            "with known citations and field labels. Headline dashboard metrics use raw citations.\n"
+            "- **Single-review `rating_std` is filled with zero.** This convention feeds "
+            "the disagreement-adjusted regime.\n"
+            "- **Joins validate one row per paper.** Missing optional score inputs produce "
+            "a warning and empty score columns; rebuilding requires those inputs for LLM evaluation."
         )
         cols = _csv_columns("outputs/eval_table.csv")
         if cols:

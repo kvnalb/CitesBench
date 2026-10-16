@@ -27,7 +27,7 @@ from regimes.human_score import HumanScore
 
 os.makedirs("outputs", exist_ok=True)
 
-OUTCOME = "openalex_citations"
+OUTCOME = "s2_citations"
 SCORE = "committee_rating"
 
 

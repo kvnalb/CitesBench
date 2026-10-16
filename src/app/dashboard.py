@@ -100,7 +100,7 @@ def _provenance(et):
     src = et["citation_source"].dropna()
     src = src.iloc[0] if len(src) else "unknown"
     tiers = et["citation_tier"].value_counts().to_dict()
-    n = int(et["openalex_citations"].notna().sum())
+    n = int(et["s2_citations"].notna().sum())
     return src, tiers, n
 
 
@@ -124,6 +124,10 @@ if os.path.exists(CITATIONS_CSV) and \
         "```bash\npython src/build/build_eval_table.py\n```")
 
 _src, _tiers, _cov = _provenance(eval_table)
+_accepted = eval_table["decision"].str.startswith("Accept", na=False)
+_coverage_acc = eval_table.loc[_accepted, "s2_citations"].notna().mean()
+_coverage_rej = eval_table.loc[~_accepted, "s2_citations"].notna().mean()
+_coverage_gap = 100 * (_coverage_acc - _coverage_rej)
 
 BASELINE_CACHE = _abs("outputs/baselines_cache.csv")
 
@@ -140,15 +144,15 @@ def prepare_pool(year, mode, impute_zeros, exclude_top_decile=False):
     et = _et()
     pool = et[et["year"] == year].copy()
     if impute_zeros:
-        pool["openalex_citations"] = pool["openalex_citations"].fillna(0)
+        pool["s2_citations"] = pool["s2_citations"].fillna(0)
         for field, grp in pool.groupby("field"):
-            mask = pool["field"].eq(field) & pool["openalex_citations"].notna()
-            pool.loc[mask, "citation_pct_rank"] = pool.loc[mask, "openalex_citations"].rank(pct=True)
+            mask = pool["field"].eq(field) & pool["s2_citations"].notna()
+            pool.loc[mask, "citation_pct_rank"] = pool.loc[mask, "s2_citations"].rank(pct=True)
     if exclude_top_decile:
-        known = pool.dropna(subset=["openalex_citations"])
+        known = pool.dropna(subset=["s2_citations"])
         if not known.empty:
-            cut = known["openalex_citations"].quantile(0.90)
-            pool = pool[pool["openalex_citations"].isna() | (pool["openalex_citations"] <= cut)].copy()
+            cut = known["s2_citations"].quantile(0.90)
+            pool = pool[pool["s2_citations"].isna() | (pool["s2_citations"] <= cut)].copy()
     return pool
 
 @st.cache_data
@@ -206,30 +210,30 @@ impute_zeros = st.sidebar.checkbox("Impute 0 citations for unmatched papers", va
          "find is not a paper with no citations.")
 show_drawdown = st.sidebar.checkbox("Show drawdown from ideal", value=False,
     help="Off: % of gap closed (higher = better). On: % left on table vs ideal (lower = better).")
-exclude_top_decile = st.sidebar.checkbox("Exclude top-10% by citations (leakage-robust)", value=False,
+exclude_top_decile = st.sidebar.checkbox("Exclude top-10% by citations (sensitivity check)", value=False,
     help="Removes the top citation decile per year and adjusts N. "
          "LLMs may recognise famous papers from training data — stripping them tests whether "
-         "the signal survives without memorisation of high-impact work.")
+         "the signal survives after excluding highly cited work. This does not rule out memorisation.")
 
 st.sidebar.markdown("---")
 st.sidebar.caption(
     f"**Ground truth:** `outputs/citations.csv` → `eval_table.csv`.  \n"
     f"Source `{_src}`. Matched {_cov:,}/{len(eval_table):,} ({_cov/len(eval_table):.1%}) — "
     f"tier A {_tiers.get('A', 0):,} (arXiv/DOI id), tier B {_tiers.get('B', 0):,} "
-    f"(title ≥0.95 + year window + shared author). Unmatched papers are dropped, "
-    f"never imputed as zero.  \n"
-    "Coverage by decision is 98.9% accepted vs 95.0% rejected — a 3.9 pp differential, "
-    "against 26.3 pp under OpenAlex. That gap is why this is the outcome variable; the "
-    "residual 3.9 pp is real and belongs in the robustness table."
+    f"(title ≥0.95 + year window + shared author). "
+    + ("Unmatched citations are imputed as zero.  \n" if impute_zeros else
+       "Unmatched citations are excluded from citation metrics.  \n") +
+    f"Citation coverage is {_coverage_acc:.1%} accepted vs {_coverage_rej:.1%} rejected "
+    f"({_coverage_gap:.1f} percentage points). Coverage is measured before optional imputation."
 )
 st.sidebar.markdown("---")
+_heads = eval_table["decision_head_model"].dropna().value_counts()
 st.sidebar.caption(
-    "ℹ️ **LLM regimes** use a two-stage pipeline: Gemma-4-31B committee (4 reviewer "
-    "personas) → decision head. Borderline papers (n=2,361, ratings 4–7) used a "
-    "fine-tuned Gemma + DeepSeek V3.1; remaining papers used base Gemma + GPT-oss-20b. "
-    "Base model scores are less calibrated (r=0.10 vs r=0.26 with human ratings). "
-    "Results reflect a mixed-model pipeline and should be interpreted accordingly."
+    "**LLM regimes:** committee ratings and decision-head probabilities are separate "
+    "selectors. Decision heads in the loaded data: "
+    + "; ".join(f"{model}: {count:,}" for model, count in _heads.items()) + "."
 )
+
 
 # ── Regime list ───────────────────────────────────────────────────────────────
 all_regimes = [HumanActual(), HumanScore(), HumanDisagree(lam),
@@ -263,14 +267,36 @@ metrics   = [m for m in METRIC_LABELS if m in dff["metric"].unique()]
 # SECTION 1 — OVERVIEW
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("# CitesBench — Reviewer Regime Comparison")
-_mode_label = "Top-10% excluded (leakage-robust)" if exclude_top_decile else "Full citation pool"
+_mode_label = "Top-10% excluded (sensitivity check)" if exclude_top_decile else "Full citation pool"
 st.markdown(f"<span style='color:{SUBTEXT};font-size:15px'>ICLR 2018–2020  ·  "
             f"{selected_year}  ·  {_mode_label}</span>", unsafe_allow_html=True)
+st.caption(
+    "Exploratory live comparisons use one tie ordering and include additional selectors. "
+    "All-years metrics average the three annual results equally. The paper headline "
+    "below averages 200 random tie orderings and includes the single-call baseline. "
+    "Use that snapshot when quoting the paper; the two displays need not match."
+)
+with st.expander("Paper headline: saved exhibit values"):
+    headline_path = _abs("outputs/figures/fig2_headline.csv")
+    if os.path.exists(headline_path):
+        headline = pd.read_csv(headline_path)
+        st.dataframe(headline[["regime", "metric", "value", "tie_lo", "tie_hi",
+                               "share_tie_broken"]], hide_index=True)
+        st.caption("Frozen paper exhibit; sidebar controls do not change these values. "
+                   "tie_lo/tie_hi are the observed range over 200 tie orderings, "
+                   "not sampling confidence intervals or exhaustive bounds.")
+        if os.path.getmtime(EVAL_TABLE) > os.path.getmtime(headline_path):
+            st.warning("The evaluation data is newer than this saved headline. "
+                       "Revalidate the exhibit before quoting it.")
+    else:
+        st.info("The paper headline exhibit has not been generated.")
 st.markdown("")
 
 st.markdown('<p class="section-header">Section 1 — Performance by Metric</p>', unsafe_allow_html=True)
 st.markdown('<p class="explainer">Select a metric to compare regimes. '
-            'Bars show % of ideal gap closed (higher = better, 100% = ideal); '
+            + ('Bars show % of ideal gap remaining (lower = better, 0% = ideal); '
+               if show_drawdown else
+               'Bars show % of ideal gap closed (higher = better, 100% = ideal); ') +
             'raw values shown in parentheses. '
             'The dashed line is random selection; the dotted line is the theoretical ceiling '
             '(top-N papers by citations). Full per-metric table below.</p>',
@@ -376,10 +402,10 @@ def compute_quadrants(regime_name, lam, years_tuple, mode, impute_zeros, exclude
             sel = set(regime.select(pool, n))
         except Exception:
             sel = set()
-        known = pool.dropna(subset=["openalex_citations"])
+        known = pool.dropna(subset=["s2_citations"])
         cutoff_n = math.ceil(1 * n / 100 * 10)  # top-N = same N as acceptance
         cutoff_n = n  # ideal = top-N by citations = same count as selected
-        ideal = set(known.nlargest(n, "openalex_citations")["paper_id"])
+        ideal = set(known.nlargest(n, "s2_citations")["paper_id"])
         ac    = set(pool[pool["decision"].str.startswith("Accept", na=False)]["paper_id"])
         regime_ids |= sel
         ideal_ids  |= ideal
@@ -417,6 +443,8 @@ st.markdown('<p class="explainer">'
             'diamonds AC missed.</p>', unsafe_allow_html=True)
 
 def cm_stats(selected, ground_truth, all_ids):
+    selected = selected & all_ids
+    ground_truth = ground_truth & all_ids
     tp = len(selected & ground_truth)
     fp = len(selected - ground_truth)
     fn = len(ground_truth - selected)
@@ -481,10 +509,12 @@ def cm_figure(stats, title, gt_label):
     return fig
 
 all_ids = set(pool_df["paper_id"])
-cm_ideal = cm_stats(regime_ids, ideal_ids, all_ids)
+citation_ids = set(pool_df.loc[pool_df["s2_citations"].notna(), "paper_id"])
+cm_ideal = cm_stats(regime_ids, ideal_ids, citation_ids)
 cm_ac    = cm_stats(regime_ids, ac_ids,    all_ids)
 
 col1, col2 = st.columns(2)
+col1.caption(f"Citation outcomes available for {len(citation_ids):,} of {len(all_ids):,} submissions.")
 col1.plotly_chart(cm_figure(cm_ideal, "vs Citation Ideal (top-N by citations)", "citation ideal"),
                   use_container_width=True)
 col2.plotly_chart(cm_figure(cm_ac, "vs AC Decisions (human ground truth)", "AC decisions"),
@@ -503,8 +533,8 @@ st.markdown('<p class="explainer">'
             'If FN residuals are above zero, the regime is dropping impactful papers.</p>',
             unsafe_allow_html=True)
 
-_resid_df = pool_df.dropna(subset=["mean_rating", "openalex_citations"]).copy()
-_resid_df["log_cites"] = np.log1p(_resid_df["openalex_citations"])
+_resid_df = pool_df.dropna(subset=["mean_rating", "s2_citations"]).copy()
+_resid_df["log_cites"] = np.log1p(_resid_df["s2_citations"])
 
 from scipy.stats import linregress
 _parts = []
@@ -576,8 +606,8 @@ st.markdown('<p class="explainer">'
             'selecting papers reviewers liked but that had little impact.</p>',
             unsafe_allow_html=True)
 
-scatter_df = pool_df.dropna(subset=["mean_rating","openalex_citations"]).copy()
-scatter_df["log_cites"] = np.log1p(scatter_df["openalex_citations"])
+scatter_df = pool_df.dropna(subset=["mean_rating","s2_citations"]).copy()
+scatter_df["log_cites"] = np.log1p(scatter_df["s2_citations"])
 
 fig_sc = go.Figure()
 for quad in quad_order:
@@ -612,16 +642,16 @@ st.markdown('<p class="explainer">'
             'consensus agreed but the citation signal says they were wrong.</p>',
             unsafe_allow_html=True)
 
-merged = pool_df.dropna(subset=["openalex_citations"])
+merged = pool_df.dropna(subset=["s2_citations"])
 
 # Fetch rejection_tags directly from eval_table to avoid stale cache issues
 _rej_map = eval_table.set_index("paper_id")["rejection_tags"] \
     if "rejection_tags" in eval_table.columns else None
 
 # Missed gems: ideal only, sorted by citations
-missed_raw = merged[merged["quadrant"] == "ideal only"].nlargest(10, "openalex_citations")[
-    ["paper_id", "title", "year", "openalex_citations", "mean_rating"]].copy()
-missed_raw = missed_raw.round({"openalex_citations": 0, "mean_rating": 2})
+missed_raw = merged[merged["quadrant"] == "ideal only"].nlargest(10, "s2_citations")[
+    ["paper_id", "title", "year", "s2_citations", "mean_rating"]].copy()
+missed_raw = missed_raw.round({"s2_citations": 0, "mean_rating": 2})
 if _rej_map is not None:
     missed_raw["rejection_tags"] = missed_raw["paper_id"].map(_rej_map).fillna("(accepted by AC — no rejection tag)")
 missed_raw = missed_raw.drop(columns=["paper_id"])
@@ -632,9 +662,9 @@ missed_raw.columns = (["Title", "Year", "Citations", "Avg rating"] +
 consensus_wrong = merged[
     merged["paper_id"].isin(regime_ids & ac_ids) &
     ~merged["paper_id"].isin(ideal_ids)
-].nlargest(10, "openalex_citations")[
-    ["title", "year", "openalex_citations", "mean_rating"]].copy()
-consensus_wrong = consensus_wrong.round({"openalex_citations": 0, "mean_rating": 2})
+].nlargest(10, "s2_citations")[
+    ["title", "year", "s2_citations", "mean_rating"]].copy()
+consensus_wrong = consensus_wrong.round({"s2_citations": 0, "mean_rating": 2})
 consensus_wrong.columns = ["Title", "Year", "Citations", "Avg rating"]
 
 col_l, col_r = st.columns(2)
@@ -668,7 +698,7 @@ def _load_hetero_full(_v=4):
     et  = _et()
     cov = pd.read_csv(cov_path)
     df  = et.merge(cov, on="paper_id", how="left")
-    df["log_cites"] = np.log1p(df["openalex_citations"].fillna(0))
+    df["log_cites"] = np.log1p(df["s2_citations"].fillna(0))
     return df
 
 _het_df = _load_hetero_full()
@@ -849,7 +879,7 @@ else:
     def _field_recall(years_tuple, mode_key, impute, excl):
         rows = []
         _regs = [LLMCommittee(), HumanActual(), HumanScore()]
-        et_sub = _et(src)
+        et_sub = _et()
         for field in et_sub["field"].dropna().unique():
             for yr in years_tuple:
                 pf = prepare_pool(yr, mode_key, impute, excl)
@@ -1440,7 +1470,7 @@ else:
 
     _rc = eval_table.merge(_lap[["paper_id", "lap"]], on="paper_id") \
                     .merge(_fame[["paper_id", "fame"]], on="paper_id", how="left")
-    _rc["log_cites"] = np.log1p(_rc["openalex_citations"])
+    _rc["log_cites"] = np.log1p(_rc["s2_citations"])
     _rc_d = _rc.dropna(subset=["log_cites", "mean_rating", "lap", "fame"])
 
     def _multi_ols(y):
@@ -1758,9 +1788,9 @@ else:
             "text is absent from the weights."
         )
         _exhibit = _ab[_ab["extractable"] == 1].nlargest(5, "eight_target").merge(
-            eval_table[["paper_id", "title", "openalex_citations"]], on="paper_id", how="left")
+            eval_table[["paper_id", "title", "s2_citations"]], on="paper_id", how="left")
         if len(_exhibit):
-            _exhibit_disp = _exhibit[["title", "openalex_citations", "rougeL_margin", "eight_target"]].copy()
+            _exhibit_disp = _exhibit[["title", "s2_citations", "rougeL_margin", "eight_target"]].copy()
             _exhibit_disp.columns = ["Title", "Citations", "ROUGE-L margin", "8-gram hit rate"]
             _exhibit_disp["Citations"] = _exhibit_disp["Citations"].map(
                 lambda v: f"{v:,.0f}" if pd.notna(v) else "—")

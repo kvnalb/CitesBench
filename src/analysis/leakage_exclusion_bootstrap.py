@@ -53,13 +53,13 @@ def load_eval_table(source, venue_premium=0.0):
                 ((s2["method"] == "arxiv_batch") | (s2["title_sim"].fillna(0) >= 0.9))]
         et = et.merge(ok[["paper_id", "s2_citations"]].drop_duplicates("paper_id"),
                       on="paper_id", how="left")
-        et["openalex_citations"] = et["s2_citations"]
+        et["s2_citations"] = et["s2_citations"]
         et = et.drop(columns=["s2_citations"])
     if venue_premium:
         # P1 add-back: log(1+c_cf) = log(1+c) + LATE for rejected papers
         rej = ~et["decision"].str.startswith("Accept", na=False)
-        c = et.loc[rej, "openalex_citations"]
-        et.loc[rej, "openalex_citations"] = (1 + c) * np.exp(venue_premium) - 1
+        c = et.loc[rej, "s2_citations"]
+        et.loc[rej, "s2_citations"] = (1 + c) * np.exp(venue_premium) - 1
     return et
 
 
@@ -126,7 +126,7 @@ def main():
                     print(f"  {year} {pool_name} {regime.name}: SKIP — {e}")
                     continue
                 flags[regime.name] = pool["paper_id"].isin(sel).values
-            cells.append((year, pool_name, pool["openalex_citations"].values.astype(float),
+            cells.append((year, pool_name, pool["s2_citations"].values.astype(float),
                           flags, n))
 
     regime_names = [r.name for r in REGIMES]

@@ -18,6 +18,11 @@ Match tiers (assigned in --report, so thresholds are tunable without refetching)
   B  title_sim >= 0.95, s2_year within [-1,+3] of submission, >=1 shared author.
   C  anything weaker — excluded from the primary outcome, kept for sensitivity.
 
+Collisions (issue #46): all 26 in this sample are cross-year resubmissions sharing
+one arXiv preprint. The accepted submission wins the record, because citations
+accrue to the published version; see the comment in assign_tiers for the AdamW case
+that made the old title_sim tie-break give a rejected paper 2,738 citations.
+
 Output: outputs/s2_citations_v2.csv (incremental, resumable)
 Report: outputs/s2_attribution_report.md  (python src/fetch/fetch_citations_s2_v2.py --report)
 
@@ -299,14 +304,54 @@ def assign_tiers(df, ev):
     d.loc[d["s2_paper_id"].isna() | d["s2_paper_id"].eq(""), "tier"] = "none"
     d["title_changed"] = (d["tier"].eq("A") & (d["title_sim"].fillna(1) < 0.90))
 
-    # collisions: one S2 record claimed by several ICLR papers — keep the best, demote rest
+    # Collisions: one S2 record claimed by several ICLR papers. Every one of the 26
+    # groups in the 2018-2020 sample is a CROSS-YEAR RESUBMISSION — the same paper
+    # sent to ICLR twice, sharing one arXiv preprint and therefore one S2 record.
+    # None are same-year. So this is not an S2 defect and not a matching error.
+    #
+    # `accepted` sorts FIRST, and that ordering is the fix for issue #46. Sorting on
+    # title_sim alone hands the citations to whichever of our titles matches S2's
+    # stored title, and that title goes stale. arXiv 1711.05101 went to ICLR 2018 as
+    # "Fixing Weight Decay Regularization in Adam" (rejected), was retitled
+    # "Decoupled Weight Decay Regularization", and was accepted at ICLR 2019. S2
+    # still stores the old title, so title_sim scored the REJECTED submission 1.0 and
+    # the accepted one 0.709: the rejected paper took all 2,738 citations and the
+    # accepted paper got NaN. Two harms in the same direction, on the exact axis this
+    # benchmark measures. Deep Imitative Models (160) and Double Neural CFR (54)
+    # failed the same way.
+    #
+    # An S2 record's citations accrue to the PUBLISHED version. If one colliding
+    # submission was accepted at ICLR, that is the published version, whatever title
+    # S2 kept. Losers still drop to tier C: we cannot attribute a record to a
+    # submission it does not describe, and NaN is the honest answer.
     dup = d[d["s2_paper_id"].astype(str).ne("")].groupby("s2_paper_id")["paper_id"].nunique()
     clash = set(dup[dup > 1].index)
     d["collision"] = d["s2_paper_id"].isin(clash)
     for sid, g in d[d["collision"]].groupby("s2_paper_id"):
-        keep = g.sort_values(["title_sim", "author_overlap"], ascending=False).index[0]
+        keep = g.sort_values(["accepted", "title_sim", "author_overlap"],
+                             ascending=False).index[0]
         d.loc[[i for i in g.index if i != keep], "tier"] = "C"
+
+    check_collisions(d)
     return d
+
+
+def check_collisions(d):
+    """The invariant issue #46 broke: no collision group may pay a rejected
+    submission while an accepted sibling is demoted to tier C."""
+    bad = []
+    for sid, g in d[d["collision"]].groupby("s2_paper_id"):
+        win = g[g["tier"].isin(["A", "B"])]
+        if len(win) == 1 and not win.iloc[0]["accepted"] \
+                and g[g["tier"].eq("C")]["accepted"].any():
+            bad.append((sid, win.iloc[0]["paper_id"]))
+    assert not bad, f"collision pays a rejected paper over an accepted one: {bad}"
+
+    n_acc = int(d[d["collision"]].groupby("s2_paper_id")["accepted"].any().sum())
+    print(f"collisions: {int(d['collision'].sum())} papers over "
+          f"{d.loc[d['collision'], 's2_paper_id'].nunique()} S2 records, "
+          f"{n_acc} groups containing an accepted paper, "
+          f"{int((d['collision'] & d['tier'].eq('C')).sum())} demoted to tier C")
 
 
 def report(eval_table="outputs/eval_table.csv"):

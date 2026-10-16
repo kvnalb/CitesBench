@@ -100,19 +100,19 @@ if __name__ == "__main__":
                 ((s2["method"] == "arxiv_batch") | (s2["title_sim"].fillna(0) >= 0.9))]
         eval_table = eval_table.merge(ok[["paper_id", "s2_citations"]].drop_duplicates("paper_id"),
                                       on="paper_id", how="left")
-        eval_table["openalex_citations"] = eval_table["s2_citations"]
+        eval_table["s2_citations"] = eval_table["s2_citations"]
         eval_table = eval_table.drop(columns=["s2_citations"])
         eval_table["citation_pct_rank"] = eval_table.groupby(["field", "year"])[
-            "openalex_citations"].rank(pct=True)
+            "s2_citations"].rank(pct=True)
         OUT_CSV = "outputs/leakage_exclusion_eval_s2.csv"
 
     if args.venue_premium:
         # log(1+c_cf) = log(1+c) + LATE for rejected papers
         rej = ~eval_table["decision"].str.startswith("Accept", na=False)
-        c = eval_table.loc[rej, "openalex_citations"]
-        eval_table.loc[rej, "openalex_citations"] = (1 + c) * np.exp(args.venue_premium) - 1
+        c = eval_table.loc[rej, "s2_citations"]
+        eval_table.loc[rej, "s2_citations"] = (1 + c) * np.exp(args.venue_premium) - 1
         eval_table["citation_pct_rank"] = eval_table.groupby(["field", "year"])[
-            "openalex_citations"].rank(pct=True)
+            "s2_citations"].rank(pct=True)
         OUT_CSV = OUT_CSV.replace(".csv", "_vp.csv")
         print(f"Venue premium: rejected papers' citations scaled by e^{args.venue_premium:.3f} "
               f"= {np.exp(args.venue_premium):.2f}x (in 1+c space)")

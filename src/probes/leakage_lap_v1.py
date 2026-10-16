@@ -142,7 +142,7 @@ def probe_one(client, prompt, pos_set=ACCEPT_TOKENS, neg_set=REJECT_TOKENS,
 def build_sample(df, n, seed=42):
     """Stratified sample: year × citation_quartile (4 bins) × decision (accept/reject)."""
     rng = np.random.default_rng(seed)
-    cite_col = "openalex_citations" if "openalex_citations" in df else "citations"
+    cite_col = "s2_citations" if "s2_citations" in df else "citations"
     sub = df[df[cite_col].notna() & df["citation_pct_rank"].notna()].copy()
     sub["cit_q"] = pd.qcut(sub["citation_pct_rank"], q=4, labels=False)
     sub["is_accept"] = sub["decision"].fillna("").str.startswith("Accept").astype(int)
@@ -243,9 +243,9 @@ def run_report():
     eval_df = pd.read_csv("outputs/eval_table.csv")
     merged = eval_df.merge(lap_df[["paper_id", "p_accept", "p_reject", "p_unknown", "lap", "ud"]],
                            on="paper_id", how="inner")
-    merged = merged[merged["openalex_citations"].notna() & merged["committee_rating"].notna()]
+    merged = merged[merged["s2_citations"].notna() & merged["committee_rating"].notna()]
 
-    merged["log_cites"] = np.log1p(merged["openalex_citations"])
+    merged["log_cites"] = np.log1p(merged["s2_citations"])
     n = len(merged)
 
     # ── Validation regression: log_cites ~ U-D ─────────────────────────────────
@@ -308,7 +308,7 @@ def run_report():
 Decision-only recall query: title + year, NO abstract. Model answers: accepted/rejected/unknown.
 LAP = P(accepted) + P(rejected). High LAP = model memorized the outcome.
 
-**N = {n}** papers with both committee_rating and openalex_citations.
+**N = {n}** papers with both committee_rating and s2_citations.
 
 ---
 

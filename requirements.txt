@@ -6,3 +6,6 @@ python-dotenv
 openai
 scipy
 pydantic
+matplotlib
+tueplots
+seaborn

@@ -1,3 +1,6 @@
+# Writing style
+Write in simple, concise easy to follow language. ASD-STE 100 is a good reference.
+
 # Codebase conventions
 
 ## Directory layout
@@ -7,6 +10,7 @@ src/fetch/      pulls from an external API or dump; incremental and resumable
 src/build/      builds the analysis tables and frozen samples from fetched data
 src/probes/     sends prompts to a model (leakage / recall / review probes)
 src/analysis/   reads tables, computes results, writes reports and figures
+src/figures/    the paper's figures and tables -> outputs/figures/; figstyle.py lives here
 src/app/        Streamlit dashboard + pages/ (reads only, never writes results)
 src/audit/      audits the repo itself: data quality, prompt export, MANIFEST
 src/*.py        shared modules imported by the above: prompts, metrics, baselines
@@ -19,7 +23,12 @@ MANIFEST.md     generated: every script, and which script produced each output
 ```
 
 A script goes in the directory matching what it does, not what it is about. New
-group only when a file fits none of the six.
+group only when a file fits none of the seven.
+
+Adding a group means registering it in `GROUPS` in `src/audit/build_manifest.py`.
+Without that the whole directory is invisible to the manifest and everything it
+writes is reported as an orphan — the script count going DOWN after adding scripts
+is the symptom.
 
 ## MANIFEST.md must never be stale
 
@@ -83,7 +92,59 @@ Compares reviewer selection regimes (human discretionary, human score-based, LLM
 - Metrics: median citations, mean log(1+citations), count in true top 1/5/10%, recall@k
 - Baselines: random (1000 runs averaged), ideal (top-N by citations)
 - Reports lift over random and drawdown from ideal per metric per regime
-- **Field normalization toggle**: dashboard supports both raw citations and field×year normalized citation percentile ranks as the ground truth signal. Fields: nlp, computer_vision, generative_models, reinforcement_learning, theory_methods.
+- **The pool is 4,567 submissions, not 4,567 distinct papers.** 52 of them (1.14%)
+  are the same paper submitted in two different years: 50 detected by a shared arXiv
+  ID, 30 by an identical normalised title across years, 52 in the union. 45 are
+  rejected and 7 accepted, which is the expected shape — a rejection gets
+  resubmitted and the second attempt sometimes lands. That is a lower bound; a
+  retitled resubmission never posted to arXiv escapes both routes.
+
+  This does not break the selection framing: `n` is pinned per year and each year is
+  selected independently. It does mean a handful of papers get two draws at
+  acceptance, and it belongs in the sample-statistics table and in the paper.
+
+  It also means **one S2 record can be claimed by two of our submissions**. All 26
+  such collisions in this sample are cross-year resubmissions; none are same-year.
+  `assign_tiers` in `src/fetch/fetch_citations_s2_v2.py` resolves them by sorting
+  `accepted` FIRST, then `title_sim`, then `author_overlap`, because an S2 record's
+  citations accrue to the published version. Losers drop to tier C and their
+  citations become NaN, which is the honest answer for a submission whose record
+  belongs to another paper.
+
+  Sorting on `title_sim` alone is wrong and was the bug in issue #46. S2's stored
+  title goes stale: arXiv 1711.05101 went to ICLR 2018 as "Fixing Weight Decay
+  Regularization in Adam" (rejected), was retitled "Decoupled Weight Decay
+  Regularization", and was accepted at ICLR 2019. S2 kept the old title, so
+  `title_sim` scored the rejected submission 1.0 against the accepted one's 0.709 —
+  the rejected paper took 2,738 citations and the accepted paper got NaN. Two harms
+  in the same direction on the axis the benchmark measures. `check_collisions()`
+  asserts the invariant: no collision group may pay a rejected submission while an
+  accepted sibling sits at tier C.
+
+- **The outcome column is `s2_citations`.** It holds Semantic Scholar counts at
+  match tier A or B, and `citation_source` records the fetch window. It was named
+  `openalex_citations` for months after the source changed to S2, which read as
+  OpenAlex data to anyone who did not check `citation_source`. Renamed across the
+  19 files that consume the eval table. The genuine OpenAlex columns keep the old
+  name: `fetch_citations_openalex.py`, `compare_citation_sources.py`,
+  `table1_summary_stats.py`, `fetch_rejected_venues_s2.py` and the OpenAlex-file
+  branches of `data_audit.py` and `provenance_tab.py`. A name that lies about its
+  source is worse than a long name.
+
+- **Ground truth is raw citation counts. Field normalization is excluded.**
+  `paper_fields.csv` labels 2,726 of 4,567 papers, and the coverage is not
+  independent of the decision: 63.7% of accepted papers carry a label against 57.7%
+  of rejected ones. `citation_pct_rank` is therefore defined for 57.7% of the pool
+  with an 8.1 pp accept/reject gap, on the same axis the benchmark measures, and
+  1,749 of the 2,726 labels are the `theory_methods` catch-all. The normalized arm
+  also rescales n to the labeled subset, making it a different selection problem
+  rather than a robustness check on the same one.
+
+  Enforced in three places: `src/figures/spec.py` pins `MODE = "raw"` for every
+  exhibit, `src/analysis/run_eval.py` writes only the raw arm unless given
+  `--include-normalized`, and the dashboard hardcodes raw. `citation_pct_rank` is
+  still computed because the leakage scripts read it. Re-enabling it means
+  classifying the 1,841 unlabeled papers first.
 
 ## Secrets
 
